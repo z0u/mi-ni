@@ -1,0 +1,28 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "hostRequirements": {},
+  "features": {},
+  "mounts": [
+    // Use a persistent volume for the UV cache
+    "source=${localWorkspaceFolderBasename}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
+    // Use a persistent volume for the virtual environment
+    "source=${localWorkspaceFolderBasename}-venv,target=${containerWorkspaceFolder}/.venv,type=volume"
+  ],
+  "containerEnv": {
+    "UV_CACHE_DIR": "/home/vscode/.cache/uv",
+    // Copy instead of hardlinking due to separate volumes
+    "UV_LINK_MODE": "copy",
+    "PYTHONPYCACHEPREFIX": "/home/vscode/.cache/pycache"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter"
+      ]
+    }
+  },
+  "postCreateCommand": "./.devcontainer/post-create.sh"
+}
