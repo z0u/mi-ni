@@ -1,11 +1,11 @@
 [project]
-name = "ais"
+name = "ai-experiment"
 version = "0.1.0"
 description = "AI experiments"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "jupyter>=1.1.1",
+    "ipykernel>=6.29.5",
     "matplotlib>=3.10.0",
     "modal>=0.73.67",
     "numpy>=2.2.3",

@@ -5,8 +5,8 @@
   "hostRequirements": {},
   "features": {},
   "mounts": [
-    // Use a persistent volume for the UV cache
-    "source=${localWorkspaceFolderBasename}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
+    // Use a persistent volume for the UV cache; can be shared with other containers
+    "source=uv-cache,target=/home/vscode/.cache/uv,type=volume",
     // Use a persistent volume for the virtual environment
     "source=${localWorkspaceFolderBasename}-venv,target=${containerWorkspaceFolder}/.venv,type=volume"
   ],
@@ -14,13 +14,15 @@
     "UV_CACHE_DIR": "/home/vscode/.cache/uv",
     // Copy instead of hardlinking due to separate volumes
     "UV_LINK_MODE": "copy",
+    // Put Python bytecode outisde the project, so it doesn't get synced to the host
     "PYTHONPYCACHEPREFIX": "/home/vscode/.cache/pycache"
   },
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
-        "ms-toolsai.jupyter"
+        "ms-toolsai.jupyter",
+        "GitHub.copilot"
       ]
     }
   },

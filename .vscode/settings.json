@@ -2,5 +2,11 @@
     "files.exclude": {
         "__pycache__": true,
         ".venv": true
-    }
+    },
+    "python.defaultInterpreterPath": "./.venv/bin/python",
+    "jupyter.kernels.excludePythonEnvironments": [
+        "/bin/python3",
+        "/usr/bin/python3",
+        "/usr/local/bin/python"
+    ]
 }
