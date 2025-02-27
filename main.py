@@ -4,7 +4,9 @@ import modal
 app = modal.App("example-get-started")
 
 
-@app.function()
+@app.function(
+    # gpu='T4',
+)
 def square(x):
     print(f"This code is running on a remote worker! {x}**2=...")
 
