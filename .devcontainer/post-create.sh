@@ -2,11 +2,11 @@
 
 set -euo pipefail
 
-# Make the volume mounts writable.
-sudo chown -R "$USER:$USER" /home/vscode/.cache/uv
+# Make the volume mounts writable. Even though the uv cache is a subdirectory, the parent is created by Docker as root, so we need to change the owner of that too.
+sudo chown -R "$USER:$USER" ~/.cache
 sudo chown -R "$USER:$USER" .venv
 
 # Initialize Python environment.
 uv venv --allow-existing
 uv sync
-echo "Virtual environment created. You may need to restart the Python language server." >&2
+echo "Virtual environment created. You may need to restart the Python language server."
