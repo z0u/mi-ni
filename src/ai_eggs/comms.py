@@ -1,59 +1,83 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Callable, TypeAlias, TypeVar
+import logging
+from typing import Any, AsyncGenerator, Callable, Literal, TypeAlias, TypeVar
 
 import modal
 
 T = TypeVar('T')
-Handler: TypeAlias = Callable[[T], None]
+Handler: TypeAlias = Callable[[list[T]], None]
+
+log = logging.getLogger(__name__)
+
 
 @asynccontextmanager
-async def send_to(receive: Handler[T], trailing_timout=5) -> AsyncGenerator[Handler[T]]:
-    """
-    Simple communication channel between local and remote code.
+async def send_to(
+    receive: Handler[T],
+    trailing_timeout: float | None = 5,
+    errors: Literal['throw', 'log'] = 'log'
+) -> AsyncGenerator[Handler[T]]:
+    # There can be many producers, but only one consumer.
 
-    Args:
-        receive: A callback function to receive messages
+    stop_event = asyncio.Event()
 
-    Yields:
-        A function that sends messages to `receive`
-    """
     async with modal.Queue.ephemeral() as q:
-        def send(value: T) -> None:
-            q.put(('message', value))
+        def produce(value: T) -> None:
+            """Send values to the consumer"""
+            # This function is yielded as the context, so there may be several
+            # distributed producers. It gets pickled and sent to remote workers
+            # for execution, so we can't use local synchronization mechanisms.
+            # All we have is a distributed queue - but we can send signals on a
+            # separate control partition of that queue.
 
-        stop_event = asyncio.Event()
+            # Emit values.
+            # TODO: Allow caller to provide many values at once.
+            q.put_many([value])
+
+            # Notify consumer. This is not atomic so it may sometimes result in
+            # more than one message on the signal partition, but that's OK: it
+            # just means the consumer may occasionally get an empty list of
+            # values.
+            if q.len(partition='signal') == 0:
+                q.put(True, partition='signal')
 
         async def consume() -> None:
-            # First phase: consume while producer is running
-            while not stop_event.is_set():
-                get_task = asyncio.create_task(q.get.aio())
-                stop_task = asyncio.create_task(stop_event.wait())
-                done, _ = await asyncio.wait(
-                    [get_task, stop_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if get_task in done:
-                    key, value = get_task.result()
-                    if key == 'message':
+            """Take values from the queue until the context manager exits"""
+            # This function is not exposed, so there's exactly one consumer.
+            # It always runs locally.
+
+            while True:
+                # Wait until values are produced or the context manager exits.
+                tasks = [
+                    asyncio.create_task(q.get.aio(partition='signal')),
+                    asyncio.create_task(stop_event.wait()),
+                ]
+                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                # Either way, get all available messages.
+                n = await q.len.aio()
+                if n > 0:
+                    values = await q.get_many.aio(n, block=False)
+                    for value in values:
+                        # TODO: Allow receiver to consume many values at once.
                         receive(value)
+                elif stop_event.is_set():
+                    break
 
-            # Second phase: consume remaining messages with timeout
-            try:
-                async with asyncio.timeout(trailing_timout):
-                    while True:
-                        key, value = await q.get.aio()
-                        if key == 'message':
-                            receive(value)
-                        elif key == 'sentinel':
-                            break
-            except TimeoutError:
-                pass
-
+        log.debug('Starting consumer task')
         task = asyncio.create_task(consume())
         try:
-            yield send
+            yield produce
         finally:
-            q.put(('sentinel', None))
+            log.debug('Stopping consumer task')
             stop_event.set()
-            await task
+            try:
+                async with asyncio.timeout(trailing_timeout):
+                    await task
+            except TimeoutError as e:
+                task.cancel()
+                if errors == 'throw':
+                    e.add_note("While waiting for trailing messages")
+                    raise e
+                else:
+                    log.warning("Timed out waiting for trailing messages")
