@@ -1,12 +1,21 @@
 import asyncio
 from contextlib import asynccontextmanager
+import inspect
 import logging
-from typing import Any, AsyncGenerator, Callable, Literal, TypeAlias, TypeVar
+from typing import AsyncGenerator, Literal, Protocol, TypeVar
 
 import modal
 
 T = TypeVar('T')
-Handler: TypeAlias = Callable[[list[T]], None]
+
+
+class SyncHandler(Protocol[T]):
+    def __call__(self, values: T) -> None: ...
+
+
+class AsyncHandler(Protocol[T]):
+    async def __call__(self, values: T) -> None: ...
+
 
 log = logging.getLogger(__name__)
 
@@ -16,17 +25,55 @@ MAX_LEN = 5_000
 
 
 @asynccontextmanager
-async def send_to(
-    receive: Handler[T],
+async def send_batch_to(
+    receive: SyncHandler[list[T]] | AsyncHandler[list[T]],
     trailing_timeout: float | None = 5,
     errors: Literal['throw', 'log'] = 'log'
-) -> AsyncGenerator[Handler[T]]:
+) -> AsyncGenerator[SyncHandler[list[T]]]:
+    """
+    Create a distributed producer-consumer pattern for batch processing with Modal.
+
+    This async context manager sets up a distributed queue system where multiple 
+    producers can send batches of values to a single consumer function. The context
+    yields a function that producers can call to send batches of values.
+
+    Inside the context, a consumer task continuously reads batches from the queue
+    and processes them using the provided `receive` function. The consumer will
+    continue processing values until the context is exited and any trailing values
+    are handled.
+
+    Args:
+        receive: A function that processes batches of values. Will be called
+            with each batch of values as they become available. Can be either
+            synchronous or asynchronous — it will be called appropriately based
+            on its type.
+        trailing_timeout: Number of seconds to wait for trailing messages after
+            the context manager exits. If None, waits indefinitely.
+        errors: How to handle errors in trailing message processing:
+            - 'throw': Raises a TimeoutError if trailing message processing times out
+            - 'log': Logs a warning if trailing message processing times out
+
+    Yields:
+        send: A function that accepts a list of values to send to the consumer.
+            This function can be called from multiple distributed workers.
+
+    Example:
+        ```python
+        async def process_batch(items: list[str]) -> None:
+            print(f"Processing {len(items)} items")
+
+        async with _send_batch_to(process_batch) as send_batch:
+            # This can be called from multiple distributed workers
+            send_batch(["item1", "item2", "item3"])
+        ```
+    """
     # There can be many producers, but only one consumer.
 
+    is_async_handler = inspect.iscoroutinefunction(receive)
     stop_event = asyncio.Event()
 
     async with modal.Queue.ephemeral() as q:
-        def produce(value: T) -> None:
+        def produce(values: list[T]) -> None:
             """Send values to the consumer"""
             # This function is yielded as the context, so there may be several
             # distributed producers. It gets pickled and sent to remote workers
@@ -37,7 +84,7 @@ async def send_to(
 
             # Emit values.
             # TODO: Allow caller to provide many values at once.
-            q.put_many([value])
+            q.put_many(values)
 
             # Notify consumer.
             q.put(True, partition='signal')
@@ -58,10 +105,12 @@ async def send_to(
                 )
 
                 # Either way, get all available messages.
-                values = await q.get_many.aio(MAX_LEN, block=False)
-                for value in values:
-                    # TODO: Allow receiver to consume many values at once.
-                    receive(value)
+                values: list[T] = await q.get_many.aio(MAX_LEN, block=False)
+                if values:
+                    if is_async_handler:
+                        await receive(values)
+                    else:
+                        receive(values)
 
                 # Can't just check stop_event.is_set here; we need to know
                 # whether it was set before the last batch.
@@ -84,3 +133,55 @@ async def send_to(
                     raise e
                 else:
                     log.warning("Timed out waiting for trailing messages")
+
+
+@asynccontextmanager
+async def send_to(
+    receive: SyncHandler[T] | AsyncHandler,
+    trailing_timeout: float | None = 5,
+    errors: Literal['throw', 'log'] = 'log'
+) -> AsyncGenerator[SyncHandler[T]]:
+    """
+    Create a distributed producer-consumer pattern for single-item processing with Modal.
+
+    Inside the context, a consumer task continuously reads items from the queue
+    and processes them using the provided `receive` function. The consumer will
+    continue processing values until the context is exited and any trailing values
+    are handled.
+
+    For batch processing, use `send_to.batch` which accepts and processes lists of items.
+
+    Args:
+        receive: A function that processes a single value. Will be called
+            with each value as it becomes available. Can be either
+            synchronous or asynchronous — it will be called appropriately based
+            on its type.
+        trailing_timeout: Number of seconds to wait for trailing messages after
+            the context manager exits. If None, waits indefinitely.
+        errors: How to handle errors in trailing message processing:
+            - 'throw': Raises a TimeoutError if trailing message processing times out
+            - 'log': Logs a warning if trailing message processing times out
+
+    Yields:
+        send: A function that accepts a single value to send to the consumer.
+            This function can be called from multiple distributed workers.
+
+    Example:
+        ```python
+        async def process_item(item: str) -> None:
+            print(f"Processing {item}")
+
+        async with send_to(process_item) as send:
+            # This can be called from multiple distributed workers
+            send("item1")
+
+        # For batch processing, use send_to.batch instead
+        async with send_to.batch(process_batch) as send_batch:
+            send_batch(["item1", "item2", "item3"])
+        ```
+    """
+    async with send_batch_to(receive=receive, trailing_timeout=trailing_timeout, errors=errors) as produce_batch:
+        yield lambda x: produce_batch([x])
+
+
+send_to.batch = send_batch_to
