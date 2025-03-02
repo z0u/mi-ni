@@ -10,6 +10,10 @@ Handler: TypeAlias = Callable[[list[T]], None]
 
 log = logging.getLogger(__name__)
 
+# A single Queue can contain [...] up to 5,000 items.
+# https://modal.com/docs/reference/modal.Queue
+MAX_LEN = 5_000
+
 
 @asynccontextmanager
 async def send_to(
@@ -28,18 +32,15 @@ async def send_to(
             # distributed producers. It gets pickled and sent to remote workers
             # for execution, so we can't use local synchronization mechanisms.
             # All we have is a distributed queue - but we can send signals on a
-            # separate control partition of that queue.
+            # separate control partition of that queue. Using a control channel
+            # avoids the need for polling and timeouts.
 
             # Emit values.
             # TODO: Allow caller to provide many values at once.
             q.put_many([value])
 
-            # Notify consumer. This is not atomic so it may sometimes result in
-            # more than one message on the signal partition, but that's OK: it
-            # just means the consumer may occasionally get an empty list of
-            # values.
-            if q.len(partition='signal') == 0:
-                q.put(True, partition='signal')
+            # Notify consumer.
+            q.put(True, partition='signal')
 
         async def consume() -> None:
             """Take values from the queue until the context manager exits"""
@@ -48,20 +49,24 @@ async def send_to(
 
             while True:
                 # Wait until values are produced or the context manager exits.
-                tasks = [
-                    asyncio.create_task(q.get.aio(partition='signal')),
-                    asyncio.create_task(stop_event.wait()),
-                ]
-                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                get_task = asyncio.create_task(
+                    q.get_many.aio(MAX_LEN, partition='signal'))
+                stop_task = asyncio.create_task(stop_event.wait())
+                done, _ = await asyncio.wait(
+                    [get_task, stop_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
 
                 # Either way, get all available messages.
-                n = await q.len.aio()
-                if n > 0:
-                    values = await q.get_many.aio(n, block=False)
-                    for value in values:
-                        # TODO: Allow receiver to consume many values at once.
-                        receive(value)
-                elif stop_event.is_set():
+                values = await q.get_many.aio(MAX_LEN, block=False)
+                for value in values:
+                    # TODO: Allow receiver to consume many values at once.
+                    receive(value)
+
+                # Can't just check stop_event.is_set here; we need to know
+                # whether it was set before the last batch.
+                if stop_task in done:
+                    await q.clear.aio(all=True)
                     break
 
         log.debug('Starting consumer task')
@@ -72,10 +77,8 @@ async def send_to(
             log.debug('Stopping consumer task')
             stop_event.set()
             try:
-                async with asyncio.timeout(trailing_timeout):
-                    await task
+                await asyncio.wait_for(task, trailing_timeout)
             except TimeoutError as e:
-                task.cancel()
                 if errors == 'throw':
                     e.add_note("While waiting for trailing messages")
                     raise e
