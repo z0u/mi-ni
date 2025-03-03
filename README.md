@@ -9,6 +9,18 @@ This is a template repository for doing AI research. Features:
 - Modern package management with [uv]
 
 
+## Getting started
+
+If you want to run an experiment, make a copy of this repository. Since your project isn't a fork, you don't need to worry about keeping the code in sync, and you can add and remove Python packages as you wish.
+
+```bash
+uv sync
+uv run modal setup  # Authenticate with Modal for remote compute
+```
+
+Then open the [demo notebook](notebook.ipynb) and try it out. Choose `.venv/bin/python3` as the kernel.
+
+
 ## Virtual environment
 
 The Python environment is configured when the dev container is created. If you open a Python file before the setup is complete, you may need to restart the Python language server.
@@ -22,27 +34,24 @@ The Python environment is configured when the dev container is created. If you o
     </ol>
 </details>
 
-Use `uv` to add and remove packages:
+Use `uv` to add and remove packages, and to run scripts:
 
 ```bash
 uv add pydantic
+uv run python my-experiment.py
 ```
-
-Regarding notebooks: Jupyter itself is not installed, because your editor may provide its own notebook UI. However, `ipykernel` is installed into the virtual environment when the dev container is created. Therefore, you should choose `.venv/bin/python3` as the kernel when you run a cell. You might need to restart the Python language server after that.
-
-
-## Model training with remote compute
-
-This project optionally uses [Modal] for remote GPU resources. You don't need to configure it (that's in the code), but you do need an account.
-
-```bash
-uv run modal setup  # Authenticate
-uv run modal run main.py
-```
-
-A demo is available in [notebook.ipynb](notebook.ipynb) and [main.py](main.py).
-
 
 [dc]: https://containers.dev
 [Modal]: https://modal.com
 [uv]: https://astral.sh/uv
+
+
+## Contributing
+
+If you want to contribute to _this template_, then fork it as usual.
+
+Before making a pull request, run:
+
+```bash
+uv run ruff check
+```

@@ -22,6 +22,7 @@ def freeze(*packages, all: bool = False, dev: bool = False) -> list[str]:
 
     Returns:
         A list of package specifications in the format 'package==version'.
+
     """
     cmd = ["uv", "tree"]
 

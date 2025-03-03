@@ -33,7 +33,7 @@ async def send_batch_to(
     """
     Create a distributed producer-consumer pattern for batch processing with Modal.
 
-    This async context manager sets up a distributed queue system where multiple 
+    This async context manager sets up a distributed queue system where multiple
     producers can send batches of values to a single consumer function. The context
     yields a function that producers can call to send batches of values.
 
@@ -66,6 +66,7 @@ async def send_batch_to(
             # This can be called from multiple distributed workers
             send_batch(["item1", "item2", "item3"])
         ```
+
     """
     # There can be many producers, but only one consumer.
 
@@ -74,7 +75,7 @@ async def send_batch_to(
 
     async with modal.Queue.ephemeral() as q:
         def produce(values: list[T]) -> None:
-            """Send values to the consumer"""
+            """Send values to the consumer."""
             # This function is yielded as the context, so there may be several
             # distributed producers. It gets pickled and sent to remote workers
             # for execution, so we can't use local synchronization mechanisms.
@@ -90,7 +91,7 @@ async def send_batch_to(
             q.put(True, partition='signal')
 
         async def consume() -> None:
-            """Take values from the queue until the context manager exits"""
+            """Take values from the queue until the context manager exits."""
             # This function is not exposed, so there's exactly one consumer.
             # It always runs locally.
 
@@ -179,9 +180,13 @@ async def send_to(
         async with send_to.batch(process_batch) as send_batch:
             send_batch(["item1", "item2", "item3"])
         ```
+
     """
     async with send_batch_to(receive=receive, trailing_timeout=trailing_timeout, errors=errors) as produce_batch:
-        yield lambda x: produce_batch([x])
+        def produce(value: T) -> None:
+            """Send a single value to the consumer."""
+            produce_batch([value])
+        yield produce
 
 
 send_to.batch = send_batch_to
