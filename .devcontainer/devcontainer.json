@@ -20,9 +20,11 @@
   "customizations": {
     "vscode": {
       "extensions": [
+        "charliermarsh.ruff",
+        "GitHub.copilot",
+        "github.vscode-github-actions",
         "ms-python.python",
-        "ms-toolsai.jupyter",
-        "GitHub.copilot"
+        "ms-toolsai.jupyter"
       ]
     }
   },
