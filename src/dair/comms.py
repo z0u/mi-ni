@@ -190,3 +190,41 @@ async def send_to(
 
 
 send_to.batch = send_batch_to
+
+
+@asynccontextmanager
+async def run(app: modal.App, trailing_timeout=10):
+    """
+    Run a Modal app and display its stdout stream.
+
+    This differs from `modal.enable_output`, in that this function only shows logs from inside the container.
+
+    Args:
+        app: The Modal app to run.
+        trailing_timeout: Number of seconds to wait for trailing logs after the app exits.
+    """
+
+    async def consume():
+        async for output in app._logs.aio():
+            if output == "Stopping app - local entrypoint completed.\n":
+                # Consume this infrastructure message
+                continue
+            # Don't add newlines, because the output contains control characters
+            print(output, end="")
+            # No need to break: the loop should exit when the app is done
+
+    # 1. Start the app
+    # 2. Start consuming logs
+    # 3. Yield control to the caller
+    # 4. Wait for the logs to finish
+
+    async with app.run():
+        task = asyncio.create_task(consume())
+        yield
+
+    # Can't wait inside the context manager, because the app would still be running
+    try:
+        await asyncio.wait_for(task, timeout=trailing_timeout)
+    except asyncio.TimeoutError as e:
+        e.add_note("While waiting for trailing stdout")
+        raise e
