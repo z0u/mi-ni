@@ -1,20 +1,18 @@
 import asyncio
-from contextlib import asynccontextmanager
+from functools import wraps
 import inspect
 import logging
-from typing import AsyncGenerator, Literal, Protocol, TypeVar
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, Awaitable, Callable, Literal, TypeAlias, TypeVar, cast
 
 import modal
 
 T = TypeVar('T')
 
 
-class SyncHandler(Protocol[T]):
-    def __call__(self, values: T) -> None: ...
-
-
-class AsyncHandler(Protocol[T]):
-    async def __call__(self, values: T) -> None: ...
+SyncHandler: TypeAlias = Callable[[T], None]
+AsyncHandler: TypeAlias = Callable[[T], Awaitable[None]]
+Handler: TypeAlias = SyncHandler[T] | AsyncHandler[T]
 
 
 log = logging.getLogger(__name__)
@@ -26,9 +24,9 @@ MAX_LEN = 5_000
 
 @asynccontextmanager
 async def send_batch_to(
-    receive: SyncHandler[list[T]] | AsyncHandler[list[T]],
+    receive: Handler[list[T]],
     trailing_timeout: float | None = 5,
-    errors: Literal['throw', 'log'] = 'log'
+    errors: Literal['throw', 'log'] = 'log',
 ) -> AsyncGenerator[SyncHandler[list[T]]]:
     """
     Create a distributed producer-consumer pattern for batch processing with Modal.
@@ -68,79 +66,88 @@ async def send_batch_to(
         ```
 
     """
-    # There can be many producers, but only one consumer.
-
-    is_async_handler = inspect.iscoroutinefunction(receive)
-    stop_event = asyncio.Event()
-
     async with modal.Queue.ephemeral() as q:
-        def produce(values: list[T]) -> None:
-            """Send values to the consumer."""
-            # This function is yielded as the context, so there may be several
-            # distributed producers. It gets pickled and sent to remote workers
-            # for execution, so we can't use local synchronization mechanisms.
-            # All we have is a distributed queue - but we can send signals on a
-            # separate control partition of that queue. Using a control channel
-            # avoids the need for polling and timeouts.
-
-            # Emit values.
-            # TODO: Allow caller to provide many values at once.
-            q.put_many(values)
-
-            # Notify consumer.
-            q.put(True, partition='signal')
-
-        async def consume() -> None:
-            """Take values from the queue until the context manager exits."""
-            # This function is not exposed, so there's exactly one consumer.
-            # It always runs locally.
-
-            while True:
-                # Wait until values are produced or the context manager exits.
-                get_task = asyncio.create_task(
-                    q.get_many.aio(MAX_LEN, partition='signal'))
-                stop_task = asyncio.create_task(stop_event.wait())
-                done, _ = await asyncio.wait(
-                    [get_task, stop_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                # Either way, get all available messages.
-                values: list[T] = await q.get_many.aio(MAX_LEN, block=False)
-                if values:
-                    if is_async_handler:
-                        await receive(values)
-                    else:
-                        receive(values)
-
-                # Can't just check stop_event.is_set here; we need to know
-                # whether it was set before the last batch.
-                if stop_task in done:
-                    await q.clear.aio(all=True)
-                    break
+        produce = _producer_batch(q)
+        consume, stop = _batched_consumer(q, receive)
 
         log.debug('Starting consumer task')
         task = asyncio.create_task(consume())
         try:
+            # The caller can send this to remote workers to put messages on the queue.
             yield produce
         finally:
             log.debug('Stopping consumer task')
-            stop_event.set()
+            stop()
             try:
                 await asyncio.wait_for(task, trailing_timeout)
             except TimeoutError as e:
                 if errors == 'throw':
-                    e.add_note("While waiting for trailing messages")
+                    e.add_note('While waiting for trailing messages')
                     raise e
                 else:
-                    log.warning("Timed out waiting for trailing messages")
+                    log.warning('Timed out waiting for trailing messages')
+
+
+def _producer_batch(q: modal.Queue):
+    def produce_batch(values: list[T]) -> None:
+        """Send values to the consumer."""
+        # This function is yielded as the context, so there may be several
+        # distributed producers. It gets pickled and sent to remote workers
+        # for execution, so we can't use local synchronization mechanisms.
+        # All we have is a distributed queue - but we can send signals on a
+        # separate control partition of that queue. Using a control channel
+        # avoids the need for polling and timeouts.
+
+        # Emit values.
+        q.put_many(values)
+
+        # Notify consumer.
+        q.put(True, partition='signal')
+
+    return produce_batch
+
+
+def _batched_consumer(q: modal.Queue, receive: Handler[list[T]]):
+    areceive: AsyncHandler[list[T]] = coerce_to_async(receive)
+    stop_event = asyncio.Event()
+
+    async def batched_consume() -> None:
+        """Take values from the queue until the context manager exits."""
+        # This function is not exposed, so there's exactly one consumer.
+        # It always runs locally.
+
+        while True:
+            # Wait until values are produced or the context manager exits.
+            get_task = asyncio.create_task(q.get_many.aio(MAX_LEN, partition='signal'))
+            stop_task = asyncio.create_task(stop_event.wait())
+            done, _ = await asyncio.wait(
+                [get_task, stop_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Either way, get all available messages.
+            values: list[T] = await q.get_many.aio(MAX_LEN, block=False)
+            if values:
+                await areceive(values)
+
+            # Can't just check stop_event.is_set here; we need to know
+            # whether it was set before the last batch.
+            if stop_task in done:
+                await q.clear.aio(all=True)
+                break
+
+    def stop():
+        """Stop the consumer."""
+        stop_event.set()
+
+    return batched_consume, stop
 
 
 @asynccontextmanager
 async def send_to(
-    receive: SyncHandler[T] | AsyncHandler,
+    receive: Handler[T],
     trailing_timeout: float | None = 5,
-    errors: Literal['throw', 'log'] = 'log'
+    errors: Literal['throw', 'log'] = 'log',
 ) -> AsyncGenerator[SyncHandler[T]]:
     """
     Create a distributed producer-consumer pattern for single-item processing with Modal.
@@ -182,11 +189,44 @@ async def send_to(
         ```
 
     """
-    async with send_batch_to(receive=receive, trailing_timeout=trailing_timeout, errors=errors) as produce_batch:
-        def produce(value: T) -> None:
-            """Send a single value to the consumer."""
-            produce_batch([value])
-        yield produce
+    async with send_batch_to(
+        receive=_consumer(receive=receive),
+        trailing_timeout=trailing_timeout,
+        errors=errors,
+    ) as emit_batch:
+        yield _producer(emit_batch)
+
+
+def _producer(emit_batch: SyncHandler[list[T]]) -> SyncHandler[T]:
+    def produce_one(value: T) -> None:
+        """Send a value to the consumer."""
+        emit_batch([value])
+
+    return produce_one
+
+
+def coerce_to_async(fn: Callable[..., T | Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    if inspect.iscoroutinefunction(fn):
+        return fn
+
+    fn = cast(Callable[..., T], fn)
+
+    @wraps(fn)
+    async def wrapper(*args, **kwargs):
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def _consumer(receive: Handler[T]):
+    areceive: AsyncHandler[T] = coerce_to_async(receive)
+
+    async def consume_from_batch(values: list[T]) -> None:
+        """Process a value."""
+        for value in values:
+            await areceive(value)
+
+    return consume_from_batch
 
 
 send_to.batch = send_batch_to
@@ -206,11 +246,11 @@ async def run(app: modal.App, trailing_timeout=10):
 
     async def consume():
         async for output in app._logs.aio():
-            if output == "Stopping app - local entrypoint completed.\n":
+            if output == 'Stopping app - local entrypoint completed.\n':
                 # Consume this infrastructure message
                 continue
             # Don't add newlines, because the output contains control characters
-            print(output, end="")
+            print(output, end='')
             # No need to break: the loop should exit when the app is done
 
     # 1. Start the app
@@ -226,5 +266,5 @@ async def run(app: modal.App, trailing_timeout=10):
     try:
         await asyncio.wait_for(task, timeout=trailing_timeout)
     except asyncio.TimeoutError as e:
-        e.add_note("While waiting for trailing stdout")
+        e.add_note('While waiting for trailing stdout')
         raise e
