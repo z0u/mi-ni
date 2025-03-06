@@ -14,7 +14,7 @@ This is a template repository for doing AI research. Features:
 If you want to run an experiment, make a copy of this repository. Since your project isn't a fork, you don't need to worry about keeping the code in sync, and you can add and remove Python packages as you wish.
 
 ```bash
-uv sync
+uv sync --all-groups
 uv run modal setup  # Authenticate with Modal for remote compute
 ```
 
@@ -53,5 +53,5 @@ If you want to contribute to _this template_, then fork it as usual.
 Before making a pull request, run:
 
 ```bash
-uv run ruff check
+./scripts/check.sh all
 ```

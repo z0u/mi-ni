@@ -2,6 +2,7 @@
     "files.exclude": {
         "__pycache__": true,
         ".venv": true,
+        ".vulture-cache": true,
         ".ruff_cache": true
     },
     "python.defaultInterpreterPath": "./.venv/bin/python",
@@ -27,4 +28,8 @@
         }
     ],
     "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "notebook.defaultFormatter": "charliermarsh.ruff",
 }

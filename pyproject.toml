@@ -5,19 +5,31 @@ description = "AI experiments"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "ipykernel>=6.29.5",
-    "matplotlib>=3.10.0",
+    "ftfy>=6.3.1",
+    "jaxtyping>=0.2.38",
     "modal>=0.73.67",
     "numpy>=2.2.3",
-    "pandas>=2.2.3",
-    "polars>=1.23.0",
+    "pydantic>=2.10.6",
+    "requests>=2.32.3",
     "scikit-learn>=1.6.1",
     "torch>=2.6.0",
 ]
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.396",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
     "ruff>=0.9.7",
+    "vulture>=2.14",
+]
+local = [
+    "ipykernel>=6.29.5",
+    "ipywidgets>=8.1.5",
+    "matplotlib>=3.10.0",
+    "pandas>=2.2.3",
+    "polars>=1.23.0",
+    "tqdm>=4.67.1",
 ]
 
 [build-system]
@@ -25,16 +37,25 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/utils"]
+packages = [
+    "src/utils",
+    "src/mini",
+]
 
 [tool.ruff]
-line-length = 88
+line-length = 120
+extend-exclude = [".vulture-*"]
+
+[tool.ruff.format]
+quote-style = 'single'
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "C", "D", "T"]
 ignore = [
-    "E501",
-    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D211", "D212", "D413",
+    "E501", "E731",
+    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D203", "D211", "D212", "D413",
+    "F722",
+    "Q000",
     "T201",
 ]
 
@@ -42,6 +63,55 @@ ignore = [
 "*.ipynb" = [
     "C408", "C416",
     "D205", "D400", "D401", "D415",
-    "E701", "E731",
+    "E402", "E701", "E731",
     "F811",
 ]
+"**/experiment/**/*.py" = [
+    "C416",
+    "D203", "D205", "D400", "D401", "D415",
+]
+"tests/**/*.py" = [
+    "D",
+]
+
+[tool.pyright]
+pythonVersion = "3.13"
+venvPath = ".venv"
+typeCheckingMode = "basic"
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.vulture]
+exclude = [
+    "*/__pycache__/*",
+    "*.ipynb_checkpoints/*",
+    "*/.venv/*",
+    "*.egg-info/*"
+]
+ignore_decorators = [
+    "@functools.lru_cache",
+    "@property",
+    "@classmethod",
+    "@staticmethod",
+    "@model_validator"
+]
+ignore_names = [
+    "visit_*",
+    "do_*",
+    "test_*",
+    "setUp",
+    "tearDown"
+]
+make_whitelist = true
+min_confidence = 60
+paths = [
+    "src/",
+    "tests/",
+    ".vulture-cache/",
+    ".vulture-allowlist.py"
+]
+sort_by_size = true
+# verbose = true
