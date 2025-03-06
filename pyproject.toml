@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=2.2.3",
     "pandas>=2.2.3",
     "polars>=1.23.0",
+    "pydantic>=2.10.6",
     "requests>=2.32.3",
     "scikit-learn>=1.6.1",
     "torch>=2.6.0",
@@ -30,7 +31,7 @@ build-backend = "hatchling.build"
 packages = ["src/utils"]
 
 [tool.ruff]
-line-length = 88
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "C", "D", "T"]
@@ -46,4 +47,8 @@ ignore = [
     "D205", "D400", "D401", "D415",
     "E701", "E731",
     "F811",
+]
+"**/experiment/**/*.py" = [
+    "C416",
+    "D203", "D205", "D400", "D401", "D415",
 ]

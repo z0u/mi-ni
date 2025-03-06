@@ -15,4 +15,7 @@
         { "text": "Use JavaScript-style method chaining (newline before the dot, use outer parentheses as necessary)" }
     ],
     "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    },
 }
