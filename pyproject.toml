@@ -6,12 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "ftfy>=6.3.1",
-    "ipykernel>=6.29.5",
-    "matplotlib>=3.10.0",
+    "jaxtyping>=0.2.38",
     "modal>=0.73.67",
     "numpy>=2.2.3",
-    "pandas>=2.2.3",
-    "polars>=1.23.0",
     "pydantic>=2.10.6",
     "requests>=2.32.3",
     "scikit-learn>=1.6.1",
@@ -20,7 +17,15 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=8.3.5",
     "ruff>=0.9.7",
+]
+local = [
+    "ipykernel>=6.29.5",
+    "matplotlib>=3.10.0",
+    "pandas>=2.2.3",
+    "polars>=1.23.0",
+    "tqdm>=4.67.1",
 ]
 
 [build-system]
@@ -28,7 +33,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/utils"]
+packages = ["src/utils", "src/experiment"]
 
 [tool.ruff]
 line-length = 120
@@ -36,8 +41,9 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "C", "D", "T"]
 ignore = [
-    "E501",
-    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D211", "D212", "D413",
+    "E501", "E731",
+    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D203", "D211", "D212", "D413",
+    "F722",
     "T201",
 ]
 
@@ -45,7 +51,7 @@ ignore = [
 "*.ipynb" = [
     "C408", "C416",
     "D205", "D400", "D401", "D415",
-    "E701", "E731",
+    "E402", "E701", "E731",
     "F811",
 ]
 "**/experiment/**/*.py" = [

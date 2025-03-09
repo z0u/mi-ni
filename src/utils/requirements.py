@@ -1,6 +1,9 @@
 import re
 import subprocess
+import logging
 from typing import overload
+
+log = logging.getLogger(__name__)
 
 
 @overload
@@ -11,7 +14,7 @@ def freeze(*packages: str, dev: bool) -> list[str]: ...
 def freeze(*, all: bool, dev: bool) -> list[str]: ...
 
 
-def freeze(*packages, all: bool = False, dev: bool = False) -> list[str]:
+def freeze(*packages, all: bool = False, dev: bool = False, local: bool = False) -> list[str]:
     """
     Get the requirements for specified packages and their dependencies.
 
@@ -19,28 +22,38 @@ def freeze(*packages, all: bool = False, dev: bool = False) -> list[str]:
         *packages: Names of packages to get requirements for.
         all: If True, freeze all packages. Packages must not be specified if this is True.
         dev: If True, include development dependencies.
+        local: If True, include dependencies from the 'local' group.
 
     Returns:
         A list of package specifications in the format 'package==version'.
 
     """
-    cmd = ["uv", "tree"]
+    cmd = ["uv", "--offline", "tree"]
 
     if all:
         if packages:
             raise ValueError("Cannot specify packages when 'all' is True")
+        package_opts = []
     else:
         if not packages:
             return []
+        package_opts = [f"--package={pkg}" for pkg in packages]
         cmd.extend([f"--package={pkg}" for pkg in packages])
 
+    result = subprocess.run(cmd + ["--no-dedupe", '--all-groups'], text=True, capture_output=True, check=True)
+    available_deps = parse_uv_tree_output(result.stdout, ignore_first=True)
+
+    constraints = ["--no-dedupe"]
     if not dev:
-        cmd.append("--no-dev")
+        constraints.append("--no-dev")
+    if not local:
+        constraints.append("--no-group=local")
 
-    result = subprocess.check_output(cmd, text=True)
+    result = subprocess.run(cmd + constraints + package_opts, text=True, capture_output=True, check=True)
+    selected_deps = parse_uv_tree_output(result.stdout, ignore_first=all)
 
-    # When 'all' is True, ignore the first package since it is the project itself.
-    return parse_uv_tree_output(result, ignore_first=all)
+    log.info(f"Selected {len(selected_deps)} of {len(available_deps)} dependencies")
+    return selected_deps
 
 
 def parse_uv_tree_output(output: str, ignore_first: bool) -> list[str]:
