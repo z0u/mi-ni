@@ -7,11 +7,11 @@ log = logging.getLogger(__name__)
 
 
 @overload
-def freeze(*packages: str, dev: bool) -> list[str]: ...
+def freeze(*packages: str, dev: bool = False, local: bool = False) -> list[str]: ...
 
 
 @overload
-def freeze(*, all: bool, dev: bool) -> list[str]: ...
+def freeze(*, all: bool, dev: bool = False, local: bool = False) -> list[str]: ...
 
 
 def freeze(*packages, all: bool = False, dev: bool = False, local: bool = False) -> list[str]:

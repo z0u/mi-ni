@@ -1,3 +1,4 @@
+from ftfy import ExplanationStep
 from pydantic import BaseModel, NonNegativeFloat, NonNegativeInt, PositiveFloat, PositiveInt
 
 from utils.param_types import IntX8, IntX32, IntX64, ZeroToOne
@@ -58,8 +59,8 @@ class DatasetMetadata(BaseModel, validate_assignment=True):
     url: str | None = None
     """Where the dataset was downloaded from"""
 
-    fixes: list[tuple[str, str]]
-    """List of fixes applied to the dataset, as (old, new) tuples"""
+    fixes: list[ExplanationStep]
+    """List of fixes applied to the dataset"""
 
     total_chars: NonNegativeInt
     """Total number of characters in the dataset"""

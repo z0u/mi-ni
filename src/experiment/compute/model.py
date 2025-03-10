@@ -15,6 +15,7 @@ def save_checkpoint(
     config: TrainingConfig,
     metrics: TrainingMetrics | None = None,
 ) -> None:
+    model_path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint = {
         'model': model.state_dict(),
         'config': config.model_dump(mode='json'),

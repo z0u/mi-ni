@@ -22,7 +22,6 @@ def train_model(config: TrainingConfig) -> Generator[TrainingEvent]:
     # Load data
     data, metadata = load_data()
     assert metadata.tokenizer_config.vocab_size <= config.model.vocab_size, 'Vocab size mismatch'
-    train_loader, val_loader = get_dataloader(data, config.data, config.model)
 
     # Model
     model = GPT(config.model)
@@ -31,6 +30,8 @@ def train_model(config: TrainingConfig) -> Generator[TrainingEvent]:
         data = data.cuda()
         model = model.cuda()
         criterion = criterion.cuda()
+
+    train_loader, val_loader = get_dataloader(data, config.data, config.model)
 
     # Optimizer and scheduler
     optimizer = configure_optimizer(model, config.optimizer)
