@@ -90,7 +90,7 @@ class GPT(nn.Module):
                 logits[:, :-1].reshape(-1, logits.size(-1)), targets.reshape(-1), reduction='none'
             ).view(B, -1)
 
-            surprisals[:, 1 : tok_idx.size(1)] = torch.exp(losses)
+            surprisals[:, 1 : tok_idx.size(1)] = losses
             entropies[:, 1 : tok_idx.size(1)] = prompt_entropy
 
         # Generate tokens and track metrics
@@ -117,7 +117,7 @@ class GPT(nn.Module):
             # Calculate surprisal for the generated token (using raw logits for consistency)
             if curr_len > 0:
                 token_loss = F.cross_entropy(next_token_logits, idx_next.view(-1), reduction='none')
-                surprisals[:, curr_len] = torch.exp(token_loss)
+                surprisals[:, curr_len] = token_loss
 
             # Append to sequence and increment position
             tok_idx = torch.cat([tok_idx, idx_next], dim=1)
@@ -128,6 +128,7 @@ class GPT(nn.Module):
 
         return Generation(
             tokens=tok_idx.numpy(force=True),
+            vocab_size=self.config.vocab_size,
             surprisal=surprisals.numpy(force=True),
             entropy=entropies.numpy(force=True),
             surprise_surprise=surprise_surprise.numpy(force=True),
@@ -137,6 +138,9 @@ class GPT(nn.Module):
 class Generation(BaseModel, arbitrary_types_allowed=True):
     tokens: Int[np.ndarray, 'B T']
     """Generated token indices"""
+
+    vocab_size: PositiveInt
+    """Vocabulary size"""
 
     surprisal: Float[np.ndarray, 'B T']
     """Perplexity of each token in the sequence"""
