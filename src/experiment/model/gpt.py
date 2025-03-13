@@ -14,7 +14,6 @@ class Transformer(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.wte = nn.Embedding(config.vocab_size, config.n_embd)
-        # self.wpe = nn.Embedding(config.block_size, config.n_embd)  # max sequence length
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
         self.ln_f = nn.LayerNorm(config.n_embd)
 
@@ -38,10 +37,8 @@ class GPT(nn.Module):
         # print("Forward pass with input shape:", idx.shape)
         # B, T, C = idx.shape
 
-        # token + position embeddings
+        # token embeddings
         x: Float[Tensor, 'B T C'] = self.transformer.wte(idx)
-        # pos = torch.arange(T, device=idx.device)
-        # x += self.transformer.wpe(pos)
 
         # transformer blocks
         for block in self.transformer.blocks:
@@ -53,18 +50,9 @@ class GPT(nn.Module):
 
         return logits
 
-    def get_num_params(self, non_embedding=True):
-        """
-        Return the number of parameters in the model.
-
-        For non-embedding count (default), the position embeddings get subtracted.
-        The token embeddings would too, except due to the parameter sharing these
-        params are actually used as weights in the final layer, so we include them.
-        """
-        n_params = sum(p.numel() for p in self.parameters())
-        # if non_embedding:
-        #     n_params -= self.transformer.wpe.weight.numel()
-        return n_params
+    def get_num_params(self):
+        """Calculate the number of parameters in the model."""
+        return sum(p.numel() for p in self.parameters())
 
     @torch.no_grad()
     def generate(

@@ -105,9 +105,18 @@ class SchedulerConfig(BaseModel, validate_assignment=True):
     """Minimum learning rate as factor of the nominal learning rate"""
 
 
+class AMPConfig(BaseModel, validate_assignment=True):
+    enabled: bool = False
+    """Whether to use Automatic Mixed Precision"""
+
+    dtype: str | None = None
+    """Data type to use for AMP, e.g. 'float16'. If None, will be auto-detected."""
+
+
 class TrainingConfig(BaseModel, validate_assignment=True):
     model: ModelConfig
     tokenizer: TokenizerConfig
     data: DataConfig
     optimizer: OptimizerConfig
     scheduler: SchedulerConfig
+    amp: AMPConfig = AMPConfig()

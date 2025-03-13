@@ -7,7 +7,9 @@ from torch.utils.data import DataLoader
 
 from utils.lr_finder.types import LRFinderConfig, LRFinderSeries, Progress, SearchMethod
 from utils.param_types import validate_call
-from utils.training import mode, restore_state
+from utils.torch.mixed_precision import AMPContext
+from utils.torch.training import mode, restore_state
+from utils.torch.types import get_device
 
 Range: TypeAlias = tuple[float, float]
 
@@ -24,10 +26,14 @@ def lr_finder_search(
     steps_per_zoom: int = 10,
     zoom_factor: float = 0.5,
     method: SearchMethod = 'steepest',
+    amp_context: AMPContext | None = None,
 ):
-    """Perform multi-scale learning rate range test."""
+    """Perform multi-scale learning rate range test with optional mixed precision."""
     if start_lr >= end_lr:
         raise ValueError('start_lr must be less than end_lr')
+
+    if amp_context is None:
+        amp_context = AMPContext(use_amp=False, device_type=get_device(model))
 
     yield Progress(step=0, total_steps=num_zooms * steps_per_zoom)
     yield LRFinderConfig(
@@ -55,7 +61,15 @@ def lr_finder_search(
             losses = []
             for i, lr in enumerate(lr_schedule):
                 inputs, targets = next(data_loader)
-                loss = _test_lr(model, criterion, optimizer, inputs, targets, lr)
+                loss = _test_lr(
+                    model,
+                    criterion,
+                    optimizer,
+                    inputs,
+                    targets,
+                    lr,
+                    amp_context,
+                )
 
                 yield Progress(step=zoom * steps_per_zoom + i, info={'zoom': zoom, 'step': i})
 
@@ -106,23 +120,25 @@ def _test_lr(
     inputs: torch.Tensor,
     targets: torch.Tensor,
     lr: float,
+    amp_context: AMPContext,
 ) -> float:
     # Update learning rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
     # Forward pass
-    optimizer.zero_grad()
-    outputs = model(inputs)
 
-    # Handle transformer outputs
-    if outputs.dim() == 3:
-        outputs = outputs.view(-1, outputs.size(-1))
-        targets = targets.view(-1)
+    with amp_context.forward_pass():
+        outputs = model(inputs)
 
-    loss = criterion(outputs, targets)
-    loss.backward()
-    optimizer.step()
+        # Handle transformer outputs
+        if outputs.dim() == 3:
+            outputs = outputs.view(-1, outputs.size(-1))
+            targets = targets.view(-1)
+
+        loss = criterion(outputs, targets)
+
+    amp_context.backward_pass(loss, optimizer)
 
     return loss.item()
 
