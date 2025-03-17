@@ -1,36 +1,20 @@
 import asyncio
-import inspect
 import logging
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from functools import wraps
 from pathlib import PurePosixPath
-from typing import Any, Awaitable, Callable, Mapping, ParamSpec, Protocol, TypeAlias, TypeVar, cast, overload, runtime_checkable
+from typing import Any, Awaitable, Callable, ParamSpec, TypeVar, overload
 from uuid import uuid4 as uuid
 
 import modal
 
+from mini.types import AsyncCallable, AsyncHandler, Call, FnId, Handler, Partition
+from mini.utils import coerce_to_async
+
 T = TypeVar('T')
 P = ParamSpec('P')
 R = TypeVar('R')
-
-
-SyncHandler: TypeAlias = Callable[[T], None]
-AsyncHandler: TypeAlias = Callable[[T], Awaitable[None]]
-Handler: TypeAlias = SyncHandler[T] | AsyncHandler[T]
-
-
-@runtime_checkable
-class AsyncCallable(Protocol[P, R]):
-    """Represents an async callable specifically."""
-
-    __call__: Callable[P, Awaitable[R]]
-    __name__: str
-    __module__: str
-    __qualname__: str
-    __annotations__: dict
-    __doc__: str | None
 
 
 log = logging.getLogger(__name__)
@@ -38,19 +22,6 @@ log = logging.getLogger(__name__)
 # A single Queue can contain [...] up to 5,000 items.
 # https://modal.com/docs/reference/modal.Queue
 MAX_LEN = 5_000
-
-
-def coerce_to_async(fn: Callable[..., T | Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-    if inspect.iscoroutinefunction(fn):
-        return fn
-
-    fn = cast(Callable[..., T], fn)
-
-    @wraps(fn)
-    async def wrapper(*args, **kwargs):
-        return fn(*args, **kwargs)
-
-    return wrapper
 
 
 @asynccontextmanager
@@ -92,19 +63,6 @@ async def run(app: modal.App, *, shutdown_timeout: float = 10, log_handler: Hand
                 await asyncio.wait_for(task, timeout=shutdown_timeout)
             except asyncio.TimeoutError:
                 log.warning(f"Logging task didn't complete within {shutdown_timeout}s timeout")
-
-
-FnId: TypeAlias = tuple[str, str]
-Partition: TypeAlias = str | None
-
-
-@dataclass
-class Call:
-    """cloudpickle-friendly representation of a function call."""
-
-    fn_id: FnId
-    args: tuple
-    kwargs: Mapping
 
 
 class DispatchGroup:
@@ -168,14 +126,30 @@ class Experiment:
                             task.cancel()
 
     @overload
-    def hither(self, func: Callable[P, Any], /) -> Callable[P, None]: ...
+    def run_hither(self, func: Callable[P, Any], /) -> Callable[P, None]: ...
     @overload
-    def hither(self, *, group: str | None = None) -> Callable[[Callable[P, Any]], Callable[P, None]]: ...
+    def run_hither(self, *, group: str | None = None) -> Callable[[Callable[P, Any]], Callable[P, None]]: ...
 
-    def hither(
+    def run_hither(
         self, func=None, *, group: str | None = None
     ) -> Callable[P, None] | Callable[[Callable[P, Any]], Callable[P, None]]:
+        """
+        Decorate a function to always run locally.
+
+        Args:
+            func: The function to decorate.
+            group: The exclusion group to use. Functions in the same group
+                don't run in parallel.
+
+        Returns:
+            stub: A function that can be called from the remote worker. It
+                takes the same arguments as the original function, but it never
+                returns anything: It's just a stub that sends the call back to
+                be executed, via a FIFO queue.
+        """
+
         def decorator(fn: Callable[P, Any]) -> Callable[P, None]:
+            """Decorate a function to always run locally."""
             fn_id = str(fn.__name__), uuid().hex[:12]
             send_from_remote = wraps(fn)(_sender(key=fn_id, queue=self.inbound, partition=group))
             self.functions[group].add(fn_id, fn)
@@ -187,13 +161,25 @@ class Experiment:
         return decorator
 
     @overload
-    def thither(self, func: AsyncCallable[P, R], /) -> AsyncCallable[P, R]: ...
+    def run_thither(self, func: AsyncCallable[P, R], /) -> AsyncCallable[P, R]: ...
     @overload
-    def thither(self, **kwargs) -> Callable[[AsyncCallable[P, R]], AsyncCallable[P, R]]: ...
+    def run_thither(self, **kwargs) -> Callable[[AsyncCallable[P, R]], AsyncCallable[P, R]]: ...
 
-    def thither(
+    def run_thither(
         self, func=None, **kwargs
     ) -> AsyncCallable[P, R] | Callable[[AsyncCallable[P, R]], AsyncCallable[P, R]]:
+        """
+        Decorate a function to always run remotely.
+
+        Args:
+            func: The function to decorate.
+            **kwargs: Arguments to pass to `modal.App.function`.
+
+        Returns:
+            remote: A function that executes on a remote worker. Must be called
+            inside a `run` context manager.
+        """
+
         def decorator(fn: AsyncCallable[P, R]) -> AsyncCallable[P, R]:
             if 'image' not in kwargs:
                 kwargs['image'] = self.image
