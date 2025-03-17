@@ -144,3 +144,36 @@ class Generation(BaseModel, arbitrary_types_allowed=True):
         if not (len(self.tokens) == len(self.surprisal) == len(self.entropy) == len(self.surprise_surprise)):
             raise ValueError('All tensors must be of equal length')
         return self
+
+    def __getitem__(self, item: int):
+        """Allows indexing into the Generation object"""
+        return SingleGeneration(
+            tokens=self.tokens[item],
+            vocab_size=self.vocab_size,
+            surprisal=self.surprisal[item],
+            entropy=self.entropy[item],
+            surprise_surprise=self.surprise_surprise[item],
+        )
+
+
+class SingleGeneration(BaseModel, arbitrary_types_allowed=True):
+    tokens: Int[np.ndarray, ' T']
+    """Generated token indices"""
+
+    vocab_size: PositiveInt
+    """Vocabulary size"""
+
+    surprisal: Float[np.ndarray, ' T']
+    """Perplexity of each token in the sequence"""
+
+    entropy: Float[np.ndarray, ' T']
+    """Entropy of each token in the sequence"""
+
+    surprise_surprise: Float[np.ndarray, ' T']
+    """The normalized differences between surprisal and entropy (s2)"""
+
+    @model_validator(mode='after')
+    def same_lengths(self):
+        if not (len(self.tokens) == len(self.surprisal) == len(self.entropy) == len(self.surprise_surprise)):
+            raise ValueError('All tensors must be of equal length')
+        return self

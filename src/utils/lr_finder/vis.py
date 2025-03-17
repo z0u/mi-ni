@@ -2,7 +2,6 @@ from typing import Callable, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
-from IPython.display import HTML, display, DisplayHandle
 from matplotlib.figure import Figure
 from matplotlib.colors import Normalize
 
@@ -13,6 +12,8 @@ from utils.theming import fig_theme_toggle
 
 @validate_call
 def lr_finder_plot() -> Callable[[LRFinderSeries | LRFinderConfig], None]:
+    from IPython.display import HTML, display, DisplayHandle
+
     history: list[LRFinderSeries] = []
     disp = cast(DisplayHandle, display(display_id=True))
     # default config
@@ -25,7 +26,7 @@ def lr_finder_plot() -> Callable[[LRFinderSeries | LRFinderConfig], None]:
             config = event
         elif isinstance(event, LRFinderSeries):
             history.append(event)
-            with plt.ioff():
+            with plt.ioff(), plt.style.context('dark_background'):
                 fig = _draw(history, config)
                 disp.update(HTML(fig_theme_toggle(fig, already_dark=True)))
                 plt.close(fig)
@@ -47,8 +48,6 @@ def _draw(history: list[LRFinderSeries], config: LRFinderConfig) -> Figure:
     # Create color map for zoom history
     cmap = plt.get_cmap('viridis')
     norm = Normalize(0, config.num_zooms)
-
-    # ax.patch.set_alpha(0.0)
 
     # Plot historical scales
     for h1, h2 in zip(history[1:], history[:-1], strict=True):
@@ -89,5 +88,4 @@ def _draw(history: list[LRFinderSeries], config: LRFinderConfig) -> Figure:
 
     ax.legend(loc='upper left')
     fig.tight_layout()
-    ax.patch.set_alpha(0.0)
     return fig
