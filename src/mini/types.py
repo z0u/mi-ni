@@ -1,5 +1,6 @@
+import typing
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Mapping, ParamSpec, Protocol, TypeAlias, TypeVar, runtime_checkable
+from typing import Awaitable, Callable, ParamSpec, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 T = TypeVar('T')
 P = ParamSpec('P')
@@ -23,14 +24,13 @@ class AsyncCallable(Protocol[P, R]):
     __doc__: str | None
 
 
-FnId: TypeAlias = tuple[str, str]
-Partition: TypeAlias = str | None
+# A single Queue can contain [...] up to 5,000 items.
+# https://modal.com/docs/reference/modal.Queue
+Q_MAX_LEN = 5_000
 
 
 @dataclass
-class Call:
-    """cloudpickle-friendly representation of a function call."""
-
-    fn_id: FnId
-    args: tuple
-    kwargs: Mapping
+class Params(typing.Generic[P]):
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
