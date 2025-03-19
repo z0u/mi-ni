@@ -1,5 +1,3 @@
-
-
 def show(ob, handle: str):
     from IPython.display import display, update_display
 

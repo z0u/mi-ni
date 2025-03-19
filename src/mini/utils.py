@@ -1,5 +1,5 @@
-from functools import wraps
 import inspect
+from functools import wraps
 from typing import Awaitable, Callable, ParamSpec, TypeVar, cast
 
 P = ParamSpec('P')

@@ -1,4 +1,5 @@
 import asyncio
+from functools import wraps
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, TypeVar
@@ -57,7 +58,10 @@ async def send_batch_to(
 
     """
     async with modal.Queue.ephemeral() as q:
-        produce = _producer_batch(q)
+        # Wrap, but remove the reference to the wrapped function so it doesn't get serialized.
+        produce = wraps(receive)(_producer_batch(q))
+        del produce.__wrapped__
+
         consume, stop = _batched_consumer(q, receive)
 
         log.debug('Starting consumer task')

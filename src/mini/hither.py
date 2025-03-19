@@ -140,7 +140,7 @@ def run_hither(callback, *, batch=False, mode=None):  # type: ignore[no-untyped-
         if hasattr(callback, '__aenter__') and hasattr(callback, '__aexit__'):
             # It has context manager methods directly - it's a CM instance
             mode = 'cm'
-        elif inspect.isasyncgenfunction(callback):
+        elif hasattr(callback, '__wrapped__') and inspect.isasyncgenfunction(callback.__wrapped__):
             # It's a function decorated with @asynccontextmanager
             # This is actually a factory that returns a context manager when called
             mode = 'cm_factory'
@@ -177,18 +177,31 @@ def run_hither(callback, *, batch=False, mode=None):  # type: ignore[no-untyped-
 async def _run_hither(
     callback: AsyncCallback[P],
 ) -> AsyncGenerator[Callback[P]]:
-    # Batch and unbatch because `send_batch_to` expects a list of items
-    cb = _unbatch(callback)
-    async with send_batch_to(cb) as send_batch:
-        send_batches_of_one = _batches_of_one(send_batch)
-        yield send_batches_of_one
+    @wraps(callback, assigned=('__module__', '__name__', '__qualname__', '__doc__'))
+    async def batched_callback(calls: list[Params[P]]) -> None:
+        for call in calls:
+            await callback(*call.args, **call.kwargs)
+
+    log.debug('Starting producer and consumer for %s', callback)
+    async with send_batch_to(batched_callback) as send_batch:
+
+        @wraps(callback)
+        def send_single(*args, **kwargs):
+            send_batch([Params[P](args, kwargs)])
+
+        # Remove the reference to the wrapped function so it doesn't get serialized.
+        del send_single.__wrapped__
+
+        yield send_single
 
 
 @asynccontextmanager
 async def _run_hither_factory(
     cb_factory: Factory[AsyncCallback[P]],
 ) -> AsyncGenerator[Callback[P]]:
-    async with _run_hither(cb_factory()) as send:
+    log.debug('Instantiating from factory %s', cb_factory)
+    callback = cb_factory()
+    async with _run_hither(callback) as send:
         yield send
 
 
@@ -196,15 +209,18 @@ async def _run_hither_factory(
 async def _run_hither_batch(
     callback: AsyncCallback[list[T]],
 ) -> AsyncGenerator[Callback[list[T]]]:
+    log.debug('Starting batched producer and consumer for %s', callback)
     async with send_batch_to(callback) as send_batch:
         yield send_batch
 
 
 @asynccontextmanager
 async def _run_hither_batch_factory(
-    callback: Factory[AsyncCallback[list[T]]],
+    cb_factory: Factory[AsyncCallback[list[T]]],
 ) -> AsyncGenerator[Callback[list[T]]]:
-    async with _run_hither_batch(callback()) as send_batch:
+    log.debug('Instantiating callback from factory %s', cb_factory)
+    callback = cb_factory()
+    async with _run_hither_batch(callback) as send_batch:
         yield send_batch
 
 
@@ -212,23 +228,29 @@ async def _run_hither_batch_factory(
 async def _run_hither_cm(
     cb_context: AsyncCallbackContextManager[P],
 ) -> AsyncGenerator[Callback[P]]:
-    async with cb_context as callback, _run_hither(callback) as send:
-        yield send
+    log.debug('Entering callback context %s', cb_context)
+    async with cb_context as callback:
+        async with _run_hither(callback) as send:
+            yield send
 
 
 @asynccontextmanager
 async def _run_hither_batch_cm(
     cb_context: AsyncCallbackContextManager[list[T]],
 ) -> AsyncGenerator[Callback[list[T]]]:
-    async with cb_context as callback, _run_hither_batch(callback) as send:
-        yield send
+    log.debug('Entering batched callback context %s', cb_context)
+    async with cb_context as callback:
+        async with _run_hither_batch(callback) as send:
+            yield send
 
 
 @asynccontextmanager
 async def _run_hither_cm_factory(
     cb_context_factory: Factory[AsyncCallbackContextManager[P]],
 ) -> AsyncGenerator[Callback[P]]:
-    async with _run_hither_cm(cb_context_factory()) as send:
+    log.debug('Instantiating context manager from factory %s', cb_context_factory)
+    cb_context = cb_context_factory()
+    async with _run_hither_cm(cb_context) as send:
         yield send
 
 
@@ -236,27 +258,10 @@ async def _run_hither_cm_factory(
 async def _run_hither_batch_cm_factory(
     cb_context_factory: Factory[AsyncCallbackContextManager[list[T]]],
 ) -> AsyncGenerator[Callback[list[T]]]:
-    async with cb_context_factory() as callback:
-        async with _run_hither_batch(callback) as send:
-            yield send
-
-
-def _batches_of_one(fn: Callable[[list[Params[P]]], Any]) -> Callable[P, Any]:
-    @wraps(fn, assigned=('__module__', '__name__', '__qualname__', '__doc__'))
-    def wrapper(*args, **kwargs):
-        params = Params[P](*args, **kwargs)
-        return fn([params])
-
-    return wrapper  # type: ignore[no-redef]
-
-
-def _unbatch(fn: AsyncCallable[P, Any]) -> AsyncCallable[[list[Params[P]]], None]:
-    @wraps(fn, assigned=('__module__', '__name__', '__qualname__', '__doc__'))
-    async def wrapper(calls: list[Params[P]]) -> None:
-        for call in calls:
-            await fn(*call.args, **call.kwargs)
-
-    return wrapper  # type: ignore[no-redef]
+    log.debug('Instantiating batched context manager from factory %s', cb_context_factory)
+    cb_context = cb_context_factory()
+    async with _run_hither_batch_cm(cb_context) as send:
+        yield send
 
 
 # if __name__ == '__main__':

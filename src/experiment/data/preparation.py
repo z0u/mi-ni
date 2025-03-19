@@ -18,10 +18,10 @@ def tokenize_data(sources: list[tuple[str, DatasetMetadata]]) -> tuple[Int[torch
     tokenizer = CharTokenizer(config)
 
     # Tokenizer expects a batch
-    log.info(f"Tokenizing {len(sources)} sources with {len(text)} characters")
+    log.info(f'Tokenizing {len(sources)} sources with {len(text)} characters')
     tokens = tokenizer.encode([text])[0]
     data = torch.tensor(tokens, dtype=torch.long)
-    log.info(f"Tokenized {len(data)} tokens")
+    log.info(f'Tokenized {len(data)} tokens')
 
     metadata = CorpusMetadata(
         tokenizer_config=config,

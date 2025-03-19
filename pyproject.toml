@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "pyright>=1.1.396",
     "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
     "ruff>=0.9.7",
 ]
 local = [
@@ -73,3 +74,7 @@ ignore = [
 pythonVersion = "3.13"
 venvPath = ".venv"
 typeCheckingMode = "basic"
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
