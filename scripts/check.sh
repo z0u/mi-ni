@@ -30,7 +30,7 @@ run_tests() {
     )
 }
 
-case "${1:-}" in
+case "${1:-all}" in
     format|formatting)
         shift
         format "$@"

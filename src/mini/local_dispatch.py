@@ -20,7 +20,7 @@ async def send_batch_to(
     trailing_timeout: float | None = 5,
 ) -> AsyncGenerator[SyncHandler[list[T]]]:
     """
-    Create a distributed producer-consumer pattern for batch processing with Modal.
+    Create a distributed producer-consumer for batch processing with Modal.
 
     This async context manager sets up a distributed queue system where multiple
     producers can send batches of values to a single consumer function. The context

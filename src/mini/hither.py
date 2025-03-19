@@ -1,9 +1,9 @@
-import inspect
 import logging
 from contextlib import AbstractAsyncContextManager, AsyncContextDecorator, asynccontextmanager
 from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Literal, ParamSpec, TypeAlias, TypeVar, overload
 
+from mini._mode_detect import detect_mode
 from mini.local_dispatch import send_batch_to
 from mini.types import AsyncCallable, Params
 
@@ -17,9 +17,7 @@ log = logging.getLogger(__name__)
 
 Factory: TypeAlias = Callable[[], R]
 Callback: TypeAlias = Callable[P, Any | None]
-AsyncCallback: TypeAlias = AsyncCallable[
-    P, Any | None
-]  # Callable[P, Awaitable[None]] | Callable[P, CoroutineType[Any, Any, None]]
+AsyncCallback: TypeAlias = AsyncCallable[P, Any | None]
 CallbackContextManager: TypeAlias = AbstractAsyncContextManager[Callback[P]]
 AsyncCallbackContextManager: TypeAlias = AbstractAsyncContextManager[AsyncCallback[P]]
 
@@ -27,6 +25,15 @@ BatchCallback: TypeAlias = Callback[[list[T]]]
 AsyncBatchCallback: TypeAlias = AsyncCallback[[list[T]]]
 BatchCallbackContextManager: TypeAlias = AbstractAsyncContextManager[BatchCallback[T]]
 AsyncBatchCallbackContextManager: TypeAlias = AbstractAsyncContextManager[AsyncBatchCallback[T]]
+
+Mode: TypeAlias = Literal['cm', 'cm_factory', 'factory', 'callback']
+"""
+- `None`: Auto-detect based on the callback type (default)
+- `'callback'`: A regular callback
+- `'factory'`: A factory function that returns a callback
+- `'cm'`: A context manager
+- `'cm_factory'`: A factory that returns a context manager, e.g. functions decorated with `@asynccontextmanager`
+"""
 
 # These function decorators cause a function to always run locally, even when called in a remote Modal worker.
 
@@ -121,56 +128,52 @@ def run_hither(
 ) -> BatchCallbackContextManager[T]: ...
 
 
-def run_hither(callback, *, batch=False, mode=None):  # type: ignore[no-untyped-def]  # noqa: C901
+def run_hither(callback, *, batch=False, mode: Mode | None = None):  # type: ignore
     """
     Run a callback locally, even when called in a remote Modal worker.
 
     Args:
-        callback: The callback to run locally.
+        callback: The callback to run locally (see below)
         batch: Whether the callback takes a batch of inputs.
-        mode: The kind of callback to run. This can be one of the following:
-            - None: Auto-detect based on the callback type (default)
-            - 'callback': Treat as a regular callback
-            - 'factory': Treat as a factory function that returns a callback (can't be auto-detected)
-            - 'cm': Treat as a context manager
-            - 'cm_factory': Treat as a factory that returns a context manager
-    """
-    # Auto-detect the callback type
-    if mode is None:
-        if hasattr(callback, '__aenter__') and hasattr(callback, '__aexit__'):
-            # It has context manager methods directly - it's a CM instance
-            mode = 'cm'
-        elif hasattr(callback, '__wrapped__') and inspect.isasyncgenfunction(callback.__wrapped__):
-            # It's a function decorated with @asynccontextmanager
-            # This is actually a factory that returns a context manager when called
-            mode = 'cm_factory'
-        else:
-            # Default assumption: it's a regular callback
-            mode = 'callback'
+        mode: The kind of callback to run.
 
-    # Dispatch based on mode and batch flag
-    if batch:
-        if mode == 'callback':
+    Modes:
+        | `mode`       | `callback` |
+        |:-------------|:-----------|
+        | `callback`   | An **async** function (bare callback) |
+        | `factory`    | A regular function that returns an **async** function. |
+        | `cm`         | An async context manager that yields an **async** function |
+        | `cm_factory` | An `@asynccontextmanager` that yields an **async** callback |
+
+    Returns:
+        stub:
+        A function that takes the same parameters as `callback`, but which just puts the request on a queue and returns immediately. It returns `None`, even if `callback` returns something else.
+    """
+    if mode is None:
+        mode = detect_mode(callback)
+
+    if mode == 'callback':
+        if batch:
             return _run_hither_batch(callback)
-        elif mode == 'factory':
+        else:
+            return _run_hither(callback)
+    elif mode == 'factory':
+        if batch:
             return _run_hither_batch_factory(callback)
-        elif mode == 'cm':
+        else:
+            return _run_hither_factory(callback)
+    elif mode == 'cm':
+        if batch:
             return _run_hither_batch_cm(callback)
-        elif mode == 'cm_factory':
+        else:
+            return _run_hither_cm(callback)
+    elif mode == 'cm_factory':
+        if batch:
             return _run_hither_batch_cm_factory(callback)
         else:
-            raise ValueError(f'Invalid mode: {mode}')
-    else:
-        if mode == 'callback':
-            return _run_hither(callback)
-        elif mode == 'factory':
-            return _run_hither_factory(callback)
-        elif mode == 'cm':
-            return _run_hither_cm(callback)
-        elif mode == 'cm_factory':
             return _run_hither_cm_factory(callback)
-        else:
-            raise ValueError(f'Invalid mode: {mode}')
+    else:
+        raise ValueError(f'Invalid mode: {mode}')
 
 
 @asynccontextmanager
