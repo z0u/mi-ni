@@ -36,4 +36,4 @@ jobs:
         run: ./scripts/check.sh types
 
       - name: Run tests
-        run: ./scripts/check.sh tests
+        run: ./scripts/check.sh test -v

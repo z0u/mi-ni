@@ -21,10 +21,18 @@ AsyncCallback: TypeAlias = AsyncCallable[P, Any | None]
 CallbackContextManager: TypeAlias = AbstractAsyncContextManager[Callback[P]]
 AsyncCallbackContextManager: TypeAlias = AbstractAsyncContextManager[AsyncCallback[P]]
 
+# @asynccontextmanager needs *both* of these types to match
+AsyncCallbackContextDecorator: TypeAlias = Factory[AsyncContextDecorator | AsyncCallbackContextManager[P]]
+"""Functions decorated with @asynccontextmanager (they're factories that return CMs)"""
+
 BatchCallback: TypeAlias = Callback[[list[T]]]
 AsyncBatchCallback: TypeAlias = AsyncCallback[[list[T]]]
 BatchCallbackContextManager: TypeAlias = AbstractAsyncContextManager[BatchCallback[T]]
 AsyncBatchCallbackContextManager: TypeAlias = AbstractAsyncContextManager[AsyncBatchCallback[T]]
+
+# @asynccontextmanager needs *both* of these types to match
+AsyncBatchCallbackContextDecorator: TypeAlias = Factory[AsyncContextDecorator | AsyncBatchCallbackContextManager[T]]
+"""Functions decorated with @asynccontextmanager (they're factories that return CMs)"""
 
 Mode: TypeAlias = Literal['cm', 'cm_factory', 'factory', 'callback']
 """
@@ -52,126 +60,98 @@ Mode: TypeAlias = Literal['cm', 'cm_factory', 'factory', 'callback']
 
 # Non-batch overloads
 @overload
-def run_hither(
-    callback: AsyncCallback[P],
-    *,
-    batch: Literal[False] = False,
-    mode: Literal[None, 'callback'] = None,
-) -> CallbackContextManager[P]: ...
+def run_hither(callback: AsyncCallback[P]) -> CallbackContextManager[P]: ...
 
 
 @overload
-def run_hither(
-    callback: Factory[AsyncCallback[P]],
-    *,
-    batch: Literal[False] = False,
-    mode: Literal['factory'],
-) -> CallbackContextManager[P]: ...
+def run_hither(callback: Factory[AsyncCallback[P]]) -> Factory[CallbackContextManager[P]]: ...
 
 
 @overload
-def run_hither(
-    callback: AsyncCallbackContextManager[P],
-    *,
-    batch: Literal[False] = False,
-    mode: Literal[None, 'cm'] = None,
-) -> CallbackContextManager[P]: ...
-
-
-# For functions decorated with @asynccontextmanager (they're factories that return CMs)
-@overload
-def run_hither(
-    # @asynccontextmanager needs *both* of these types to match
-    callback: Factory[AsyncContextDecorator | AsyncCallbackContextManager[P]],
-    *,
-    batch: Literal[False] = False,
-    mode: Literal[None, 'cm_factory'] = None,
-) -> CallbackContextManager[P]: ...
-
-
-# Batch overloads
-@overload
-def run_hither(
-    callback: AsyncBatchCallback[T],
-    *,
-    batch: Literal[True],
-    mode: Literal[None, 'callback'] = None,
-) -> BatchCallbackContextManager[T]: ...
+def run_hither(callback: AsyncCallbackContextManager[P]) -> CallbackContextManager[P]: ...
 
 
 @overload
-def run_hither(
-    callback: Factory[AsyncBatchCallback[T]],
-    *,
-    batch: Literal[True],
-    mode: Literal['factory'],
-) -> BatchCallbackContextManager[T]: ...
+def run_hither(callback: AsyncCallbackContextDecorator[P]) -> Factory[CallbackContextManager[P]]: ...
 
 
-@overload
-def run_hither(
-    callback: AsyncBatchCallbackContextManager[T],
-    *,
-    batch: Literal[True],
-    mode: Literal[None, 'cm'] = None,
-) -> BatchCallbackContextManager[T]: ...
-
-
-# And for the batch version:
-@overload
-def run_hither(
-    # @asynccontextmanager needs *both* of these types to match
-    callback: Factory[AsyncContextDecorator | AsyncBatchCallbackContextManager[T]],
-    *,
-    batch: Literal[True],
-    mode: Literal[None, 'cm_factory'] = None,
-) -> BatchCallbackContextManager[T]: ...
-
-
-def run_hither(callback, *, batch=False, mode: Mode | None = None):  # type: ignore
+def run_hither(callback):  # type: ignore
     """
     Run a callback locally, even when called in a remote Modal worker.
 
     Args:
         callback: The callback to run locally (see below)
-        batch: Whether the callback takes a batch of inputs.
-        mode: The kind of callback to run.
 
-    Modes:
-        | `mode`       | `callback` |
-        |:-------------|:-----------|
-        | `callback`   | An **async** function (bare callback) |
-        | `factory`    | A regular function that returns an **async** function. |
-        | `cm`         | An async context manager that yields an **async** function |
-        | `cm_factory` | An `@asynccontextmanager` that yields an **async** callback |
+    - An **async** function (bare callback)
+    - A regular function that returns an **async** function.
+    - An async context manager that yields an **async** function
+    - An `@asynccontextmanager` that yields an **async** callback
 
     Returns:
         stub:
         A function that takes the same parameters as `callback`, but which just puts the request on a queue and returns immediately. It returns `None`, even if `callback` returns something else.
     """
-    if mode is None:
-        mode = detect_mode(callback)
-
+    mode = detect_mode(callback)
     if mode == 'callback':
-        if batch:
-            return _run_hither_batch(callback)
-        else:
-            return _run_hither(callback)
+        return _run_hither(callback)
     elif mode == 'factory':
-        if batch:
-            return _run_hither_batch_factory(callback)
-        else:
-            return _run_hither_factory(callback)
+        # return a function that instantiates the callback and wraps it in our context manager
+        return lambda *args, **kwargs: _run_hither(callback(*args, **kwargs))
     elif mode == 'cm':
-        if batch:
-            return _run_hither_batch_cm(callback)
-        else:
-            return _run_hither_cm(callback)
+        return _run_hither_cm(callback)
     elif mode == 'cm_factory':
-        if batch:
-            return _run_hither_batch_cm_factory(callback)
-        else:
-            return _run_hither_cm_factory(callback)
+        # return a function that instantiates the context manager and wraps it in *our* context manager
+        return lambda *args, **kwargs: _run_hither_cm(callback(*args, **kwargs))
+    else:
+        raise ValueError(f'Invalid mode: {mode}')
+
+
+# Batch overloads
+@overload
+def run_hither_batch(callback: AsyncBatchCallback[T]) -> CallbackContextManager[T]: ...
+
+
+@overload
+def run_hither_batch(callback: Factory[AsyncBatchCallback[T]]) -> Factory[CallbackContextManager[T]]: ...
+
+
+@overload
+def run_hither_batch(callback: AsyncBatchCallbackContextManager[T]) -> CallbackContextManager[T]: ...
+
+
+@overload
+def run_hither_batch(callback: AsyncBatchCallbackContextDecorator[T]) -> Factory[CallbackContextManager[T]]: ...
+
+
+def run_hither_batch(callback):  # type: ignore
+    """
+    Run a batched callback locally, even when called in a remote Modal worker.
+
+    The callback can be:
+
+    - An **async** function (bare callback)
+    - A regular function that returns an **async** function.
+    - An async context manager that yields an **async** function
+    - An `@asynccontextmanager` that yields an **async** callback
+
+    Args:
+        callback: The callback to run locally (see below). It must take only one parameter: a list of objects `T`.
+
+    Returns:
+        unbatched-stub:
+        A function that takes the same parameter type `T` as `callback`, but which just puts the request on a queue and returns immediately. It returns `None`, even if `callback` returns something else. Even though this stub function takes values one at a time, the callback may be called with more items (depending on how quickly they're read from the queue).
+    """
+    mode = detect_mode(callback)
+    if mode == 'callback':
+        return _run_hither_batch(callback)
+    elif mode == 'factory':
+        # return a function that instantiates the callback and wraps it in our context manager
+        return lambda *args, **kwargs: _run_hither_batch(callback(*args, **kwargs))
+    elif mode == 'cm':
+        return _run_hither_batch_cm(callback)
+    elif mode == 'cm_factory':
+        # return a function that instantiates the context manager and wraps it in *our* context manager
+        return lambda *args, **kwargs: _run_hither_batch_cm(callback(*args, **kwargs))
     else:
         raise ValueError(f'Invalid mode: {mode}')
 
@@ -199,32 +179,20 @@ async def _run_hither(
 
 
 @asynccontextmanager
-async def _run_hither_factory(
-    cb_factory: Factory[AsyncCallback[P]],
-) -> AsyncGenerator[Callback[P]]:
-    log.debug('Instantiating from factory %s', cb_factory)
-    callback = cb_factory()
-    async with _run_hither(callback) as send:
-        yield send
-
-
-@asynccontextmanager
 async def _run_hither_batch(
     callback: AsyncCallback[list[T]],
-) -> AsyncGenerator[Callback[list[T]]]:
+) -> AsyncGenerator[Callback[T]]:
     log.debug('Starting batched producer and consumer for %s', callback)
     async with send_batch_to(callback) as send_batch:
-        yield send_batch
 
+        @wraps(callback)
+        def send_single(value: T):
+            send_batch([value])
 
-@asynccontextmanager
-async def _run_hither_batch_factory(
-    cb_factory: Factory[AsyncCallback[list[T]]],
-) -> AsyncGenerator[Callback[list[T]]]:
-    log.debug('Instantiating callback from factory %s', cb_factory)
-    callback = cb_factory()
-    async with _run_hither_batch(callback) as send_batch:
-        yield send_batch
+        # Remove the reference to the wrapped function so it doesn't get serialized.
+        del send_single.__wrapped__
+
+        yield send_single
 
 
 @asynccontextmanager
@@ -240,31 +208,11 @@ async def _run_hither_cm(
 @asynccontextmanager
 async def _run_hither_batch_cm(
     cb_context: AsyncCallbackContextManager[list[T]],
-) -> AsyncGenerator[Callback[list[T]]]:
+) -> AsyncGenerator[Callback[T]]:
     log.debug('Entering batched callback context %s', cb_context)
     async with cb_context as callback:
         async with _run_hither_batch(callback) as send:
             yield send
-
-
-@asynccontextmanager
-async def _run_hither_cm_factory(
-    cb_context_factory: Factory[AsyncCallbackContextManager[P]],
-) -> AsyncGenerator[Callback[P]]:
-    log.debug('Instantiating context manager from factory %s', cb_context_factory)
-    cb_context = cb_context_factory()
-    async with _run_hither_cm(cb_context) as send:
-        yield send
-
-
-@asynccontextmanager
-async def _run_hither_batch_cm_factory(
-    cb_context_factory: Factory[AsyncCallbackContextManager[list[T]]],
-) -> AsyncGenerator[Callback[list[T]]]:
-    log.debug('Instantiating batched context manager from factory %s', cb_context_factory)
-    cb_context = cb_context_factory()
-    async with _run_hither_batch_cm(cb_context) as send:
-        yield send
 
 
 # if __name__ == '__main__':
