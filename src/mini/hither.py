@@ -1,7 +1,7 @@
 import logging
 from contextlib import AbstractAsyncContextManager, AsyncContextDecorator, asynccontextmanager
 from functools import wraps
-from typing import Any, AsyncGenerator, Callable, Literal, ParamSpec, TypeAlias, TypeVar, overload
+from typing import Any, AsyncGenerator, Callable, ParamSpec, TypeAlias, TypeVar, overload
 
 from mini._mode_detect import detect_mode
 from mini.local_dispatch import send_batch_to
@@ -25,23 +25,12 @@ AsyncCallbackContextManager: TypeAlias = AbstractAsyncContextManager[AsyncCallba
 AsyncCallbackContextDecorator: TypeAlias = Factory[AsyncContextDecorator | AsyncCallbackContextManager[P]]
 """Functions decorated with @asynccontextmanager (they're factories that return CMs)"""
 
-BatchCallback: TypeAlias = Callback[[list[T]]]
 AsyncBatchCallback: TypeAlias = AsyncCallback[[list[T]]]
-BatchCallbackContextManager: TypeAlias = AbstractAsyncContextManager[BatchCallback[T]]
 AsyncBatchCallbackContextManager: TypeAlias = AbstractAsyncContextManager[AsyncBatchCallback[T]]
 
 # @asynccontextmanager needs *both* of these types to match
 AsyncBatchCallbackContextDecorator: TypeAlias = Factory[AsyncContextDecorator | AsyncBatchCallbackContextManager[T]]
 """Functions decorated with @asynccontextmanager (they're factories that return CMs)"""
-
-Mode: TypeAlias = Literal['cm', 'cm_factory', 'factory', 'callback']
-"""
-- `None`: Auto-detect based on the callback type (default)
-- `'callback'`: A regular callback
-- `'factory'`: A factory function that returns a callback
-- `'cm'`: A context manager
-- `'cm_factory'`: A factory that returns a context manager, e.g. functions decorated with `@asynccontextmanager`
-"""
 
 # These function decorators cause a function to always run locally, even when called in a remote Modal worker.
 

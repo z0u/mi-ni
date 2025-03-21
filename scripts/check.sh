@@ -9,6 +9,16 @@ lint() {
     )
 }
 
+deadcode() {
+    (
+        set -x
+        mkdir -p .vulture-cache
+        rm -r .vulture-cache/* || true
+        uv run python scripts/ipynb_to_py.py *.ipynb .vulture-cache/
+        uv run vulture "$@"
+    )
+}
+
 format() {
     (
         set -x
@@ -39,6 +49,10 @@ case "${1:-all}" in
         shift
         lint "$@"
         ;;
+    dead|deadcode)
+        shift
+        deadcode "$@"
+        ;;
     type|types)
         shift
         check_types "$@"
@@ -50,6 +64,7 @@ case "${1:-all}" in
     all)
         format
         lint
+        deadcode
         check_types
         run_tests
         ;;

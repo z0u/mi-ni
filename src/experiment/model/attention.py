@@ -62,7 +62,7 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x: Float[torch.Tensor, 'B T C']):
         # print(f"CausalSelfAttention input shape: {x.shape}")
-        B, T, C = x.shape
+        B, T, _C = x.shape
 
         # project all qkv matrices at once, then split
         qkv = self.qkv(x)

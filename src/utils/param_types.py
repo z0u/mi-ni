@@ -10,17 +10,6 @@ __all__ = ['ZeroToOne', 'IntX8', 'IntX32', 'IntX64', 'PowerOf2', 'validate_call'
 T = TypeVar('T')
 
 
-def check(check_fn: Callable[[T], bool], error_msg: str) -> Callable[[T], T]:
-    """Create a validator that returns the value if valid."""
-
-    def validator(v: T) -> T:
-        if not check_fn(v):
-            raise ValueError(f'Value {v} {error_msg}')
-        return v
-
-    return validator
-
-
 ZeroToOne = Annotated[float, Interval(ge=0, le=1)]
 """Between 0 and 1 (inclusive)"""
 

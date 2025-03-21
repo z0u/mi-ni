@@ -1,6 +1,7 @@
 import logging
 import sys
 import time
+from typing import override
 
 
 class ConciseFormatter(logging.Formatter):
@@ -23,6 +24,7 @@ class ConciseFormatter(logging.Formatter):
 
     start_time = time.monotonic()
 
+    @override
     def format(self, record):
         elapsed = time.monotonic() - self.start_time
         abbreviated_log_level = record.levelname[0]

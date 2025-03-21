@@ -12,6 +12,7 @@ class AsyncContextManager:
         return async_callback
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        del exc_type, exc_val, exc_tb
         pass
 
 

@@ -47,7 +47,6 @@ class StubCallbackContextManager:
     def __init__(self):
         self.enter_count = 0
         self.exit_count = 0
-        # self.callback_spy = typed_async_mock(stub_callback)
 
     async def __aenter__(self):
         self.enter_count += 1

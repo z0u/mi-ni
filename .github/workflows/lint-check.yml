@@ -32,6 +32,9 @@ jobs:
       - name: Linting
         run: ./scripts/check.sh lint
 
+      - name: Dead code detection
+        run: ./scripts/check.sh deadcode
+
       - name: Type checking
         run: ./scripts/check.sh types
 
