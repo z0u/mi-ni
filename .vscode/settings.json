@@ -10,9 +10,21 @@
         "/usr/bin/python3",
         "/usr/local/bin/python"
     ],
+    "github.copilot.chat.codeGeneration.instructions": [
+        {
+            "language": "python",
+            "file": ".github/copilot-python-gen.md"
+        }
+    ],
     "github.copilot.chat.testGeneration.instructions": [
-        { "text": "Use pytest" },
-        { "text": "Use JavaScript-style method chaining (newline before the dot, use outer parentheses as necessary)" }
+        {
+            "language": "python",
+            "text": "Use pytest"
+        },
+        {
+            "language": "python",
+            "file": ".github/copilot-python-gen.md"
+        }
     ],
     "github.copilot.chat.codeGeneration.useInstructionFiles": true,
 }
