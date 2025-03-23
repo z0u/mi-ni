@@ -1,4 +1,6 @@
-# AI research template
+# Mi-ni — AI research template
+
+> <ruby>見<rt>み</rt>に</ruby> /mi·ni/: ~ and see<br>E.g. "try and see", "come and see".
 
 This is a template repository for doing AI research. Features:
 
@@ -14,7 +16,7 @@ This is a template repository for doing AI research. Features:
 If you want to run an experiment, make a copy of this repository. Since your project isn't a fork, you don't need to worry about keeping the code in sync, and you can add and remove Python packages as you wish.
 
 ```bash
-uv sync --all-groups
+uv sync --all-groups --extra torch-cpu  # or --extra torch
 uv run modal setup  # Authenticate with Modal for remote compute
 ```
 

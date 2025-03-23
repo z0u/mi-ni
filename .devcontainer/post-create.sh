@@ -11,7 +11,7 @@ set -euo pipefail
 
     # Initialize Python environment.
     uv venv --allow-existing < /dev/null
-    uv sync --all-groups < /dev/null
+    uv sync --all-groups --extra torch-cpu < /dev/null
 )
 
 echo "Virtual environment created. You may need to restart the Python language server."
