@@ -24,19 +24,19 @@ jobs:
           version: "0.6.3"
 
       - name: Install dependencies
-        run: uv sync --all-groups
+        run: ./go install cpu
 
       - name: Formatting
-        run: ./scripts/check.sh format --check
+        run: ./go format --check
 
       - name: Linting
-        run: ./scripts/check.sh lint
+        run: ./go lint
 
       - name: Dead code detection
-        run: ./scripts/check.sh deadcode
+        run: ./go deadcode
 
       - name: Type checking
-        run: ./scripts/check.sh types
+        run: ./go types
 
       - name: Run tests
-        run: ./scripts/check.sh test -v
+        run: ./go test -v
