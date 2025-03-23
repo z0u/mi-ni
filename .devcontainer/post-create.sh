@@ -2,11 +2,16 @@
 
 set -euo pipefail
 
-# Make the volume mounts writable. Even though the uv cache is a subdirectory, the parent is created by Docker as root, so we need to change the owner of that too.
-sudo chown -R "$USER:$USER" ~/.cache
-sudo chown -R "$USER:$USER" .venv
+(
+    set -x
 
-# Initialize Python environment.
-uv venv --allow-existing < /dev/null
-uv sync --all-groups < /dev/null
+    # Make the volume mounts writable. Even though the uv cache is a subdirectory, the parent is created by Docker as root, so we need to change the owner of that too.
+    sudo chown -R "$USER:$USER" ~/.cache
+    sudo chown -R "$USER:$USER" .venv
+
+    # Initialize Python environment.
+    uv venv --allow-existing < /dev/null
+    uv sync --all-groups < /dev/null
+)
+
 echo "Virtual environment created. You may need to restart the Python language server."
