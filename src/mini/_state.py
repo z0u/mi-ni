@@ -10,6 +10,7 @@ log = logging.getLogger(__name__)
 
 
 FunctionState: TypeAlias = Literal['guard', 'start', 'error', 'end']
+STATES = ('guard', 'start', 'error', 'end')
 
 
 @dataclass
@@ -19,14 +20,16 @@ class CallState:
     fn_id: str
     call_id: str
     state: FunctionState
-    exception: str | None = None
+    msg: str = ''
 
     def __str__(self) -> str:
         return self.to_urn()
 
     def to_urn(self) -> str:
         """Convert to a URN."""
-        return to_urn('mini', 'run', self.run_id, 'fn', self.fn_name, self.fn_id, 'call', self.call_id, self.state)
+        return to_urn(
+            'mini', 'run', self.run_id, 'fn', self.fn_name, self.fn_id, 'call', self.call_id, self.state, self.msg
+        )
 
     @classmethod
     def matches(cls, message: str) -> bool:
@@ -37,14 +40,8 @@ class CallState:
         """Convert from a URN."""
         parts = parse_urn(message)
         match parts:
-            case ('mini', 'run', _r, 'fn', fn_name, fn_id, 'call', call_id, state) if state in (
-                'guard',
-                'start',
-                'end',
-            ):
-                return cls(run_id=_r, fn_name=fn_name, fn_id=fn_id, call_id=call_id, state=state)
-            case ('mini', 'run', _r, 'fn', fn_name, fn_id, 'call', call_id, state, exc) if state == 'error':
-                return cls(run_id=_r, fn_name=fn_name, fn_id=fn_id, call_id=call_id, state=state, exception=exc)
+            case ('mini', 'run', run_id, 'fn', fn_name, fn_id, 'call', call_id, state, msg) if state in STATES:
+                return cls(run_id=run_id, fn_name=fn_name, fn_id=fn_id, call_id=call_id, state=state, msg=msg)
             case _:
                 raise ValueError(f'Invalid call state format: {message}')
 
@@ -62,15 +59,8 @@ class CallTracker:
         """Update a function's state."""
         self.state_history.append(state)
 
-        if state.state == 'guard':
-            allowed_from = {None}
-        elif state.state == 'start':
-            allowed_from = {'guard'}
-        elif state.state == 'error':
-            allowed_from = {'guard', 'start'}
-        elif state.state == 'end':
-            allowed_from = {'start', 'error'}
-        else:
+        allowed_from = VALID_TRANSITIONS.get(state.state)
+        if allowed_from is None:
             raise CallStateError(f'Invalid state: {state.state}')
 
         prev_state = self.calls.get(state.call_id)
@@ -94,3 +84,12 @@ class CallTracker:
 
 class CallStateError(Exception):
     pass
+
+
+VALID_TRANSITIONS: dict[FunctionState, tuple[FunctionState | None, ...]] = {
+    'guard': (None,),
+    'start': ('guard',),
+    'error': ('guard', 'start'),
+    'end': ('start', 'error'),
+}
+"""Transitions (to: from)"""

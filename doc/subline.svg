@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 38"><style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@100..900&amp;family=Source+Code+Pro&amp;display=swap');
+    text {
+        font-family: "Source Code Pro", "Noto Sans Mono", monospace !important;
+        font-optical-sizing: auto;
+        font-weight: 400;
+        white-space: pre;
+    }
+    </style>
+    <g transform="translate(0, 15)"><text font-size="14" y="-2.8" text-anchor="middle" fill="var(--col-text)"><tspan x="4.2">A</tspan><tspan x="29.4"> long</tspan><tspan x="71.4"> time</tspan><tspan x="109.2"> ago</tspan><tspan x="130.2">,</tspan><tspan x="147"> in</tspan><tspan x="168"> a</tspan><tspan x="205.8"> galaxy</tspan><tspan x="273"> somewhat</tspan><tspan x="327.6"> far</tspan><tspan x="365.4"> away</tspan><tspan x="399">...</tspan></text></g>
+    <g transform="translate(0, 16)"><clipPath id="clip-addaadea-14"><rect x="0" y="-20" width="411.6" height="40"></rect></clipPath><path d="M 12.6,21.9 S 42.0,21.9 46.2,21.9 S 50.4,25.8 54.6,25.8 S 84.0,25.8 88.2,25.8 S 92.4,23.3 96.6,23.3 S 117.6,23.3 121.8,23.3 S 126.0,23.9 130.2,23.9 S 134.4,24.0 138.6,24.0 S 151.2,24.0 155.4,24.0 S 159.6,25.4 163.8,25.4 S 168.0,25.4 172.2,25.4 S 176.4,24.4 180.6,24.4 S 226.8,24.4 231.0,24.4 S 235.2,3.9 239.4,3.9 S 302.4,3.9 306.6,3.9 S 310.8,21.8 315.0,21.8 S 336.0,21.8 340.2,21.8 S 344.4,22.6 348.6,22.6 S 378.0,22.6 382.2,22.6 S 386.4,13.7 390.6,13.7 S 403.2,13.7 407.4,13.7" fill="none" stroke="var(--col-series-1)" stroke-width="1" stroke-dasharray="" style="mix-blend-mode: var(--blend-mode);" clip-path="url(#clip-addaadea-14)"></path><path d="M 12.6,18.1 S 42.0,18.1 46.2,18.1 S 50.4,14.2 54.6,14.2 S 84.0,14.2 88.2,14.2 S 92.4,16.7 96.6,16.7 S 117.6,16.7 121.8,16.7 S 126.0,16.1 130.2,16.1 S 134.4,16.0 138.6,16.0 S 151.2,16.0 155.4,16.0 S 159.6,14.6 163.8,14.6 S 168.0,14.6 172.2,14.6 S 176.4,15.6 180.6,15.6 S 226.8,15.6 231.0,15.6 S 235.2,36.1 239.4,36.1 S 302.4,36.1 306.6,36.1 S 310.8,18.2 315.0,18.2 S 336.0,18.2 340.2,18.2 S 344.4,17.4 348.6,17.4 S 378.0,17.4 382.2,17.4 S 386.4,26.3 390.6,26.3 S 403.2,26.3 407.4,26.3" fill="none" stroke="var(--col-series-2)" stroke-width="1" stroke-dasharray="3" style="mix-blend-mode: var(--blend-mode);" clip-path="url(#clip-addaadea-14)"></path><path d="M4.0,20.0 L4.4,20.0 M12.4,20.0 L46.4,20.0 M54.4,20.0 L88.4,20.0 M96.4,20.0 L122.0,20.0 M130.0,20.0 L130.4,20.0 M138.4,20.0 L155.6,20.0 M163.6,20.0 L172.4,20.0 M180.4,20.0 L231.2,20.0 M239.2,20.0 L306.8,20.0 M314.8,20.0 L340.4,20.0 M348.4,20.0 L382.4,20.0 M390.4,20.0 L407.6,20.0" fill="none" stroke="var(--col-baseline)" stroke-width="3" stroke-linecap="round" style="mix-blend-mode: var(--blend-mode);"></path></g><g transform="translate(0, 69.0)"><line x1="0" y1="0" x2="20" y2="0" stroke="var(--col-series-1)" stroke-width="1" stroke-dasharray="" shape-rendering="crispEdges"></line><text x="25" y="4" font-family="system-ui" font-size="10" fill="var(--col-text)">+S₂</text><line x1="55" y1="0" x2="75" y2="0" stroke="var(--col-series-2)" stroke-width="1" stroke-dasharray="3" shape-rendering="crispEdges"></line><text x="80" y="4" font-family="system-ui" font-size="10" fill="var(--col-text)">-S₂</text></g>
+    <style>
+            svg:not(:has(input[data-light-dark-toggle]:checked)) {
+                --bg-color: white; --sun-color: goldenrod; --moon-color: silver; --col-series-1: #ef4444; --col-series-2: #3b82f6; --col-series-3: #22c55e; --col-series-4: #f97316; --col-series-5: #a855f7; --col-text: #666666; --col-baseline: #cccccc; --blend-mode: multiply;
+                --sun-opacity: 1;
+                --moon-opacity: 0;
+            }
+        
+    
+            svg:has(input[data-light-dark-toggle]:checked) {
+                --bg-color: #0f0f11; --sun-color: goldenrod; --moon-color: silver; --col-series-1: #ff7878; --col-series-2: #3b82f6; --col-series-3: #45e881; --col-series-4: #ffa261; --col-series-5: #d9b1ff; --col-text: #dddddd; --col-baseline: #666666; --blend-mode: screen;
+                --sun-opacity: 0;
+                --moon-opacity: 1;
+            }
+            /* For content that we don't control, like matplot charts */
+            svg:has(input[data-light-dark-toggle]:checked) .theme-content {
+                filter: var(--content-filter);
+            }
+        
+    
+            @media (prefers-color-scheme: dark) {
+                svg:not(:has(input[data-light-dark-toggle]:checked)) {
+                    --bg-color: #0f0f11; --sun-color: goldenrod; --moon-color: silver; --col-series-1: #ff7878; --col-series-2: #3b82f6; --col-series-3: #45e881; --col-series-4: #ffa261; --col-series-5: #d9b1ff; --col-text: #dddddd; --col-baseline: #666666; --blend-mode: screen;
+                    --sun-opacity: 0;
+                    --moon-opacity: 1;
+                }
+                svg:has(input[data-light-dark-toggle]:checked) {
+                    --bg-color: white; --sun-color: goldenrod; --moon-color: silver; --col-series-1: #ef4444; --col-series-2: #3b82f6; --col-series-3: #22c55e; --col-series-4: #f97316; --col-series-5: #a855f7; --col-text: #666666; --col-baseline: #cccccc; --blend-mode: multiply;
+                    --sun-opacity: 1;
+                    --moon-opacity: 0;
+                }
+            }
+        
+    
+            .icon {
+                font-family: Segoe UI Symbol, DejaVu Sans, Noto Sans, ui-sans-serif, system-ui;
+                text-anchor: middle;
+                dominant-baseline: central;
+                transition: fill 0.3s, opacity 0.3s;
+            }
+            
+            rect, circle, line, path {
+                transition: fill 0.3s, stroke 0.3s;
+            }
+            svg {
+                transition: all 0.3s
+            }
+        </style>
+    </svg>

@@ -39,9 +39,11 @@ log = logging.getLogger(__name__)
 class Experiment:
     """A distributed experiment runner."""
 
-    stdout: Callback[str]
+    output_handler: Callback[str]
     volumes: dict[str | PurePosixPath, modal.Volume | modal.CloudBucketMount]
+    """Default volumes to use for all @thither functions."""
     image: modal.Image | None
+    """Default image to use for all @thither functions."""
 
     # Guards are context managers that are run remotely with each function.
     # Because they run for all functions, the function type parameter is not known at this point.
@@ -50,7 +52,7 @@ class Experiment:
 
     def __init__(self, name: str):
         self.app = modal.App(name)
-        self.stdout = lambda s: print(s, end='')
+        self.output_handler = lambda s: print(s, end='')
         self.volumes = {}
         self.image = None
         self.guards = []
@@ -79,7 +81,7 @@ class Experiment:
 
                     if fn_tracker.any_running():
                         # Only print output if there are running functions to avoid printing infra messages too
-                        self.stdout(line)
+                        self.output_handler(line)
                 # No need to break: the loop should exit when the app is done
 
             if fn_tracker.any_active():
@@ -261,7 +263,7 @@ class Experiment:
 
                 # These state messages are an integral part of the output streaming
                 state = CallState(run_id=run_id, fn_name=fn.__name__, fn_id=fn_id, call_id=call_id, state='guard')
-                print(state)
+                print(state, flush=True)
 
                 async def guarded_fn() -> R:
                     return await fn(*_args, **_kwargs)
@@ -273,18 +275,18 @@ class Experiment:
                     guarded_fn = _wrap_with_guard(guarded_fn, guard, fn)
 
                 state.state = 'start'
-                print(state)
+                print(state, flush=True)
 
                 try:
                     return await guarded_fn()
-                except Exception as e:
+                except BaseException as e:
                     state.state = 'error'
-                    state.exception = str(e)
-                    print(state)
+                    state.msg = str(e)
+                    print(state, flush=True)
                     raise
                 finally:
                     state.state = 'end'
-                    print(state)
+                    print(state, flush=True)
 
             @wraps(fn)
             async def local_wrapper(*args, **kwargs):

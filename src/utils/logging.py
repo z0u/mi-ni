@@ -46,6 +46,7 @@ class SimpleLoggingConfig:
     """Build a concise logging configuration with a fluent interface."""
 
     def __init__(self):
+        # These need to be serializable
         self._base_level: int = logging.WARNING
         self._stream: NamedFd = 'stdout'
         self._critical: list[str] = []

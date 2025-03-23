@@ -43,7 +43,7 @@ def freeze(*packages, all: bool = False, dev: bool = False, local: bool = False)
     result = subprocess.run(cmd + ['--no-dedupe', '--all-groups'], text=True, capture_output=True, check=True)
     available_deps = parse_uv_tree_output(result.stdout, ignore_first=True)
 
-    constraints = ['--no-dedupe']
+    constraints = ['--no-dedupe', '--all-groups']
     if not dev:
         constraints.append('--no-dev')
     if not local:
