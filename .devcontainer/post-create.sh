@@ -7,6 +7,6 @@ sudo chown -R "$USER:$USER" ~/.cache
 sudo chown -R "$USER:$USER" .venv
 
 # Initialize Python environment.
-uv venv --allow-existing
-uv sync --all-groups
+uv venv --allow-existing < /dev/null
+uv sync --all-groups < /dev/null
 echo "Virtual environment created. You may need to restart the Python language server."

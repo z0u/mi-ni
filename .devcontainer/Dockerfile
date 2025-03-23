@@ -9,4 +9,4 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
 
 # Install Python packages
 RUN pip install --no-cache-dir uv \
-    && echo 'eval "$(uv generate-shell-completion bash 2>/dev/null)" || true' >> /etc/bash.bashrc
+    && echo 'eval "$(uv generate-shell-completion bash < /dev/null 2>/dev/null)" || true' >> /etc/bash.bashrc
