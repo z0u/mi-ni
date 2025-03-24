@@ -1,6 +1,6 @@
 # mi-ni — AI Research Template
 
-> **<ruby>見<rt>み</rt>に</ruby> /mi·ni/** — _to go and see_ • _to observe_ [^etymology]
+> **<ruby>見<rt>み</rt>に</ruby> /mi·ni/** — _with intent to see_ [^etymology]
 
 [^etymology]: From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something." This library is about small AI experiments—quick, lightweight explorations to try and see what happens.
 
