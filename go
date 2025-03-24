@@ -9,6 +9,10 @@ case "${1:-all}" in
         shift
         "$SCRIPT_DIR/install.sh" "$@"
         ;;
+    auth)
+        shift
+        "$SCRIPT_DIR/auth.sh" "$@"
+        ;;
     format|formatting)
         shift
         "$SCRIPT_DIR/format.sh" "$@"

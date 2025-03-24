@@ -22,7 +22,7 @@ If you want to run an experiment, make a copy of this repository. Since your pro
 ./go auth         # Authenticate with Modal for remote compute
 ```
 
-Then open the [demo notebook](notebook.ipynb) and try it out. Choose `.venv/bin/python3` as the kernel.
+Then open the [Getting Started notebook](getting-started.ipynb) and try it out. Choose `.venv/bin/python3` as the kernel. For a more complete example, have a look at the [nanoGPT notebook](nanogpt.ipynb).
 
 
 ## Virtual environment
