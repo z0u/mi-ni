@@ -1,20 +1,26 @@
-# Mi-ni — AI Research Template
+# mi-ni — AI Research Template
 
-&nbsp;
+> **<ruby>見<rt>み</rt>に</ruby> /mi·ni/** — _to go and see_ • _to observe_ [^etymology]
 
-> **<ruby>見<rt>み</rt>に</ruby> /mi·ni/** — _to go and see_ • _to observe_
->
-> <small>From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something." This library is about small AI experiments—quick, lightweight explorations to try and see what happens.</small>
+[^etymology]: From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something." This library is about small AI experiments—quick, lightweight explorations to try and see what happens.
 
 &nbsp;
 
 This is a template repository for doing AI research. Features:
 
+- **Local Python notebooks**
+- **Remote per-function GPU compute** [^modal]
+- **Inline visualization** with remote-to-local callbacks
+- **AI-assisted coding** with Copilot/VS Code
+
+_And_:
+
 - [Dev container][dc] for a consistent environment, both locally and in Codespaces
 - ML stack ([PyTorch, Polars, etc.](pyproject.toml))
-- Jupyter notebooks
-- Function-level remote compute with [Modal]
 - Modern package management with [uv]
+- Pre-configured for good engineering practices: tests, linting, type-checking (optional!)
+
+[^modal]: [Modal] is used for remote compute. They charge per-second, billed for the duration of your function.
 
 
 ## Getting started
@@ -22,7 +28,7 @@ This is a template repository for doing AI research. Features:
 If you want to run an experiment, make a copy of this repository. Since your project isn't a fork, you don't need to worry about keeping the code in sync, and you can add and remove Python packages as you wish.
 
 ```bash
-./go install cpu  # omit `cpu` if you want the default PyTorch
+./go install cpu  # CPU deps for local venv
 ./go auth         # Authenticate with Modal for remote compute
 ```
 
@@ -55,9 +61,9 @@ uv run python my-experiment.py
 [uv]: https://astral.sh/uv
 
 
-## Contributing
+## Contributing & licence
 
-In your own experiments, there's no need to contribute back! The code is yours to modify as you please.
+This project is primarily released under the [Unlicense](https://unlicense.org/) (public domain). In your own experiments, there's no need to contribute back! The code is yours to modify as you please[^attrib].
 
 If you do want to contribute to _this template_, then fork it as usual. Before making a pull request, run:
 
@@ -65,10 +71,4 @@ If you do want to contribute to _this template_, then fork it as usual. Before m
 ./go check
 ```
 
-## License
-
-This project is primarily released under the [Unlicense](https://unlicense.org/) (public domain).
-
-**Exception:** Code in `src/experiment` is derived from [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy and is subject to MIT license terms.
-
-See the [LICENSE](LICENSE) file for details.
+[^attrib]: Exception: Code in `src/experiment` is derived from [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy and is subject to MIT license terms. See the [LICENSE](LICENSE) file for details.
