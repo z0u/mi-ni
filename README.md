@@ -1,12 +1,16 @@
 # Mi-ni — AI Research Template
 
+&nbsp;
+
 > **<ruby>見<rt>み</rt>に</ruby> /mi·ni/** — _to go and see_ • _to observe_
 >
-> Derived from **見に行く** (mi-ni iku), meaning "to go for the purpose of seeing something." This library is about small AI experiments—quick, lightweight explorations to try and see what happens.
+> <small>From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something." This library is about small AI experiments—quick, lightweight explorations to try and see what happens.</small>
+
+&nbsp;
 
 This is a template repository for doing AI research. Features:
 
-- [Dev container][dc] for a consistent environment
+- [Dev container][dc] for a consistent environment, both locally and in Codespaces
 - ML stack ([PyTorch, Polars, etc.](pyproject.toml))
 - Jupyter notebooks
 - Function-level remote compute with [Modal]
