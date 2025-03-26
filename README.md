@@ -13,12 +13,14 @@ This is a template repository for doing AI research. Features:
 - **Inline visualization** with remote-to-local callbacks
 - **AI-assisted coding** with Copilot/VS Code
 
-_And_:
+
+<details><summary>More cool features!</summary>
 
 - [Dev container][dc] for a consistent environment, both locally and in Codespaces
 - ML stack ([PyTorch, Polars, etc.](pyproject.toml))
 - Modern package management with [uv]
 - Pre-configured for good engineering practices: tests, linting, type-checking (optional!)
+</details>
 
 [^modal]: [Modal] is used for remote compute. They charge per-second, billed for the duration of your function.
 
@@ -35,26 +37,27 @@ If you want to run an experiment, make a copy of this repository. Since your pro
 Then open the [Getting Started notebook](getting-started.ipynb) and try it out. Choose `.venv/bin/python3` as the kernel. For a more complete example, have a look at the [nanoGPT notebook](nanogpt.ipynb).
 
 
-## Virtual environment
+<details><summary>Virtual environment</summary>
 
-The Python environment is configured when the dev container is created. If you open a Python file before the setup is complete, you may need to restart the Python language server.
-
-<details>
-    <summary>Restarting the language server in VS Code</summary>
-    <ol>
-        <li>Open a <code>.py</code> or <code>.ipynb</code> file</li>
-        <li>Open the command pallette with <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> or <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>P</kbd></li>
-        <li>Run <em>Python: Restart Language Server</em>.</li>
-    </ol>
-</details>
+The Python environment is configured when the dev container is created.
 
 Use [uv] to add and remove packages, and to run scripts:
 
 ```bash
-uv add pydantic
 uv add plotly --group local
-uv run python my-experiment.py
+uv run python example.py
 ```
+</details>
+
+<details>
+<summary>Restarting the language server (VS Code)</summary>
+
+If you open a Python file before the setup is complete, you may need to restart the Python language server.
+
+- Open a `.py` or `.ipynb` file
+- Open the command pallette with <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> or <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>P</kbd>
+- Run _Python: Restart Language Server_.
+</details>
 
 [dc]: https://containers.dev
 [Modal]: https://modal.com
