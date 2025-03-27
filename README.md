@@ -13,8 +13,13 @@ This is a template repository for doing AI research. Features:
 - **Inline visualization** with remote-to-local callbacks
 - **AI-assisted coding** with Copilot/VS Code
 
+Here's a recording of a local notebook running a remote training job:
 
-<details><summary>More cool features!</summary>
+![Screen recording of a notebook cell in VS Code, with code to run a distributed training job and an inline loss chart that updates in real-time.](https://github.com/user-attachments/assets/6eb94b46-0b8f-4cd2-b200-abcec86c88cd)
+
+In the recording, `train()` is a function that runs in the cloud (with a GPU), and `track()` is a function that runs locally — even when called from `train`!
+
+<details><summary>More cool features</summary>
 
 - [Dev container][dc] for a consistent environment, both locally and in Codespaces
 - ML stack ([PyTorch, Polars, etc.](pyproject.toml))
