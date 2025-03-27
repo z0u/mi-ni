@@ -13,6 +13,8 @@ This is a template repository for doing AI research. Features:
 - **Inline visualization** with remote-to-local callbacks
 - **AI-assisted coding** with Copilot/VS Code
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni)
+
 &nbsp;
 
 ![Screen recording of a notebook cell in VS Code, with code to run a distributed training job and an inline loss chart that updates in real-time.](https://github.com/user-attachments/assets/6eb94b46-0b8f-4cd2-b200-abcec86c88cd)
@@ -44,7 +46,7 @@ async with run(), track as callback:
 
 <details><summary>More cool features</summary>
 
-- [Dev container][dc] for a consistent environment, both locally and in Codespaces
+- [Dev container][dc] for a consistent environment, both locally and in [Codespaces][codespaces]
 - ML stack ([PyTorch, Polars, etc.](pyproject.toml))
 - Modern package management with [uv]
 - Pre-configured for good engineering practices: tests, linting, type-checking (optional!)
@@ -55,16 +57,17 @@ async with run(), track as callback:
 
 ## Getting started
 
-If you want to run an experiment, make a copy of this repository. Since your project isn't a fork, you don't need to worry about keeping the code in sync, and you can add and remove Python packages as you wish.
+First, [open in GitHub Codespaces](https://codespaces.new/z0u/mi-ni). Then:
 
 ```bash
 ./go install cpu  # CPU deps for local venv
 ./go auth         # Authenticate with Modal for remote compute
 ```
 
-Then open the [Getting Started notebook][getting-started] and try it out. Choose `.venv/bin/python3` as the kernel. For a more complete example, have a look at the [nanoGPT notebook](nanogpt.ipynb).
+Open the [Getting Started notebook][getting-started] and try it out (choose `.venv/bin/python3` as the kernel). For a more complete example, have a look at the [nanoGPT notebook](nanogpt.ipynb).
 
 [getting-started]: getting-started.ipynb
+[codespaces]: https://github.com/features/codespaces
 
 
 <details><summary>Virtual environment</summary>
@@ -103,6 +106,8 @@ If you do want to contribute to _this template_, then fork it as usual. Before m
 ```bash
 ./go check
 ```
+
+[^not-fork]: Since your project isn't a fork, you don't need to worry about keeping the code in sync, and you can add and remove Python packages as you wish.
 
 [^unlicense]: Technically, the licence is the [Unlicense](https://unlicense.org), which is about as close as you can get to "do whatever you want".
 
