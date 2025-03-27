@@ -1,6 +1,8 @@
+import logging
 import re
 import subprocess
-import logging
+import tomllib
+from pathlib import Path
 from typing import overload
 
 log = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ def freeze(*packages, all: bool = False, dev: bool = False, local: bool = False)
     selected_deps = parse_uv_tree_output(result.stdout, ignore_first=all)
 
     log.info(f'Selected {len(selected_deps)} of {len(available_deps)} dependencies')
+    log.debug('Dependencies: %s', selected_deps)
     return selected_deps
 
 
@@ -78,3 +81,60 @@ def parse_uv_tree_output(output: str, ignore_first: bool) -> list[str]:
             requirements.add(f'{pkg_name}=={version}')
 
     return sorted(requirements)
+
+
+def project_packages() -> list[str]:
+    """
+    Find and return local packages defined in pyproject.toml.
+
+    Returns:
+        List of local packages as defined in tool.hatch.build.targets.wheel.packages.
+    """
+    root_dir = find_project_root()
+
+    pyproject_path = root_dir / 'pyproject.toml'
+    log.debug(f'Loading {pyproject_path}')
+    with open(pyproject_path, 'rb') as f:
+        pyproject = tomllib.load(f)
+
+    log.debug('Using tool.hatch.build.targets.wheel.packages')
+    paths = [
+        Path(d)
+        for d in pyproject.get('tool', {})
+        .get('hatch', {})
+        .get('build', {})
+        .get('targets', {})
+        .get('wheel', {})
+        .get('packages', [])
+    ]
+    directories = [path for path in paths if path.is_dir()]
+    packages = [path.name for path in directories]
+
+    log.info(f'Found {len(packages)} local packages in the project')
+    log.debug('Packages: %s', packages)
+    return packages
+
+
+def find_project_root() -> Path:
+    """
+    Find the project root directory containing pyproject.toml.
+
+    Returns:
+        Path to the project root directory.
+
+    Raises:
+        FileNotFoundError: If pyproject.toml cannot be found.
+    """
+    current = Path.cwd()
+
+    # Try a few times going up the directory tree
+    for _ in range(10):
+        if (current / 'pyproject.toml').exists():
+            return current
+
+        parent = current.parent
+        if parent == current:  # Reached the file system root
+            break
+        current = parent
+
+    raise FileNotFoundError('Could not find pyproject.toml')

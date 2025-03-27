@@ -3,6 +3,7 @@
         "__pycache__": true,
         ".venv": true,
         ".vulture-cache": true,
+        ".pytest_cache": true,
         ".ruff_cache": true
     },
     "python.defaultInterpreterPath": "./.venv/bin/python",

@@ -99,6 +99,10 @@ class Experiment:
                 task = asyncio.create_task(consume(self._run_id))
                 yield
 
+        except modal.exception.AuthError as e:
+            e.add_note('Tip: Run `./go auth` to authenticate with Modal. If this is a notebook, restart the kernel.')
+            raise
+
         finally:
             self._run_id = None
             if task is not None:
