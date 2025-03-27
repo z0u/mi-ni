@@ -13,11 +13,34 @@ This is a template repository for doing AI research. Features:
 - **Inline visualization** with remote-to-local callbacks
 - **AI-assisted coding** with Copilot/VS Code
 
-Here's a recording of a local notebook running a remote training job:
+&nbsp;
 
 ![Screen recording of a notebook cell in VS Code, with code to run a distributed training job and an inline loss chart that updates in real-time.](https://github.com/user-attachments/assets/6eb94b46-0b8f-4cd2-b200-abcec86c88cd)
 
-In the recording, `train()` is a function that runs in the cloud (with a GPU), and `track()` is a function that runs locally — even when called from `train`!
+Above: screen recording of a local notebook running a remote training job. `train()` is a function that runs in the cloud (with a GPU), and `track()` is a function that runs locally — even when called from `train`!
+
+<details><summary>Code for the above demo</summary>
+
+The code shown in the screen recording is [^recording-correction]:
+
+```python
+@run.hither
+async def track(loss: float):
+    history.append(loss)
+    plot(history)
+
+@run.thither(gpu='L4')
+async def train(epochs: int, track):
+    for _ in range(epochs):
+        track(some_training_function())
+    print('Training complete')
+
+async with run(), track as callback:
+    await train(25, callback)
+```
+
+[^recording-correction]: The recording contained a mistake: it assigned the return value of `train()` to a variable called `model`, but the function doesn't actually return anything! It could, though; see [the Getting Started notebook][getting-started].
+</details>
 
 <details><summary>More cool features</summary>
 
@@ -39,7 +62,9 @@ If you want to run an experiment, make a copy of this repository. Since your pro
 ./go auth         # Authenticate with Modal for remote compute
 ```
 
-Then open the [Getting Started notebook](getting-started.ipynb) and try it out. Choose `.venv/bin/python3` as the kernel. For a more complete example, have a look at the [nanoGPT notebook](nanogpt.ipynb).
+Then open the [Getting Started notebook][getting-started] and try it out. Choose `.venv/bin/python3` as the kernel. For a more complete example, have a look at the [nanoGPT notebook](nanogpt.ipynb).
+
+[getting-started]: getting-started.ipynb
 
 
 <details><summary>Virtual environment</summary>
@@ -71,12 +96,14 @@ If you open a Python file before the setup is complete, you may need to restart 
 
 ## Contributing & licence
 
-This project is primarily released under the [Unlicense](https://unlicense.org/) (public domain). In your own experiments, there's no need to contribute back! The code is yours to modify as you please[^attrib].
+This project is dedicated to the public domain [^unlicense][^attrib]. In your own experiments, there's no need to contribute back! The code is yours to modify as you please.
 
 If you do want to contribute to _this template_, then fork it as usual. Before making a pull request, run:
 
 ```bash
 ./go check
 ```
+
+[^unlicense]: Technically, the licence is the [Unlicense](https://unlicense.org), which is about as close as you can get to "do whatever you want".
 
 [^attrib]: Exception: Code in `src/experiment` is derived from [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy and is subject to MIT license terms. See the [LICENSE](LICENSE) file for details.
