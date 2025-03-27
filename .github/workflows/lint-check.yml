@@ -24,7 +24,7 @@ jobs:
           version: "0.6.3"
 
       - name: Install dependencies
-        run: ./go install cpu
+        run: ./go install --device=cpu
 
       - name: Formatting
         run: ./go format --check
