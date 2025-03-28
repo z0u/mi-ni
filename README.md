@@ -41,7 +41,7 @@ async with run(), track as callback:
     await train(25, callback)
 ```
 
-Read about how it works in [docs/hither-thither.md](docs/hither-thither.md).
+Read about how it works in [doc/hither-thither.md](doc/hither-thither.md).
 
 [^recording-correction]: The recording contained a mistake: it assigned the return value of `train()` to a variable called `model`, but the function doesn't actually return anything! It could, though; see [the Getting Started notebook][getting-started].
 </details>
