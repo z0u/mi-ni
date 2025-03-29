@@ -1,10 +1,7 @@
-# mi-ni — AI Research Template
 
 > **<ruby>見<rt>み</rt>に</ruby> /mi·ni/** — _with intent to see_ [^etymology]
 
 [^etymology]: From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something." This library is about small AI experiments—quick, lightweight explorations to try and see what happens.
-
-&nbsp;
 
 This is a template repository for doing AI research. Features:
 
@@ -17,9 +14,13 @@ This is a template repository for doing AI research. Features:
 
 &nbsp;
 
-![Screen recording of a notebook cell in VS Code, with code to run a distributed training job and an inline loss chart that updates in real-time.](https://github.com/user-attachments/assets/6eb94b46-0b8f-4cd2-b200-abcec86c88cd)
+![Screen recording of a notebook cell in VS Code, with code to run a distributed training job and an inline loss chart that updates in real-time.](https://github.com/user-attachments/assets/94a8af6e-9d90-41dc-a0f5-b571374cd3f8)
 
-Above: screen recording of a local notebook running a remote training job. `train()` is a function that runs in the cloud (with a GPU), and `track()` is a function that runs locally — even when called from `train`!
+> Above: screen recording [^edited] of a local notebook running a remote training job. `train()` is a function that runs in the cloud (with a GPU). `track()` is a function that plots metrics locally — even when called from the remote function. The message `Training complete` is printed remotely, but the output is shown locally.
+
+[^edited]: The recording was edited: 1. labels were added; 2. the remote `train()` function was moved to the right so that the video wouldn't take up so much vertical space.
+
+&nbsp;
 
 <details><summary>Code for the above demo</summary>
 
@@ -56,6 +57,8 @@ Read about how it works in [doc/hither-thither.md](doc/hither-thither.md).
 
 [^modal]: [Modal] is used for remote compute. They charge per-second, billed for the duration of your function.
 
+
+&nbsp;
 
 ## Getting started
 
@@ -98,6 +101,8 @@ If you open a Python file before the setup is complete, you may need to restart 
 [Modal]: https://modal.com
 [uv]: https://astral.sh/uv
 
+
+&nbsp;
 
 ## Contributing & licence
 
