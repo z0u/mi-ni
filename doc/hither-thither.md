@@ -3,6 +3,38 @@
 mi-ni creates a bidirectional flow between local and remote environments. With `@run.hither`, you define functions that always run locally but can be called from remote code. With `@run.thither`, you define functions that always run remotely (with access to GPUs and other cloud resources) but integrate with your local notebook.
 
 
+
+```mermaid
+graph LR
+
+    classDef user stroke:orange,fill:#fb23,stroke-width:3px;
+    classDef modal stroke:#8b88,fill:#8b83,stroke-width:3px;
+    classDef modalbox stroke:#8b8,stroke-width:3px,fill:none;
+    classDef minibox stroke:#88b,stroke-width:3px,fill:none;
+
+    E@{ shape: rect, label: "run = Experiment()" }
+
+    guard_cb:::user@{ shape: rect, label: "@run.guard<br>Lifecycle hook" }
+    loc:::user@{ shape: rect, label: "@run.hither<br>Local callback" }
+    rem:::user@{ shape: rect, label: "@run.thither<br>Remote function" }
+
+    subgraph modal [Modal]
+        A:::modal@{ shape: rect, label: "App" }
+        F:::modal@{ shape: rect, label: "Function" }
+        V:::modal@{ shape: disk, label: " Volume " }
+    end
+    modal:::modalbox
+
+    rem ==>|"&nbsp; calls &nbsp;"| loc
+
+    E --->|"&nbsp; manages &nbsp;"| A
+    rem -->|"&nbsp; reads & writes &nbsp;"| V
+    rem -->|"&nbsp; runs in &nbsp;"| F
+
+    guard_cb ==>|"&nbsp; runs before/after &nbsp;"| rem
+```
+
+
 <details><summary>&nbsp;📐 How it works</summary>
 
 ```mermaid
@@ -12,11 +44,11 @@ graph LR
 
     classDef user stroke:orange,fill:#fb23,stroke-width:3px;
     classDef modal stroke:#8b88,fill:#8b83,stroke-width:3px;
-    classDef modalbox stroke:transparent,fill:#8b83;
-    classDef minibox stroke:transparent,fill:#88b3;
+    classDef modalbox stroke:#8b8,stroke-width:3px,fill:none;
+    classDef minibox stroke:#88b,stroke-width:3px,fill:none;
 
-    subgraph EG [mini.Experiment]
-        app@{ shape: text, label: "modal.App"}
+    subgraph EG [ ]
+        app@{ shape: text, label: "run = Experiment()"}
         guards@{ shape: tag-rect, label: "@run.guard"}
         thither@{ shape: tag-rect, label: "@run.thither"}
         hither@{ shape: tag-rect, label: "@run.hither"}
@@ -52,10 +84,9 @@ graph LR
     Q ~~~ stubs
 
     _mini:::minibox@{ shape: rect, label: "mi-ni API" }
-    _modal:::modal@{ shape: rect, label: "Modal (resource)" }
-    _modal-group:::modalbox@{ shape: rect, label: "Modal (group)" }
+    _modal:::modal@{ shape: rect, label: "Modal" }
     _user:::user@{ shape: rect, label: "User code" }
-    _user ~~~ _mini ~~~ _modal ~~~ _modal-group
+    _user ~~~ _mini ~~~ _modal
 ```
 
 The diagram above shows how Modal's queues and volumes provide the communication backbone, while mi-ni's decorators manage the execution context. The orange components represent your code, while the green elements are Modal's infrastructure. The blue sections are mi-ni's API layer that bridges these worlds.
