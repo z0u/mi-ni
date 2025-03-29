@@ -2,6 +2,9 @@
 
 mi-ni creates a bidirectional flow between local and remote environments. With `@run.hither`, you define functions that always run locally but can be called from remote code. With `@run.thither`, you define functions that always run remotely (with access to GPUs and other cloud resources) but integrate with your local notebook.
 
+
+<details><summary>&nbsp;📐 How it works</summary>
+
 ```mermaid
 graph LR
     V:::modal@{ shape: disk, label: " Volume " }
@@ -13,10 +16,10 @@ graph LR
     classDef minibox stroke:transparent,fill:#88b3;
 
     subgraph EG [mini.Experiment]
-        app@{ shape: text, label: "<code>modal.App</code>"}
-        guards@{ shape: tag-rect, label: "<code>@run.guard</code>"}
-        thither@{ shape: tag-rect, label: "<code>@run.thither</code>"}
-        hither@{ shape: tag-rect, label: "<code>@run.hither</code>"}
+        app@{ shape: text, label: "modal.App"}
+        guards@{ shape: tag-rect, label: "@run.guard"}
+        thither@{ shape: tag-rect, label: "@run.thither"}
+        hither@{ shape: tag-rect, label: "@run.hither"}
     end
     EG:::minibox
 
@@ -57,6 +60,8 @@ graph LR
 
 The diagram above shows how Modal's queues and volumes provide the communication backbone, while mi-ni's decorators manage the execution context. The orange components represent your code, while the green elements are Modal's infrastructure. The blue sections are mi-ni's API layer that bridges these worlds.
 
+</details>
+
 ## Run hither
 
 This function _always_ runs locally:
@@ -64,12 +69,34 @@ This function _always_ runs locally:
 ```python
 @run.hither
 async def track(loss: float):
-    record(loss)
+    display(loss)
 ```
 
-The `@run.hither` decorator transforms a function into a stub. Or more accurately: a context manager that yields a stub.
+The `@run.hither` decorator transforms a function into a stub. Or more accurately: a context manager that yields a stub when used in a `with` statement:
+
+```python
+async with run(), track as t:
+    remote_fn(t)
+```
 
 The stub has one job: when you call it, it puts the parameters onto a (distributed) [modal.Queue](https://modal.com/docs/reference/modal.Queue). Locally, mi-ni runs an event loop that dispatches those calls to your function. The stub doesn't wait for the actual function to complete, and it doesn't return anything (the real function's return value is ignored).
+
+```mermaid
+graph LR
+    hither:::minibox
+    subgraph hither ["@run.hither"]
+        fn:::user@{ shape: rect, label: "Callback<br>async def track(loss):"}
+    end
+    stub@{ shape: div-rect, label: "Stub<br>def t(loss):"}
+
+    fn ~~~ stub
+
+    hither ---|"&nbsp; yields on enter &nbsp;"| stub
+    stub -.-|"&nbsp; calls indirectly &nbsp;"| fn
+
+    classDef user stroke:orange,fill:#fb23,stroke-width:3px;
+    classDef minibox stroke:#88b3,stroke-width:3px,fill:transparent;
+```
 
 _Run-hither_ supports several types of callback:
 - Bare callbacks (as above)
@@ -78,6 +105,121 @@ _Run-hither_ supports several types of callback:
 
 In all cases, `@run.hither` ensures the function is wrapped in a context manager. The yielded stub function doesn't contain any references to your actual function, so it's fine to pickle it and use it in the remote functions. This happens transparently when you use it in an `async with` block.
 
+### Stateful callbacks
+
+This function _returns_ a callback that runs locally:
+
+```python
+@run.hither
+def tracker(opts):
+    state = []
+
+    async def track(loss):
+        clear_display(wait=True)
+        state.append(loss)
+        plot(state)
+
+    return track
+```
+
+By wrapping your callback in a factory function, you can prepare some state that it will have access to. In this example, the factory creates a list to store metrics, to progressively draw a chart.
+
+Like the basic callback pattern above, the `@run.hither` decorator wraps the factory in a context manager. When it's used in a `with` statement, it calls the factory and then transforms the returned callback into a stub. Unlike the basic form, however, you should _call_ the wrapped factory function in the `with` statement. This gives you the opportunity to pass in options.
+
+```python
+async with run(), track(opts) as t:
+    remote_fn(t)
+```
+
+```mermaid
+graph LR
+    hither:::minibox
+    subgraph hither ["@run.hither"]
+        fac:::user@{ shape: rect, label: "Factory<br>def tracker(opts):"}
+        fn:::user@{ shape: rect, label: "Callback<br>async def track(loss):"}
+        state:::user@{ shape: doc, label: "State"}
+    end
+    stub@{ shape: div-rect, label: "Stub<br>def t(loss):"}
+
+    fac ---|"&nbsp; creates &nbsp;"| fn
+    fac ~~~ stub
+    fac ---|"&nbsp; creates &nbsp;"| state
+
+    hither ---|"&nbsp; yields on enter &nbsp;"| stub
+    stub -.-|"&nbsp; calls indirectly &nbsp;"| fn
+
+    classDef user stroke:orange,fill:#fb23,stroke-width:3px;
+    classDef minibox stroke:#88b3,stroke-width:3px,fill:transparent;
+```
+
+
+### Stateful callbacks with cleanup
+
+This function _yields_ a callback that runs locally:
+
+```python
+@run.hither
+@asynccontextmanager
+async def progressbar(epochs):
+
+    with tqdm(total=epochs) as pbar:
+        async def step(n=1):
+            pbar.update(n)
+
+        yield step
+```
+
+Or equivalently:
+
+```python
+@run.hither
+@asynccontextmanager
+async def progressbar(epochs):
+
+    async def step(n=1):
+        pbar.update(n)
+
+    pbar = tqdm(total=epochs)
+    try:
+        yield step
+    finally:
+        pbar.close()
+```
+
+Use it the same way as the factory type:
+
+```python
+async with run(), progressbar(25) as step:
+    train_remote(25, step)
+```
+
+Like the factory type, your wrapper function can create some state that the callback can use and modify. But because the wrapper is explicitly decorated with `@asynccontextmanager`, your code has the opportunity to clean up resources when the remote code has finished.
+
+
+```mermaid
+graph LR
+    hither:::minibox
+    ctx:::minibox
+    subgraph hither ["@run.hither"]
+        subgraph ctx ["@asynccontextmanager"]
+            fac:::user@{ shape: rect, label: "Factory<br>async def progressbar(epochs):"}
+            fn:::user@{ shape: rect, label: "Callback<br>async def step(n):"}
+            state:::user@{ shape: doc, label: "tqdm"}
+        end
+    end
+    stub@{ shape: div-rect, label: "Stub<br>def step(n):"}
+
+    fac ---|"&nbsp; creates &nbsp;"| fn
+    fac ~~~ stub
+    fac ---|"&nbsp; creates &nbsp;"| state
+    fac ---|"&nbsp; closes &nbsp;"| state
+
+    hither ---|"&nbsp; yields on enter &nbsp;"| stub
+    stub -.-|"&nbsp; calls indirectly &nbsp;"| fn
+
+    classDef user stroke:orange,fill:#fb23,stroke-width:3px;
+    classDef minibox stroke:#88b3,stroke-width:3px,fill:transparent;
+```
 
 
 ## Run thither
