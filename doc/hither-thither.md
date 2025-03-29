@@ -45,10 +45,10 @@ graph LR
     classDef user stroke:orange,fill:#fb23,stroke-width:3px;
     classDef modal stroke:#8b88,fill:#8b83,stroke-width:3px;
     classDef modalbox stroke:#8b8,stroke-width:3px,fill:none;
-    classDef minibox stroke:#88b,stroke-width:3px,fill:none;
+    classDef minibox stroke:none,fill:none;
 
     subgraph EG [ ]
-        app@{ shape: text, label: "run = Experiment()"}
+        app@{ shape: rect, label: "run = Experiment()"}
         guards@{ shape: tag-rect, label: "@run.guard"}
         thither@{ shape: tag-rect, label: "@run.thither"}
         hither@{ shape: tag-rect, label: "@run.hither"}
@@ -83,7 +83,7 @@ graph LR
 
     Q ~~~ stubs
 
-    _mini:::minibox@{ shape: rect, label: "mi-ni API" }
+    _mini@{ shape: rect, label: "mi-ni API" }
     _modal:::modal@{ shape: rect, label: "Modal" }
     _user:::user@{ shape: rect, label: "User code" }
     _user ~~~ _mini ~~~ _modal
