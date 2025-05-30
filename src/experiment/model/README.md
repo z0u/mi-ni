@@ -19,7 +19,7 @@ My key takeaways:
 
 Rotary positional encodings (RoPE) use quite a different scheme from earlier encodings schemes. GPT-2 (which nanoGPT replicates) uses learned embeddings, and the original Attention is All You Need paper used sinusoidal patterns — but in both cases, they were applied to the _input_ token embeddings. RoPE uses sinusoidal patterns, but they are used in attention space ($Q$, $K$) rather than input embedding space.
 
-Crucially, RoPE applies sequence position information _as rotation_ of the queries and keys, rather than being simply added to the token embeddings. This means the attention mechanism can learn positional relationships in a way that is more compatible with the "direction-as-meaning" embeddings. It also generalises to longer sequences than were seen during training. However, that generalisation is still limited by the kind of normalisation that is applied in the `Block` (layer norm): layer norm is non-geometric, so it distorts the directional interpretation of the vectors.
+RoPE applies sequence position information _as rotation_ of the queries and keys, rather than being simply added to the token embeddings. This means the attention mechanism can learn positional relationships in a way that is more compatible with the "direction-as-meaning" embeddings. It also generalises to longer sequences than were seen during training. However, that generalisation is still limited by the kind of normalisation that is applied in the `Block` (layer norm): layer norm is non-geometric, so it distorts the directional interpretation of the vectors.
 
 The particular rotation used in RoPE is interesting: the vector components are rotated in pairs, where each pair is considered to be a 2D vector on a plane. The planes are all distinct, so while the embedding as a whole can be considered to be a single direction vector, it's not rotated as a whole (around another axis with as many dimensions). I wonder if doing so would improve things further?
 
@@ -30,13 +30,15 @@ This module takes in a sequence of token-level embeddings (either from the previ
 
 #### Attention as information retrieval
 
-The attention mechanism works like a look-up table (LUT), where each token embedding can be used to "look up" contextual information. But unlike a regular LUT, this one looks up information from the entire sequence at once, weighting each earlier contribution by how much it is relevant to the current token. To do this, we first convert incoming embeddings to queries, keys and values ($q$, $k$, and $v$, per token):
+The attention mechanism works like a look-up table (LUT), where each token embedding can be used to "look up" contextual information. But unlike a regular LUT, this one: 1. Is computed on the fly based on the incoming token embedding, and 2. Looks up information from the entire sequence at once, weighting each earlier contribution by how much it is relevant to the current token.
+
+We first convert incoming embeddings to queries, keys and values ($q$, $k$, and $v$, per token):
 
 - Queries _ask_ "Which earlier[^causal] tokens are relevant to me?"
 - Keys _match_ "My token is relevant to later[^causal] queries that are like me"
 - Values _offer_ "_If_ a later[^causal] query matches my key, here's the context I can provide..." (Sanderson, 2024a).
 
-It's surprising that the value can be computed up-front, even before the queries have been compared to other tokens' keys! It's possible because the context that a token would provide is always the same, no matter what the query is — but the extent to which that value will be influence the output will depend on how closely the key matches the query.
+It's surprising that the value can be computed up-front, even before the queries have been compared to other tokens' keys! It's possible because the context that a token would provide does not depend what the query is — but the extent to which that value influences the output will depend on how closely the key matches the query.
 
 All of this happens in a different latent space than the token embeddings. In particular:
 - $Q$ and $K$ must share the same latent space, so that queries can be compared to keys. It need not be the same length as the token embeddings, and is usually much smaller.
@@ -53,9 +55,9 @@ Reading the previous section, you might think that each token can only provide o
 
 The multilayer perceptron (MLP) (aka feedforward layer) is an OG[^og] deep learning pattern for nonlinear learned data transformations. That doesn't tell us much about what it does here but [3b1b has a great video on it](https://www.3blue1brown.com/lessons/mlp) (Sanderson, 2024). The structure of an MLP in a transformer does this:
 
-1. First, it projects the input to a larger dimension (arbitrarily 4x the embedding size)
-2. Apply GELU activation to introduce non-linearity, i.e. curves and bends that let the network learn more complex patterns, like a smooth switch.
-3. Project back down to the original embedding size, to be compatible with later layers.
+1. Projects the input to a larger vector (arbitrarily 4x the embedding size)
+2. Applies GELU activation to introduce non-linearity, i.e. curves and bends that let the network learn more complex patterns, like a smooth switch.
+3. Projects back down to the original embedding size, to be compatible with later layers.
 
 [^og]: From 1958!
 
@@ -65,7 +67,7 @@ Exactly what is going on in the large matrices that project up and then back dow
 
 ### What it doesn't
 
-The MLP operates on each token embedding individually: at this point, there is no communication between tokens; that happens in the `CausalSelfAttention` module. Also, it does not _add_ knowledge to the embedding; it outputs an entirely new embedding, which is later added to the residual stream in the `Block`.
+The MLP operates on each token embedding individually: at this point, there is no communication between tokens; that happens in the `CausalSelfAttention` module. Also, it does not _add_ knowledge to the embedding; it outputs an entirely new embedding, which is then added to the residual stream in the `Block`.
 
 
 ## [Transformer block](block.py)
