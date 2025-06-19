@@ -61,8 +61,8 @@ async with run(), track as callback:
 First, [open in GitHub Codespaces](https://codespaces.new/z0u/mi-ni). Then:
 
 ```bash
-./go install cpu  # CPU deps for local venv
-./go auth         # Authenticate with Modal for remote compute
+./go install --device=cpu  # CPU deps for local venv
+./go auth                  # Authenticate with Modal for remote compute
 ```
 
 Open the [Getting Started notebook][getting-started] and try it out (choose `.venv/bin/python3` as the kernel). For a more complete example, have a look at the [nanoGPT notebook](nanogpt.ipynb).
@@ -81,6 +81,8 @@ Use [uv] to add and remove packages, and to run scripts:
 uv add plotly --group local
 uv run python example.py
 ```
+
+Instead of using `uv sync` to install the added packages, use `./go install` instead. It remembers whether you have installed cpu or gpu packages.
 </details>
 
 <details>

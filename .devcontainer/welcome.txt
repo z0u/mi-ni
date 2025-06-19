@@ -1,0 +1,5 @@
+👋 Welcome to mi-ni! To get started, run:
+
+    ./go auth
+
+Then open and run ./getting-started.ipynb
