@@ -20,11 +20,19 @@
   "customizations": {
     "vscode": {
       "extensions": [
+        "bierner.github-markdown-preview",
         "charliermarsh.ruff",
+        "detachhead.basedpyright",
+        "esbenp.prettier-vscode",
+        "GitHub.copilot-chat",
         "GitHub.copilot",
         "github.vscode-github-actions",
         "ms-python.python",
-        "ms-toolsai.jupyter"
+        "ms-toolsai.jupyter-renderers",
+        "ms-toolsai.jupyter",
+        "ms-toolsai.vscode-jupyter-cell-tags",
+        "ms-toolsai.vscode-jupyter-slideshow",
+        "mechatroner.rainbow-csv"
       ]
     }
   },

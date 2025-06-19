@@ -1,4 +1,3 @@
-
 > **<ruby>見<rt>み</rt>に</ruby> /mi·ni/** — _with intent to see_ [^etymology]
 
 [^etymology]: From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something." This library is about small AI experiments—quick, lightweight explorations to try and see what happens.
@@ -20,7 +19,7 @@ This is a template repository for doing AI research. Features:
 
 [^edited]: The recording was edited: 1. labels were added; 2. the remote `train()` function was moved to the right so that the video wouldn't take up so much vertical space.
 
-Read about how it works in [doc/hither-thither.md](doc/hither-thither.md).
+Read about how it works in [Hither-thither architecture](docs/hither-thither.md).
 
 <details><summary>Code for the above demo</summary>
 
@@ -41,6 +40,7 @@ async def train(epochs: int, track):
 async with run(), track as callback:
     await train(25, callback)
 ```
+
 </details>
 
 <details><summary>More cool features</summary>
@@ -52,7 +52,6 @@ async with run(), track as callback:
 </details>
 
 [^modal]: [Modal] is used for remote compute. They charge per-second, billed for the duration of your function.
-
 
 &nbsp;
 
@@ -70,7 +69,6 @@ Open the [Getting Started notebook][getting-started] and try it out (choose `.ve
 [getting-started]: getting-started.ipynb
 [codespaces]: https://github.com/features/codespaces
 
-
 <details><summary>Virtual environment</summary>
 
 The Python environment is configured when the dev container is created.
@@ -83,6 +81,7 @@ uv run python example.py
 ```
 
 Instead of using `uv sync` to install the added packages, use `./go install` instead. It remembers whether you have installed cpu or gpu packages.
+
 </details>
 
 <details>
@@ -95,10 +94,24 @@ If you open a Python file before the setup is complete, you may need to restart 
 - Run _Python: Restart Language Server_.
 </details>
 
+<details>
+<summary>Working with large files (Git LFS)</summary>
+
+This project is preconfigured to use [Git LFS](https://git-lfs.com). If you commit a matching file, it won't clog up your main Git history. By default, files in `docs/large-assets` are stored in LFS, but you can change that by editing `.gitattributes`.
+
+Typically, you would store _data_ rather than code in LFS:
+
+- training data
+- model weights
+- visualizations (images and video)
+
+For matplotlib figures, use `utils.nb.save_fig` instead of displaying them directly: that stores them outside the notebook, which makes the notebook easier to view in `git diff`, and easier for AI assistants to process (because the notebook contains fewer tokens).
+
+</details>
+
 [dc]: https://containers.dev
 [Modal]: https://modal.com
 [uv]: https://astral.sh/uv
-
 
 &nbsp;
 
@@ -113,7 +126,5 @@ If you do want to contribute to _this template_, then fork it as usual. Before m
 ```
 
 [^not-fork]: Since your project isn't a fork, you don't need to worry about keeping the code in sync, and you can add and remove Python packages as you wish.
-
 [^unlicense]: Technically, the licence is the [Unlicense](https://unlicense.org), which is about as close as you can get to "do whatever you want".
-
 [^attrib]: Exception: Code in `src/experiment` is derived from [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy and is subject to MIT license terms. See the [LICENSE](LICENSE) file for details.

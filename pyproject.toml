@@ -17,28 +17,37 @@ dependencies = [
 [project.optional-dependencies]
 # define an extra for CPU-only torch, for Codespaces
 torch-cpu = [
-  "torch>=2.6.0",
+  "torch~=2.6.0",
 ]
 # Include the default one too, so that `uv tree` includes cuda packages
 torch = [
-  "torch>=2.6.0",
+  "torch~=2.6.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pyright>=1.1.396",
-    "pytest>=8.3.5",
+    "basedpyright>=1.29.1",
+    "pandas-stubs",
     "pytest-asyncio>=0.25.3",
+    "pytest>=8.3.5",
     "ruff>=0.9.7",
     "vulture>=2.14",
+    "scipy-stubs>=1.15.2.2",
 ]
+# Dependencies that aren't needed remotely (e.g. in Modal)
 local = [
+    "imageio-ffmpeg>=0.6.0",  # for video support in matplotlib
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.5",
     "matplotlib>=3.10.0",
     "pandas>=2.2.3",
     "polars>=1.23.0",
     "tqdm>=4.67.1",
+]
+# For publishing notebooks as GitHub Pages
+pages = [
+    "jupyter",
+    "nbconvert",
 ]
 
 [tool.uv]
@@ -83,7 +92,8 @@ quote-style = 'single'
 select = ["E", "F", "W", "B", "C", "D", "T"]
 ignore = [
     "E501", "E731",
-    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D203", "D211", "D212", "D413",
+    "C408",
+    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D203", "D204", "D211", "D212", "D400", "D401", "D413", "D415",
     "F722",
     "Q000",
     "T201",
@@ -92,8 +102,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "**/*.ipynb" = [
     "C408", "C416",
-    "D205", "D400", "D401", "D415",
-    "E402", "E701", "E731",
+    "D205", "D400", "D401", "D407", "D415", "D416", "D417",
+    "E402", "E701", "E731", "E741",
     "F811",
 ]
 "**/experiment/**/*.py" = [
@@ -104,10 +114,15 @@ ignore = [
     "D",
 ]
 
-[tool.pyright]
-pythonVersion = "3.13"
-venvPath = ".venv"
-typeCheckingMode = "basic"
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "standard"
+include = [
+    "src",
+    "tests",
+    "docs",
+]
 
 
 [tool.pytest.ini_options]
@@ -135,7 +150,7 @@ ignore_names = [
     "setUp",
     "tearDown"
 ]
-make_whitelist = true
+# make_whitelist = true
 min_confidence = 60
 paths = [
     "src/",

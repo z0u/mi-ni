@@ -1,15 +1,25 @@
 ### Style
 Use JavaScript-style method chaining (newline before the dot, use outer parentheses as necessary).
 Use cutting-edge syntax.
-Prefer previty.
-Use single quotes for strings.
+Prefer brevity.
+Use single quotes for strings, except for multiline strings.
 
 ### Docstrings
 Use the imperative for the first line of function docstrings.
 
+```diff
+- """Adds two numbers together"""
++ """Add two numbers together."""
+```
+
 ### Typing
 Use type hints.
 Use `T | None` instead of `Optional[T]`.
+
+```diff
+- foo: Optional[int] = None
++ foo: int | None = None
+```
 
 ### Modal
 Use Modal-compatible patterns for distributed processing.

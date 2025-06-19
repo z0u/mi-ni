@@ -1,4 +1,4 @@
-## Architecture Overview
+# Hither-thither architecture
 
 mi-ni creates a bidirectional flow between local and remote environments. With `@run.hither`, you define functions that always run locally but can be called from remote code. With `@run.thither`, you define functions that always run remotely (with access to GPUs and other cloud resources) but integrate with your local notebook.
 
