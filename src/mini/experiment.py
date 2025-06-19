@@ -116,6 +116,95 @@ class Experiment:
         #     yield log_context
 
     @overload
+    def thither(self, func: AsyncCallable[P, R], /) -> AsyncCallable[P, R]: ...
+    @overload
+    def thither(
+        self,
+        *,
+        guards: list[GuardContext | GuardContextFn[P]] | None = None,
+        **kwargs,
+    ) -> Callable[[AsyncCallable[P, R]], AsyncCallable[P, R]]: ...
+
+    def thither(  # noqa: C901
+        self,
+        func: AsyncCallable[P, R] | None = None,
+        *,
+        guards: list[GuardContext | GuardContextFn[P]] | None = None,
+        **kwargs,
+    ) -> AsyncCallable[P, R] | Callable[[AsyncCallable[P, R]], AsyncCallable[P, R]]:
+        """
+        Decorate a function to always run remotely.
+
+        Args:
+            func: The function to decorate.
+            guards: Guards to run around the function. These are context managers that
+                will be entered before the function is called and exited after it returns.
+                They can be used to set up and tear down resources.
+            **kwargs: Arguments to pass to `modal.App.function`.
+
+        Returns:
+            remote: A function that executes on a remote worker. Must be called
+            inside a `run` context manager.
+        """
+        global_guards = self.guards
+        specific_guards = guards or []
+
+        def decorator(fn: AsyncCallable[P, R]) -> AsyncCallable[P, R]:
+            if 'image' not in kwargs:
+                kwargs['image'] = self.image
+
+            volumes = kwargs.get('volumes', None) or {}
+            kwargs['volumes'] = {**self.volumes, **volumes}
+            fn_id = short_id()
+
+            @self.app.function(**kwargs)
+            @wraps(fn)
+            async def modal_function(run_id, call_id, *_args, **_kwargs):
+                # This is called in the remote container
+
+                # These state messages are an integral part of the output streaming
+                state = CallState(run_id=run_id, fn_name=fn.__name__, fn_id=fn_id, call_id=call_id, state='guard')
+                print(state, flush=True)
+
+                async def guarded_fn() -> R:
+                    return await fn(*_args, **_kwargs)
+
+                for guard in reversed(specific_guards):
+                    guarded_fn = _wrap_with_guard(guarded_fn, guard, fn)
+
+                for guard in reversed(global_guards):
+                    guarded_fn = _wrap_with_guard(guarded_fn, guard, fn)
+
+                state.state = 'start'
+                print(state, flush=True)
+
+                try:
+                    return await guarded_fn()
+                except BaseException as e:
+                    state.state = 'error'
+                    state.msg = str(e)
+                    print(state, flush=True)
+                    raise
+                finally:
+                    state.state = 'end'
+                    print(state, flush=True)
+
+            @wraps(fn)
+            async def local_wrapper(*args, **kwargs):
+                # This is called locally to start the remote function
+                if self._run_id is None:
+                    raise RuntimeError('Experiment is not running.')
+                call_id = short_id()
+                return await modal_function.remote.aio(self._run_id, call_id, *args, **kwargs)
+
+            return local_wrapper
+
+        if func is not None:
+            return decorator(func)
+
+        return decorator
+
+    @overload
     def guard(self, guard: GuardContext, /) -> GuardContext: ...
     @overload
     def guard(self, guard: GuardContextFn[P], /) -> GuardContextFn[P]: ...
@@ -213,95 +302,6 @@ class Experiment:
         # Like _guard_after, but returns the unmodified callback so the type isn't changed
         self._guard_after(callback)
         return callback
-
-    @overload
-    def thither(self, func: AsyncCallable[P, R], /) -> AsyncCallable[P, R]: ...
-    @overload
-    def thither(
-        self,
-        *,
-        guards: list[GuardContext | GuardContextFn[P]] | None = None,
-        **kwargs,
-    ) -> Callable[[AsyncCallable[P, R]], AsyncCallable[P, R]]: ...
-
-    def thither(  # noqa: C901
-        self,
-        func: AsyncCallable[P, R] | None = None,
-        *,
-        guards: list[GuardContext | GuardContextFn[P]] | None = None,
-        **kwargs,
-    ) -> AsyncCallable[P, R] | Callable[[AsyncCallable[P, R]], AsyncCallable[P, R]]:
-        """
-        Decorate a function to always run remotely.
-
-        Args:
-            func: The function to decorate.
-            guards: Guards to run around the function. These are context managers that
-                will be entered before the function is called and exited after it returns.
-                They can be used to set up and tear down resources.
-            **kwargs: Arguments to pass to `modal.App.function`.
-
-        Returns:
-            remote: A function that executes on a remote worker. Must be called
-            inside a `run` context manager.
-        """
-        global_guards = self.guards
-        specific_guards = guards or []
-
-        def decorator(fn: AsyncCallable[P, R]) -> AsyncCallable[P, R]:
-            if 'image' not in kwargs:
-                kwargs['image'] = self.image
-
-            volumes = kwargs.get('volumes', None) or {}
-            kwargs['volumes'] = {**self.volumes, **volumes}
-            fn_id = short_id()
-
-            @self.app.function(**kwargs)
-            @wraps(fn)
-            async def modal_function(run_id, call_id, *_args, **_kwargs):
-                # This is called in the remote container
-
-                # These state messages are an integral part of the output streaming
-                state = CallState(run_id=run_id, fn_name=fn.__name__, fn_id=fn_id, call_id=call_id, state='guard')
-                print(state, flush=True)
-
-                async def guarded_fn() -> R:
-                    return await fn(*_args, **_kwargs)
-
-                for guard in reversed(specific_guards):
-                    guarded_fn = _wrap_with_guard(guarded_fn, guard, fn)
-
-                for guard in reversed(global_guards):
-                    guarded_fn = _wrap_with_guard(guarded_fn, guard, fn)
-
-                state.state = 'start'
-                print(state, flush=True)
-
-                try:
-                    return await guarded_fn()
-                except BaseException as e:
-                    state.state = 'error'
-                    state.msg = str(e)
-                    print(state, flush=True)
-                    raise
-                finally:
-                    state.state = 'end'
-                    print(state, flush=True)
-
-            @wraps(fn)
-            async def local_wrapper(*args, **kwargs):
-                # This is called locally to start the remote function
-                if self._run_id is None:
-                    raise RuntimeError('Experiment is not running.')
-                call_id = short_id()
-                return await modal_function.remote.aio(self._run_id, call_id, *args, **kwargs)
-
-            return local_wrapper
-
-        if func is not None:
-            return decorator(func)
-
-        return decorator
 
 
 def _wrap_with_guard(
