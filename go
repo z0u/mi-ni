@@ -36,20 +36,25 @@ case "${1:-all}" in
     check)
         "$SCRIPT_DIR/format.sh"
         "$SCRIPT_DIR/lint.sh"
-        "$SCRIPT_DIR/deadcode.sh"
         "$SCRIPT_DIR/typecheck.sh"
         "$SCRIPT_DIR/test.sh"
+        "$SCRIPT_DIR/deadcode.sh"
+        ;;
+    build|site)
+        shift
+        "$SCRIPT_DIR/build_site.py" "$@"
         ;;
     *)
         # Important: heredoc indented with tab characters.
         cat <<-EOF 1>&2
-			Usage: $0 {check|lint|format|types|tests}
+			Usage: $0 {check|lint|format|types|tests|build}
 			  install:           install dependencies (uv sync)
 			  check:             run all checks
 			  format [...args]:  format code (ruff format)
 			  lint   [...args]:  run linters (ruff check)
 			  types  [...args]:  check types (pyright)
 			  tests  [...args]:  run tests (pytest)
+			  build  [...args]:  build static site
 			EOF
         exit 1
         ;;

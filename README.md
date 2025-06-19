@@ -64,9 +64,8 @@ First, [open in GitHub Codespaces](https://codespaces.new/z0u/mi-ni). Then:
 ./go auth                  # Authenticate with Modal for remote compute
 ```
 
-Open the [Getting Started notebook][getting-started] and try it out (choose `.venv/bin/python3` as the kernel). For a more complete example, have a look at the [nanoGPT notebook](nanogpt.ipynb).
+Open the [Getting Started notebook](./docs/getting-started.ipynb) and try it out (choose `.venv/bin/python3` as the kernel). For a more complete example, have a look at the [nanoGPT notebook](./docs/nanogpt.ipynb).
 
-[getting-started]: getting-started.ipynb
 [codespaces]: https://github.com/features/codespaces
 
 <details><summary>Virtual environment</summary>
@@ -97,7 +96,7 @@ If you open a Python file before the setup is complete, you may need to restart 
 <details>
 <summary>Working with large files (Git LFS)</summary>
 
-This project is preconfigured to use [Git LFS](https://git-lfs.com). If you commit a matching file, it won't clog up your main Git history. By default, files in `docs/large-assets` are stored in LFS, but you can change that by editing `.gitattributes`.
+This project is preconfigured to use [Git LFS](https://git-lfs.com). If you commit a matching file, it won't clog up your main Git history. By default, files in `docs/large-assets/` are stored in LFS, but you can change that by editing `.gitattributes`.
 
 Typically, you would store _data_ rather than code in LFS:
 

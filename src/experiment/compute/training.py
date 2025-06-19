@@ -76,6 +76,6 @@ def train_model(
             training_tokens=(i + 1) * len(train_loader) * config.data.batch_size * config.model.block_size,
         )
 
-        if i > 0 and i % (config.scheduler.epochs // 4) == 0 or i == config.scheduler.epochs - 1:
+        if i > 0 and i % (config.scheduler.epochs // 50) == 0 or i == config.scheduler.epochs - 1:
             yield 'checkpoint', (model, config, metrics)
         yield 'epoch-end', metrics

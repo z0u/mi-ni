@@ -7,7 +7,8 @@ function prepare() {
         set -x
         mkdir -p .vulture-cache
         rm -r .vulture-cache/* || true
-        uv run python scripts/ipynb_to_py.py *.ipynb .vulture-cache/ >&2
+
+        uv run python scripts/ipynb_to_py.py docs/ .vulture-cache/ >&2
     )
 }
 

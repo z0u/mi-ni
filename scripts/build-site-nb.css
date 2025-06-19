@@ -1,0 +1,55 @@
+/* All notebook cells */
+.jp-Notebook .jp-Cell {
+  /* Center the content */
+  max-width: 50rem;
+  margin-inline: auto;
+
+  h1, h2, h3, h4, h5, h6 {
+    margin-top: 1em;
+  }
+
+  img, video {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+.jp-RenderedHTMLCommon table {
+  margin-left: 0px;
+}
+
+.jp-RenderedMarkdown.jp-MarkdownOutput > table .mjx-full-width {
+  /* MathJax makes table cells too wide by default. */
+  width: auto;
+}
+
+.jp-RenderedHTMLCommon {
+  padding-right: 0rem;
+}
+
+/* Code cells */
+.jp-InputArea-editor pre {
+  overflow-x: auto;
+}
+
+/* Separate prose from code */
+.jp-Cell:not(.jp-mod-noOutputs) .jp-Cell-outputWrapper,
+.jp-CodeCell + .jp-MarkdownCell {
+  margin-top: 20px;
+}
+
+/* Show deep links */
+a.anchor-link {
+  opacity: 0;
+  display: inline;
+  transition: opacity 0.2s ease;
+
+}
+a.anchor-link::after {
+  content: "#";
+  font-size: 0.8em;
+  margin-inline: 0.5em;
+}
+:hover > a.anchor-link {
+  opacity: 1;
+}

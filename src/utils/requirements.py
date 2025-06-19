@@ -99,7 +99,7 @@ def project_packages() -> list[str]:
 
     log.debug('Using tool.hatch.build.targets.wheel.packages')
     paths = [
-        Path(d)
+        root_dir / d
         for d in pyproject.get('tool', {})
         .get('hatch', {})
         .get('build', {})
