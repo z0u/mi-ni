@@ -1,6 +1,5 @@
 import logging
 import sys
-from textwrap import indent
 from typing import Any, AsyncGenerator, Callable, cast
 
 import modal

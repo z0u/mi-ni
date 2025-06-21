@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 
 UL_STYLE = """display: inline-block; list-style-type: none; padding: 0; margin: 0;"""
-LI_STYLE = """display: inline-block; margin-right: 10px; font-size: 1.2em;"""
+LI_STYLE = """display: inline-block; margin-left: 1ex; margin-right: 1ex;"""
 
 
 def app_state_vis(app_info: AppInfo, rate_limit: float = 1.0):
@@ -38,13 +38,13 @@ def app_state_vis(app_info: AppInfo, rate_limit: float = 1.0):
             task_list.append(f'<li title="{html_escape(title)}" style="{html_escape(LI_STYLE)}">{icon}</li>')
 
         html = f"""
-        <a href="{html_escape(str(url))}" title="View Modal dashboard for this app">Running {html_escape(app_info.name)}</a>.
+        <a href="{html_escape(str(url))}" title="View Modal dashboard for this app">Running '{html_escape(app_info.name)}'</a>.
         Tasks:
         <ul style="{html_escape(UL_STYLE)}">
-            {''.join(task_list) if task_list else f'<li title="No tasks" style="{html_escape(LI_STYLE)}">...</li>'}
+            {''.join(task_list) if task_list else f'<li style="{html_escape(LI_STYLE)}">No tasks (maybe building image)</li>'}
         </ul>
-        <p>{html_escape(_message) if _message else '&nbsp;'}</p>
         """
+        # <p>{html_escape(_message) if _message else '&nbsp;'}</p>
         show(HTML(html))
 
     async def update(tasks: Sequence[TaskInfo] | None = None, message: str | None = None):
@@ -92,6 +92,13 @@ def describe_task(task: TaskInfo) -> tuple[str, str]:
             icon = '⚙️'
         else:
             # A task with no function id is probably building an image. Use hammer icon.
+            # ... ACTUALLY, this doesn't really work because the image building logs
+            # aren't streamed; they're sent in bulk at the end. There's a separate API
+            # for streaming them: ImageJoinStreaming.
+            #
+            # See https://github.com/modal-labs/modal-client/blob/5bffa530796500f4761299c36d810cf1c2c599d6/modal/_output.py#L603
+            #
+            # TODO: maybe stream build logs too?
             title = 'Building image'
             icon = '🔨'
     elif task.state == State.ACTIVE:
@@ -139,11 +146,11 @@ class TaskStateTracker:
                 )
                 task_info.root_function_id = item.root_function_id
             if task_info.state != item.state:
-                log.info(f'Task {task_id} state changed from {task_info.state} to {item.state}')
+                log.debug(f'Task {task_id} state changed from {task_info.state} to {item.state}')
                 task_info.state = item.state
                 task_info.last_update = item.timestamp
         else:
-            log.info(f'Task {task_id} initialized as {item.state}')
+            log.debug(f'Task {task_id} initialized as {item.state}')
             self._tasks[task_id] = TaskInfo(
                 task_id=task_id,
                 root_function_id=item.root_function_id,
