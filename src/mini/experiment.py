@@ -5,13 +5,15 @@ from contextlib import asynccontextmanager
 from functools import wraps
 from pathlib import PurePosixPath
 from typing import Callable, Literal, ParamSpec, TypeVar, Union, overload
-from uuid import uuid4 as uuid
 
 import modal
 
-from mini._state import CallState, CallStateError, CallTracker
+from mini._modal.metadata import get_metadata
+from mini._modal.model import FD, AppInfo, LogsItem, StateUpdate
+from mini._modal.output import basic_output_handler, stream_logs
+from mini._modal.task_state import TaskStateTracker, app_state_vis
 from mini.guards import after, before
-from mini.hither import Callback, run_hither
+from mini.hither import run_hither
 from mini.types import (
     AfterGuardDecorator,
     AfterGuardDecoratorFn,
@@ -26,7 +28,6 @@ from mini.types import (
     GuardFn,
     GuardFnExc,
 )
-from mini.urns import is_mini_urn, short_id
 
 T = TypeVar('T')
 P = ParamSpec('P')
@@ -35,11 +36,13 @@ R = TypeVar('R')
 
 log = logging.getLogger(__name__)
 
+# patch_app()
+
 
 class Experiment:
     """A distributed experiment runner."""
 
-    output_handler: Callback[str]
+    output_handler: Callable[[LogsItem], None]
     volumes: dict[str | PurePosixPath, modal.Volume | modal.CloudBucketMount]
     """Default volumes to use for all @thither functions."""
     image: modal.Image | None
@@ -51,13 +54,14 @@ class Experiment:
     guards: list[GuardContext | GuardContextFn[...]]
 
     def __init__(self, name: str):
-        self.app = modal.App(name)
-        self.output_handler = lambda s: print(s, end='')
+        if not name:
+            raise ValueError('Experiment name must not be empty')
+        self.app = modal.app.App(name)
+        self.output_handler = basic_output_handler
         self.volumes = {}
         self.image = None
         self.guards = []
         self.hither = run_hither
-        self._run_id: str | None = None
 
     @property
     def name(self):
@@ -65,27 +69,18 @@ class Experiment:
 
     @asynccontextmanager
     async def __call__(self, shutdown_timeout: float = 10):  # noqa: C901
-        async def consume(run_id: str):
-            fn_tracker = CallTracker(run_id)
-
-            async for output in self.app._logs.aio():
-                lines = output.splitlines(keepends=True)
-                for line in lines:
-                    if is_mini_urn(line):
-                        if CallState.matches(line.strip()):
-                            try:
-                                fn_tracker.handle(CallState.from_urn(line.strip()))
-                            except CallStateError as e:
-                                log.error('Call state error: %s', e)
-                            continue
-
-                    if fn_tracker.any_running():
-                        # Only print output if there are running functions to avoid printing infra messages too
-                        self.output_handler(line)
-                # No need to break: the loop should exit when the app is done
-
-            if fn_tracker.any_active():
-                log.warning("Some functions didn't transition to 'end'. History: %r", fn_tracker.state_history)
+        async def handle_progress(app_info: AppInfo):
+            update_state_vis = app_state_vis(app_info)
+            stateTracker = TaskStateTracker()
+            async for item in stream_logs(self.app):
+                match item:
+                    case LogsItem(fd=FD.INFO):
+                        await update_state_vis(message=item.data.strip())
+                    case LogsItem():
+                        self.output_handler(item)
+                    case StateUpdate():
+                        stateTracker.update(item)
+                        await update_state_vis(stateTracker.tasks)
 
         # 1. Start the app
         # 2. Start consuming logs
@@ -93,10 +88,10 @@ class Experiment:
         # 4. Wait for the logs to finish
 
         task = None
-        self._run_id = str(uuid())[:8]
         try:
             async with self.app.run():
-                task = asyncio.create_task(consume(self._run_id))
+                app_info = get_metadata(self.app)
+                task = asyncio.create_task(handle_progress(app_info))
                 yield
 
         except modal.exception.AuthError as e:
@@ -104,16 +99,12 @@ class Experiment:
             raise
 
         finally:
-            self._run_id = None
             if task is not None:
                 # Can't wait inside the context manager, because the app would still be running
                 try:
                     await asyncio.wait_for(task, timeout=shutdown_timeout)
                 except asyncio.TimeoutError:
                     log.warning(f"Output streaming task didn't complete within {shutdown_timeout}s timeout")
-
-        # async with run_with_logs(self.app, log_handler=self.stdout) as log_context:
-        #     yield log_context
 
     @overload
     def thither(self, func: AsyncCallable[P, R], /) -> AsyncCallable[P, R]: ...
@@ -155,16 +146,11 @@ class Experiment:
 
             volumes = kwargs.get('volumes', None) or {}
             kwargs['volumes'] = {**self.volumes, **volumes}
-            fn_id = short_id()
 
             @self.app.function(**kwargs)
             @wraps(fn)
-            async def modal_function(run_id, call_id, *_args, **_kwargs):
+            async def modal_function(*_args, **_kwargs):
                 # This is called in the remote container
-
-                # These state messages are an integral part of the output streaming
-                state = CallState(run_id=run_id, fn_name=fn.__name__, fn_id=fn_id, call_id=call_id, state='guard')
-                print(state, flush=True)
 
                 async def guarded_fn() -> R:
                     return await fn(*_args, **_kwargs)
@@ -175,27 +161,12 @@ class Experiment:
                 for guard in reversed(global_guards):
                     guarded_fn = _wrap_with_guard(guarded_fn, guard, fn)
 
-                state.state = 'start'
-                print(state, flush=True)
-
-                try:
-                    return await guarded_fn()
-                except BaseException as e:
-                    state.state = 'error'
-                    state.msg = str(e)
-                    print(state, flush=True)
-                    raise
-                finally:
-                    state.state = 'end'
-                    print(state, flush=True)
+                return await guarded_fn()
 
             @wraps(fn)
             async def local_wrapper(*args, **kwargs):
                 # This is called locally to start the remote function
-                if self._run_id is None:
-                    raise RuntimeError('Experiment is not running.')
-                call_id = short_id()
-                return await modal_function.remote.aio(self._run_id, call_id, *args, **kwargs)
+                return await modal_function.remote.aio(*args, **kwargs)
 
             return local_wrapper
 
