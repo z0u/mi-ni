@@ -4,13 +4,14 @@ import logging
 from contextlib import asynccontextmanager
 from functools import wraps
 from pathlib import PurePosixPath
-from typing import Callable, Literal, ParamSpec, TypeVar, Union, overload
+from typing import AsyncGenerator, Callable, Literal, ParamSpec, TypeVar, Union, overload, override
 
 import modal
 
 from mini._modal.metadata import get_metadata
 from mini._modal.model import FD, AppInfo, LogsItem, StateUpdate
 from mini._modal.output import basic_output_handler, stream_logs
+from mini._modal.runner import RunEventHandler, run_app
 from mini._modal.task_state import TaskStateTracker, app_state_vis
 from mini.guards import after, before
 from mini.hither import run_hither
@@ -87,9 +88,23 @@ class Experiment:
         # 3. Yield control to the caller
         # 4. Wait for the logs to finish
 
+        class Handler(RunEventHandler):
+            @override
+            async def on_init(self, app, ctx) -> None:
+                pass
+
+            @override
+            async def on_create(self, app, ctx) -> None:
+                pass
+
+            @override
+            @asynccontextmanager
+            async def on_interrupt(self) -> AsyncGenerator[None, None]:
+                yield
+
         task = None
         try:
-            async with self.app.run():
+            async with run_app(self.app, handler=Handler()):
                 app_info = get_metadata(self.app)
                 task = asyncio.create_task(handle_progress(app_info))
                 yield
