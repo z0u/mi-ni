@@ -198,7 +198,22 @@ def get_progress() -> JobProgress | None:
 class Executor(Protocol):
     """Protocol for running a function over a sweep of inputs."""
 
-    def map(self, fn: Callable[[T], R], inputs: Iterable[T]) -> Iterator[R]: ...
+    def map(self, fn: Callable[..., R], *iterables: Iterable[Any], kwargs: dict[str, Any] | None = None) -> Iterator[R]:
+        """
+        Map *fn* over one or more iterables.
+
+        Like ``concurrent.futures.Executor.map`` and Modal's ``Function.map``:
+        the iterables are zipped together and each tuple is unpacked as
+        positional arguments.  *kwargs* (if given) are forwarded to every
+        call.
+
+        ::
+
+            executor.map(fn, [1, 2, 3])                    # fn(1), fn(2), fn(3)
+            executor.map(fn, [1, 2], ['a', 'b'])            # fn(1, 'a'), fn(2, 'b')
+            executor.map(fn, [1, 2], kwargs={'k': 'v'})     # fn(1, k='v'), fn(2, k='v')
+        """
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -218,20 +233,21 @@ class LocalExecutor:
         self.name = name
         self.max_workers = max_workers
 
-    def map(self, fn: Callable[[T], R], inputs: Iterable[T]) -> Iterator[R]:
-        inputs_list = list(inputs)
-        n = len(inputs_list)
+    def map(self, fn: Callable[..., R], *iterables: Iterable[Any], kwargs: dict[str, Any] | None = None) -> Iterator[R]:
+        kw = kwargs or {}
+        args_list = list(zip(*iterables, strict=False))
+        n = len(args_list)
         if n == 0:
             return
 
         log.info('[%s] Running %d jobs with %d workers', self.name, n, self.max_workers)
         display = ProgressDisplay(n)
 
-        def run_one(index: int, inp: T) -> R:
+        def run_one(index: int, args: tuple) -> R:
             progress = display.job_started(index)
             token = _current_progress.set(progress)
             try:
-                result = fn(inp)
+                result = fn(*args, **kw)
                 display.job_completed(index)
                 return result
             except Exception as e:
@@ -241,7 +257,7 @@ class LocalExecutor:
                 _current_progress.reset(token)
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-            futures: list[Future[R]] = [pool.submit(run_one, i, inp) for i, inp in enumerate(inputs_list)]
+            futures: list[Future[R]] = [pool.submit(run_one, i, args) for i, args in enumerate(args_list)]
             try:
                 for future in futures:
                     yield future.result()
@@ -277,9 +293,9 @@ class ModalExecutor:
         """Return a new executor with additional Modal function kwargs merged in."""
         return ModalExecutor(self.app, {**self.modal_fn_kwargs, **kwargs})
 
-    def map(self, fn: Callable[[T], R], inputs: Iterable[T]) -> Iterator[R]:
-        inputs_list = list(inputs)
-        n = len(inputs_list)
+    def map(self, fn: Callable[..., R], *iterables: Iterable[Any], kwargs: dict[str, Any] | None = None) -> Iterator[R]:
+        iterables_lists: list[list] = [list(it) for it in iterables]
+        n = len(iterables_lists[0]) if iterables_lists else 0
         if n == 0:
             return
 
@@ -294,7 +310,7 @@ class ModalExecutor:
         # job-level completion as results come back.
         with self.app.run():
             try:
-                for i, result in enumerate(modal_fn.map(inputs_list)):
+                for i, result in enumerate(modal_fn.map(*iterables_lists, kwargs=kwargs or {})):
                     display.job_completed(i)
                     yield result
             finally:
