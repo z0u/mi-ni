@@ -66,6 +66,12 @@ class ModalExecutor(Executor):
         }
         self._before_hooks: list[Callable[[], None]] = []
 
+    def clone(self) -> ModalExecutor:
+        new_executor = ModalExecutor(self.app)
+        new_executor.modal_fn_kwargs = self.modal_fn_kwargs.copy()
+        new_executor._before_hooks = self._before_hooks[:]
+        return new_executor
+
     def w(self, **kwargs: Any) -> ModalExecutor:
         """
         Return a new executor with additional Modal function kwargs merged in.
@@ -74,15 +80,13 @@ class ModalExecutor(Executor):
         mapping, and can be used to specify things like GPU requirements or
         timeouts.
         """
-        new_executor = ModalExecutor(self.app)
+        new_executor = self.clone()
         new_executor.modal_fn_kwargs = {**self.modal_fn_kwargs, **kwargs}
-        new_executor._before_hooks = self._before_hooks[:]
         return new_executor
 
     @override
     def before_each(self, hook: Callable[[], None]) -> ModalExecutor:
-        new_executor = ModalExecutor(self.app)
-        new_executor.modal_fn_kwargs = self.modal_fn_kwargs.copy()
+        new_executor = self.clone()
         new_executor._before_hooks = self._before_hooks + [hook]
         return new_executor
 

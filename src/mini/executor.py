@@ -25,11 +25,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import contextvars
+from functools import wraps
 import sys
 import threading
 import time
-from typing import Any, Callable, Iterable, Iterator, Protocol, TypeVar
+from typing import Any, Callable, Iterable, Iterator, ParamSpec, Protocol, TypeVar, overload, overload
 
+P = ParamSpec('P')
 R = TypeVar('R')
 
 __all__ = [
@@ -174,9 +176,14 @@ def get_progress() -> JobProgress | None:
 class Executor(ABC):
     """Protocol for running a function over a sweep of inputs."""
 
-    def run(self, fn: Callable[[], R]) -> R:
+    def run(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         """Run a single function and return its result."""
-        return next(self.map(lambda _: fn(), [None]))
+
+        @wraps(fn)
+        def wrapper(_) -> R:
+            return fn(*args, **kwargs)
+
+        return next(self.map(wrapper, [None]))
 
     @abstractmethod
     def map(
