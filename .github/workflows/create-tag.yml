@@ -1,0 +1,45 @@
+name: Create Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      tag_message:
+        description: 'Tag message'
+        required: true
+        default: 'Release v1.0.0'
+      target_branch:
+        description: 'Target branch to tag'
+        required: true
+        default: 'main'
+
+jobs:
+  create-tag:
+    name: Create and push tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        run: |
+          git tag -a "${{ github.event.inputs.tag_name }}" -m "${{ github.event.inputs.tag_message }}"
+          git push origin "${{ github.event.inputs.tag_name }}"
+
+      - name: Verify tag
+        run: |
+          echo "Tag ${{ github.event.inputs.tag_name }} created successfully!"
+          git show "${{ github.event.inputs.tag_name }}" --stat
