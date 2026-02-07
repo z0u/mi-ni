@@ -3,25 +3,16 @@ name = "utils"
 version = "0.1.0"
 description = "AI experiments"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "ftfy>=6.3.1",
     "jaxtyping>=0.2.38",
-    "modal>=0.73.67",
+    "modal>=1.3",
     "numpy>=2.2.3",
     "pydantic>=2.10.6",
     "requests>=2.32.3",
     "scikit-learn>=1.6.1",
-]
-
-[project.optional-dependencies]
-# define an extra for CPU-only torch, for Codespaces
-torch-cpu = [
-  "torch~=2.6.0",
-]
-# Include the default one too, so that `uv tree` includes cuda packages
-torch = [
-  "torch~=2.6.0",
+    "torch~=2.10.0",
 ]
 
 [dependency-groups]
@@ -51,17 +42,15 @@ pages = [
 ]
 
 [tool.uv]
-conflicts = [
-  [
-    { extra = "torch-cpu" },
-    { extra = "torch" },
-  ],
-]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cpu", extra = "torch-cpu" },
-    # Otherwise, fall back on the default PyPI index.
+    # Use the CPU-only PyTorch index to avoid installing CUDA dependencies The
+    # default Modal image uses the same Python version as is running locally,
+    # and it has the CUDA libraries pre-installed. When running in Modal, torch
+    # should detect the CUDA libraries and use them, even if installed from the
+    # CPU-only index.
+    { index = "pytorch-cpu" },
 ]
 
 [[tool.uv.index]]

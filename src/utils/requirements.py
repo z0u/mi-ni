@@ -78,6 +78,9 @@ def parse_uv_tree_output(output: str, ignore_first: bool) -> list[str]:
         if match:
             pkg_name = match.group(1)
             version = match.group(2)
+            # Strip local version identifier (e.g., +cpu, +cu121) for cross-platform compatibility
+            # Modal and other environments may not have the same local builds available
+            version = version.split('+')[0]
             requirements.add(f'{pkg_name}=={version}')
 
     return sorted(requirements)
