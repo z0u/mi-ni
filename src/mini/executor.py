@@ -23,6 +23,7 @@ Example::
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import contextvars
 import sys
 import threading
@@ -170,9 +171,14 @@ def get_progress() -> JobProgress | None:
 # ---------------------------------------------------------------------------
 
 
-class Executor(Protocol):
+class Executor(ABC):
     """Protocol for running a function over a sweep of inputs."""
 
+    def run(self, fn: Callable[[], R]) -> R:
+        """Run a single function and return its result."""
+        return next(self.map(lambda _: fn(), [None]))
+
+    @abstractmethod
     def map(
         self,
         fn: Callable[..., R],
@@ -192,5 +198,15 @@ class Executor(Protocol):
             executor.map(fn, [1, 2, 3])                    # fn(1), fn(2), fn(3)
             executor.map(fn, [1, 2], ['a', 'b'])            # fn(1, 'a'), fn(2, 'b')
             executor.map(fn, [1, 2], kwargs={'k': 'v'})     # fn(1, k='v'), fn(2, k='v')
+        """
+        ...
+
+    @abstractmethod
+    def before_each(self, hook: Callable[[], None]) -> Executor:
+        """
+        Return a new executor that runs *hook* before each job.
+
+        This is useful for things like configuring logging or setting random
+        seeds on a per-job basis.
         """
         ...

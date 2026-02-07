@@ -1,5 +1,4 @@
-from asyncio import iscoroutinefunction
-from inspect import isasyncgenfunction
+from inspect import iscoroutinefunction, isasyncgenfunction
 import logging
 
 log = logging.getLogger(__name__)

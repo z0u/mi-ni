@@ -13,12 +13,13 @@ Example::
 
 from __future__ import annotations
 
+from functools import wraps
 import logging
-from typing import Any, Callable, Iterable, Iterator, TypeVar
+from typing import Any, Callable, Iterable, Iterator, TypeVar, override
 
 import modal
 
-from mini.executor import ProgressDisplay
+from mini.executor import Executor, ProgressDisplay
 from utils.requirements import freeze, project_packages
 
 log = logging.getLogger(__name__)
@@ -29,17 +30,20 @@ __all__ = ['ModalExecutor']
 
 
 def make_app(name: str) -> modal.App:
-    """Helper to create a Modal app with appropriate defaults for experiment runs."""
-    # image = modal.Image.debian_slim().pip_install(*freeze(all=True)).add_local_python_source(*project_packages())
-    image = (
+    """Helper to create a Modal app."""
+    return modal.App(name)
+
+
+def make_image() -> modal.Image:
+    """Helper to create a Modal image with experiment dependencies."""
+    return (
         modal.Image.debian_slim()
         .pip_install(*freeze(all=True, local=False))
         .add_local_python_source(*project_packages())
     )  # fmt: skip
-    return modal.App(name, image=image)
 
 
-class ModalExecutor:
+class ModalExecutor(Executor):
     """
     Run functions on Modal.
 
@@ -49,19 +53,40 @@ class ModalExecutor:
 
     Usage::
 
-        app = make_app("my-experiment")
-        executor = ModalExecutor(app).with_modal_kwargs(gpu="T4", timeout=3600)
+        executor = ModalExecutor("my-experiment").w(gpu="T4", timeout=3600)
         results = list(executor.map(train, configs))
     """
 
-    def __init__(self, app: modal.App, modal_fn_kwargs: dict[str, Any] | None = None):
-        self.app = app
-        self.modal_fn_kwargs: dict[str, Any] = modal_fn_kwargs or {}
+    app: modal.App
 
-    def with_modal_kwargs(self, **kwargs: Any) -> ModalExecutor:
-        """Return a new executor with additional Modal function kwargs merged in."""
-        return ModalExecutor(self.app, {**self.modal_fn_kwargs, **kwargs})
+    def __init__(self, app: modal.App | str):
+        self.app = modal.App(app) if isinstance(app, str) else app
+        self.modal_fn_kwargs: dict[str, Any] = {
+            'image': make_image(),
+        }
+        self._before_hooks: list[Callable[[], None]] = []
 
+    def w(self, **kwargs: Any) -> ModalExecutor:
+        """
+        Return a new executor with additional Modal function kwargs merged in.
+
+        These kwargs are passed to the ``@app.function()`` decorator when
+        mapping, and can be used to specify things like GPU requirements or
+        timeouts.
+        """
+        new_executor = ModalExecutor(self.app)
+        new_executor.modal_fn_kwargs = {**self.modal_fn_kwargs, **kwargs}
+        new_executor._before_hooks = self._before_hooks[:]
+        return new_executor
+
+    @override
+    def before_each(self, hook: Callable[[], None]) -> ModalExecutor:
+        new_executor = ModalExecutor(self.app)
+        new_executor.modal_fn_kwargs = self.modal_fn_kwargs.copy()
+        new_executor._before_hooks = self._before_hooks + [hook]
+        return new_executor
+
+    @override
     def map(
         self,
         fn: Callable[..., R],
@@ -75,9 +100,16 @@ class ModalExecutor:
 
         log.info('[ModalExecutor] Running %d jobs on Modal', n)
 
+        hooks = self._before_hooks
+        @wraps(fn)
+        def wrapped_fn(*args, **kwargs):
+            for hook in reversed(hooks):
+                hook()
+            return fn(*args, **kwargs)
+
         # Wrap fn as a Modal function.  The decorator must be applied *before*
         # app.run() starts the app.
-        modal_fn = self.app.function(**self.modal_fn_kwargs)(fn)
+        modal_fn = self.app.function(**self.modal_fn_kwargs)(wrapped_fn)
 
         display = ProgressDisplay(n)
         # We don't have per-step progress from Modal, but we can track job-level

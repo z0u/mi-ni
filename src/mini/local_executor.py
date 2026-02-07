@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Any, Callable, Iterable, Iterator, TypeVar
+from typing import Any, Callable, Iterable, Iterator, TypeVar, override
 
-from mini.executor import ProgressDisplay, _current_progress
+from mini.executor import Executor, ProgressDisplay, _current_progress
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ R = TypeVar('R')
 __all__ = ['LocalExecutor']
 
 
-class LocalExecutor:
+class LocalExecutor(Executor):
     """
     Run functions locally using a thread pool.
 
@@ -35,7 +35,15 @@ class LocalExecutor:
     def __init__(self, name: str, max_workers: int = 1):
         self.name = name
         self.max_workers = max_workers
+        self._on_start_hooks: list[Callable[[], None]] = []
 
+    @override
+    def before_each(self, hook: Callable[[], None]) -> LocalExecutor:
+        new_executor = LocalExecutor(self.name, self.max_workers)
+        new_executor._on_start_hooks = self._on_start_hooks + [hook]
+        return new_executor
+
+    @override
     def map(
         self,
         fn: Callable[..., R],
@@ -52,6 +60,8 @@ class LocalExecutor:
         display = ProgressDisplay(n)
 
         def run_one(index: int, args: tuple) -> R:
+            for hook in reversed(self._on_start_hooks):
+                hook()
             progress = display.job_started(index)
             token = _current_progress.set(progress)
             try:
