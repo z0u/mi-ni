@@ -19,13 +19,13 @@ import secrets
 from collections import deque
 from itertools import count
 from queue import Empty
-from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, cast, override
+from typing import Any, Callable, Iterable, TypeVar, cast, override
 
 import modal
 
 from mini._queues import EndOfQueue, QueueLike
 from mini.executor import Executor
-from mini.progress import ProgressMessage, reset_job_context, set_job_context
+from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from utils.requirements import freeze, project_packages
 
@@ -81,6 +81,7 @@ class ModalExecutor(Executor):
         self.app = modal.App(app) if isinstance(app, str) else app
         self.modal_fn_kwargs: dict[str, Any] = {
             'image': make_image(),
+            'max_containers': 1,
         }
         self._before_hooks: list[Callable[[], None]] = []
 
@@ -115,6 +116,7 @@ class ModalExecutor(Executor):
         *iterables: Iterable[Any],
         kwargs: dict[str, Any] | None = None,
     ):
+        # TODO: support lazy iterables
         iterables_lists: list[list] = [list(it) for it in iterables]
         n = len(iterables_lists[0]) if iterables_lists else 0
         if n == 0:
@@ -125,13 +127,23 @@ class ModalExecutor(Executor):
 
         hooks = self._before_hooks
 
-        image = self.modal_fn_kwargs.get('image') or modal.Image.debian_slim()
+        image: modal.Image = self.modal_fn_kwargs.get('image') or modal.Image.debian_slim()
         with modal.enable_output(), self.app.run():
             image.build(self.app)
 
         with modal.Queue.ephemeral() as progress_queue:
             progress_display = RichProgressDisplay(total_jobs=n, queue=ModalQueue(progress_queue))
-            wrapped_fn = _wrap_for_modal(fn, hooks, run_id, queue=progress_display.queue, kwargs=kwargs or {})
+            # Target ~10 emissions/sec overall: interval = max_containers / target_rate_hz
+            max_containers = self.modal_fn_kwargs.get('max_containers', 1)
+            emission_interval = max_containers / 10.0
+            wrapped_fn = _wrap_for_modal(
+                fn,
+                hooks,
+                run_id,
+                queue=progress_display.queue,
+                kwargs=kwargs or {},
+                emission_interval=emission_interval,
+            )
             # The `function` decorator must be applied *before* `app.run()` starts the app.
             modal_fn = self.app.function(serialized=True, **self.modal_fn_kwargs)(wrapped_fn)
 
@@ -146,16 +158,14 @@ def _wrap_for_modal(
     run_id: str,
     queue: QueueLike[ProgressMessage],
     kwargs: dict[str, Any],
+    emission_interval: float,
 ) -> Callable[..., R]:
     # @wraps(fn)  # Don't use wraps: it confuses Modal
     def wrapped_fn(index: int, *args) -> R:
-        tok1, tok2, tok3 = set_job_context(run_id, str(index), queue=queue)
-        try:
+        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval):
             for hook in reversed(hooks):
                 hook()
             return fn(*args, **kwargs)
-        finally:
-            reset_job_context(tok1, tok2, tok3)
 
     return wrapped_fn
 

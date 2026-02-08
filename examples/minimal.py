@@ -1,14 +1,16 @@
 import sys
 import time
+from random import random
 from typing import Literal
 from mini import LocalExecutor, ModalExecutor, emit_progress
 
 
 def train(x: int) -> int:
     """A task that reports progress."""
-    for i in range(10):
-        time.sleep(0.1)
-        emit_progress(i + 1, 10, message=f'processing item {x}')
+    k = 1000
+    for i in range(k):
+        time.sleep((random() + 0.5) / k)
+        emit_progress(i + 1, k, message=f'processing item {x}')
     return x * 2
 
 

@@ -7,15 +7,13 @@ ProgressMessage objects via a queue and rendering them with Rich.
 
 from __future__ import annotations
 
-import os
-import sys
 import threading
 from dataclasses import dataclass
 from queue import Empty, Queue
 from typing import Self
 
 from rich.console import Console
-from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TimeRemainingColumn
+from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TimeRemainingColumn, ProgressColumn, TaskProgressColumn, TimeElapsedColumn
 
 from mini._queues import EndOfQueue, QueueLike
 from mini.progress import ProgressMessage
@@ -104,8 +102,9 @@ class RichProgressDisplay:
         with Progress(
             TextColumn('[progress.description]{task.description}'),
             BarColumn(),
-            DownloadColumn(),
+            TaskProgressColumn(),
             TimeRemainingColumn(),
+            TimeElapsedColumn(),
             console=self.console,
         ) as progress:
             self.progress = progress

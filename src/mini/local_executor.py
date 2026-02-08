@@ -16,16 +16,16 @@ Example::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
 from mini._queues import EndOfQueue, QueueLike
 from mini.executor import Executor
-from mini.progress import ProgressMessage, reset_job_context, set_job_context
+from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 
 log = logging.getLogger(__name__)
@@ -67,6 +67,7 @@ class LocalExecutor(Executor):
         *iterables: Iterable[Any],
         kwargs: dict[str, Any] | None = None,
     ) -> AsyncGenerator[R, None]:
+        # TODO: support lazy iterables
         iterables_lists: list[list] = [list(it) for it in iterables]
         sizes = [len(it) for it in iterables_lists]
         n = min(sizes) if sizes else None
@@ -75,7 +76,16 @@ class LocalExecutor(Executor):
         run_id = secrets.token_hex(4)
 
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())
-        local_fn = _wrap_for_local(fn, self._before_hooks, run_id, progress_display.queue, kwargs=kwargs or {})
+        # Target ~10 emissions/sec overall: interval = max_workers / target_rate_hz
+        emission_interval = self.max_workers / 10.0
+        local_fn = _wrap_for_local(
+            fn,
+            self._before_hooks,
+            run_id,
+            progress_display.queue,
+            kwargs=kwargs or {},
+            emission_interval=emission_interval,
+        )
 
         loop = asyncio.get_running_loop()
 
@@ -97,16 +107,14 @@ def _wrap_for_local(
     run_id: str,
     queue: QueueLike[ProgressMessage],
     kwargs: dict[str, Any],
+    emission_interval: float,
 ) -> Callable[..., R]:
     def run_one(index: int, *args) -> R:
-        tok1, tok2, tok3 = set_job_context(run_id, str(index), queue=queue)
-        try:
+        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval):
             for hook in reversed(hooks):
                 hook()
             result = fn(*args, **kwargs)
             return result
-        finally:
-            reset_job_context(tok1, tok2, tok3)
 
     return run_one
 
