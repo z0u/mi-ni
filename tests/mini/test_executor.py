@@ -1,5 +1,6 @@
 """Tests for the executor module."""
 
+import asyncio
 import contextlib
 import time
 from typing import cast
@@ -18,20 +19,29 @@ import modal
 # ---------------------------------------------------------------------------
 
 
+class _MockModalMap:
+    """Simulates Modal's map interface (sync + async)."""
+
+    def __init__(self, fn):
+        self._fn = fn
+
+    def __call__(self, *input_iterators, kwargs=None, order_outputs=True, return_exceptions=False):
+        kw = kwargs or {}
+        for args in zip(*input_iterators, strict=False):
+            yield self._fn(*args, **kw)
+
+    async def aio(self, *input_iterators, kwargs=None, order_outputs=True, return_exceptions=False):
+        kw = kwargs or {}
+        for args in zip(*input_iterators, strict=False):
+            yield self._fn(*args, **kw)
+
+
 class _MockModalFunction:
     """Simulates ``modal.Function`` produced by ``@app.function()``."""
 
     def __init__(self, fn):
         self._fn = fn
-
-    def map(self, *input_iterators, kwargs=None, order_outputs=True, return_exceptions=False):
-        kw = kwargs or {}
-        for args in zip(*input_iterators, strict=False):
-            yield self._fn(*args, **kw)
-    
-    def aio(self):
-        """Return self for async iteration compatibility."""
-        return self
+        self.map = _MockModalMap(fn)
 
 
 class MockModalImage:
@@ -149,6 +159,16 @@ def test_result_order_preserved(executor):
     """Results are returned in the same order as inputs, not completion order."""
     results = list(executor.map(lambda x: x**2, [3, 1, 4, 1, 5]))
     assert results == [9, 1, 16, 1, 25]
+
+
+def test_amap_materializes(executor):
+    """amap yields results that can be materialized in async contexts."""
+
+    async def collect():
+        return [result async for result in executor.amap(lambda x: x + 1, [1, 2, 3])]
+
+    results = asyncio.run(collect())
+    assert results == [2, 3, 4]
 
 
 def test_complex_objects_as_args(executor):

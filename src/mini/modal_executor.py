@@ -20,7 +20,7 @@ import secrets
 import threading
 from itertools import count
 from queue import Empty
-from typing import Any, Callable, Iterable, Iterator, TypeVar, cast, override
+from typing import Any, AsyncGenerator, Callable, Generator, Iterable, Iterator, TypeVar, cast, override
 
 import modal
 
@@ -45,48 +45,6 @@ def _is_async_context() -> bool:
         return True
     except RuntimeError:
         return False
-
-
-def _run_async_map_in_thread(modal_fn, *args, **kwargs) -> Iterator[Any]:
-    """
-    Run Modal's async map in a separate thread to avoid nested event loop issues.
-
-    This is needed when the executor is used in async contexts like Marimo,
-    which run cells in an async event loop. Modal's synchronous iteration
-    doesn't work in that case, so we run the async version in its own thread.
-    """
-    results_queue: queue_module.Queue = queue_module.Queue()
-    exception_holder: list[Exception] = []
-
-    def run_in_thread():
-        try:
-            async def collect():
-                async for result in modal_fn.map.aio(*args, **kwargs):
-                    results_queue.put(('result', result))
-                results_queue.put(('done', None))
-
-            # Create a new event loop for this thread
-            asyncio.run(collect())
-        except Exception as e:
-            exception_holder.append(e)
-            results_queue.put(('error', e))
-
-    thread = threading.Thread(target=run_in_thread, daemon=True)
-    thread.start()
-
-    while True:
-        msg_type, value = results_queue.get()
-        if msg_type == 'result':
-            yield value
-        elif msg_type == 'done':
-            break
-        elif msg_type == 'error':
-            raise value
-
-    # Wait for thread to finish and check for exceptions
-    thread.join(timeout=1.0)
-    if exception_holder:
-        raise exception_holder[0]
 
 
 def make_app(name: str) -> modal.App:
@@ -152,12 +110,12 @@ class ModalExecutor(Executor):
         return new_executor
 
     @override
-    def map(
+    async def amap(
         self,
         fn: Callable[..., R],
         *iterables: Iterable[Any],
         kwargs: dict[str, Any] | None = None,
-    ) -> Iterator[R]:
+    ):
         iterables_lists: list[list] = [list(it) for it in iterables]
         n = len(iterables_lists[0]) if iterables_lists else 0
         if n == 0:
@@ -179,13 +137,8 @@ class ModalExecutor(Executor):
             modal_fn = self.app.function(serialized=True, **self.modal_fn_kwargs)(wrapped_fn)
 
             with progress_display, self.app.run():
-                # Check if we're in an async context (e.g., Marimo)
-                # If so, use async API in a separate thread to avoid nested event loop issues
-                if _is_async_context():
-                    log.info('[ModalExecutor] Detected async context, using threaded async map')
-                    yield from _run_async_map_in_thread(modal_fn, count(), *iterables_lists)
-                else:
-                    yield from modal_fn.map(count(), *iterables_lists)
+                async for result in modal_fn.map.aio(count(), *iterables_lists):
+                    yield result
 
 
 def _wrap_for_modal(

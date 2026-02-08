@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import logging
 import secrets
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from itertools import count
 from queue import Queue
-from typing import Any, Callable, Iterable, Iterator, Sized, TypeVar, override
+from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
 from mini._queues import EndOfQueue, QueueLike
 from mini.executor import Executor
@@ -61,13 +61,14 @@ class LocalExecutor(Executor):
         return new_executor
 
     @override
-    def map(
+    async def amap(
         self,
         fn: Callable[..., R],
         *iterables: Iterable[Any],
         kwargs: dict[str, Any] | None = None,
-    ) -> Iterator[R]:
-        sizes = [len(it) for it in iterables if isinstance(it, Sized)]
+    ) -> AsyncGenerator[R, None]:
+        iterables_lists: list[list] = [list(it) for it in iterables]
+        sizes = [len(it) for it in iterables_lists]
         n = min(sizes) if sizes else None
 
         log.info('[%s] Running %d jobs with %d workers', self.name, n, self.max_workers)
@@ -76,8 +77,18 @@ class LocalExecutor(Executor):
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())
         local_fn = _wrap_for_local(fn, self._before_hooks, run_id, progress_display.queue, kwargs=kwargs or {})
 
+        loop = asyncio.get_running_loop()
+
         with progress_display, ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-            yield from pool.map(local_fn, count(), *iterables)
+            # Submit all tasks
+            tasks = [
+                loop.run_in_executor(pool, local_fn, i, *args)
+                for i, args in enumerate(zip(*iterables_lists, strict=False))
+            ]
+
+            # Yield results in input order to match map semantics
+            for task in tasks:
+                yield await task
 
 
 def _wrap_for_local(

@@ -51,7 +51,9 @@ class ProgressMessage:
 
 _current_job_id: contextvars.ContextVar[str | None] = contextvars.ContextVar('mini_job_id', default=None)
 _current_run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar('mini_run_id', default=None)
-_progress_queue: contextvars.ContextVar[QueueLike[ProgressMessage] | None] = contextvars.ContextVar('mini_progress_queue', default=None)
+_progress_queue: contextvars.ContextVar[QueueLike[ProgressMessage] | None] = contextvars.ContextVar(
+    'mini_progress_queue', default=None
+)
 
 
 def set_job_context(
