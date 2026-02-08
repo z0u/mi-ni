@@ -1,0 +1,154 @@
+"""
+Display and aggregate progress messages using Rich.
+
+This module provides a live progress display for executors by collecting
+ProgressMessage objects via a queue and rendering them with Rich.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import threading
+from dataclasses import dataclass
+from queue import Empty, Queue
+
+from rich.console import Console
+from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TimeRemainingColumn
+
+from mini._queues import EndOfQueue, QueueLike
+from mini.progress import ProgressMessage
+
+
+def _is_in_notebook() -> bool:
+    """Detect if we're running in a notebook-like environment (Jupyter, IPython, Marimo, etc.)."""
+    try:
+        from IPython.core.getipython import get_ipython
+
+        if get_ipython() is not None:
+            return True
+    except ImportError:
+        pass
+
+    try:
+        import marimo as mo
+
+        if mo.running_in_notebook():
+            return True
+    except ImportError:
+        pass
+
+    return False
+
+
+@dataclass
+class JobState:
+    """State of a single job."""
+
+    step: int = 0
+    total: int = 0
+    message: str = ''
+    task_id: TaskID | None = None
+
+
+class RichProgressDisplay:
+    """
+    Collect progress messages from a queue and display them using Rich.
+
+    This runs in a background thread, periodically polling the queue for
+    new progress messages and updating the Rich display.
+    """
+
+    def __init__(self, total_jobs: int, queue: QueueLike[ProgressMessage] | None = None):
+        self.total_jobs = total_jobs
+        self.queue: QueueLike[ProgressMessage] = queue or Queue()
+        self.jobs: dict[str, JobState] = {}
+        if _is_in_notebook():
+            self.console = Console(force_terminal=True)
+        else:
+            self.console = Console()
+        self.progress: Progress | None = None
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Start the background display thread."""
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, daemon=False)
+        self._thread.start()
+
+    def stop(self, drain_timeout: float = 60.0) -> None:
+        """
+        Stop the background display thread.
+
+        Wait up to *drain_timeout* seconds for all jobs to report completion
+        before signalling the thread to exit.  This prevents the display from
+        tearing down before in-flight progress messages arrive.
+        """
+        self.queue.put(EndOfQueue(), timeout=drain_timeout)
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=drain_timeout)
+        self.console.file.flush()
+
+    def _run(self) -> None:
+        """Main loop for the display thread."""
+        with Progress(
+            TextColumn('[progress.description]{task.description}'),
+            BarColumn(),
+            DownloadColumn(),
+            TimeRemainingColumn(),
+            console=self.console,
+        ) as progress:
+            self.progress = progress
+
+            # Add a task for overall progress
+            overall_task = progress.add_task(
+                '[cyan]Overall progress[/]',
+                total=self.total_jobs or None,
+            )
+
+            completed = 0
+
+            def update(msg: ProgressMessage) -> None:
+                nonlocal completed
+                job_id = msg.job_id
+                if job_id not in self.jobs:
+                    # New job — create a task for it
+                    task_id = progress.add_task(
+                        f'[cyan]Job {job_id}[/]',
+                        total=msg.total if msg.total > 0 else None,
+                    )
+                    self.jobs[job_id] = JobState(task_id=task_id, total=msg.total)
+
+                state = self.jobs[job_id]
+                state.step = msg.step
+                state.message = msg.message
+                if msg.total > 0 and state.total != msg.total:
+                    state.total = msg.total
+
+                # Update the job task
+                if state.task_id is not None and state.total > 0:
+                    desc = f'[cyan]Job {job_id}[/]'
+                    if state.message:
+                        desc += f' — {state.message}'
+                    progress.update(
+                        state.task_id,
+                        completed=state.step,
+                        total=state.total,
+                        description=desc,
+                    )
+
+                # Update overall progress if this job is done
+                if msg.step >= msg.total and msg.total > 0:
+                    completed += 1
+                    progress.update(overall_task, completed=completed)
+
+            while True:
+                try:
+                    msg = self.queue.get(timeout=10.0)
+                    update(msg)
+                except EndOfQueue:
+                    break
+                except Empty:
+                    continue

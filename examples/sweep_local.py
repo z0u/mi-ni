@@ -33,7 +33,8 @@ from experiment.model.gpt import GPT
 from experiment.training.metrics import TrainingMetrics
 from experiment.training.optimizer import configure_optimizer
 from experiment.training.scheduler import configure_scheduler
-from mini.executor import LocalExecutor, get_progress
+from mini.local_executor import LocalExecutor
+from mini.progress import emit_progress
 from utils.logging import SimpleLoggingConfig
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -119,7 +120,7 @@ def train(params: TrainParams) -> TrainResult:
     """
     Train a tiny GPT and return the final metrics.
 
-    Reports progress via mini.executor.get_progress() if available.
+    Reports progress via mini.progress.emit_progress().
     """
     torch.manual_seed(params.seed)
     config = make_config(lr=params.lr, seed=params.seed, epochs=params.epochs)
@@ -151,11 +152,9 @@ def train(params: TrainParams) -> TrainResult:
     optimizer = configure_optimizer(model, config.optimizer)
     scheduler = configure_scheduler(optimizer, config.scheduler, epoch_length=len(train_loader))
 
-    # Progress reporting
-    progress = get_progress()
+    # Progress tracking
     total_steps = config.scheduler.epochs * (len(train_loader) + len(val_loader))
-    if progress:
-        progress.set_total(total_steps)
+    step = 0
 
     # Training loop
     last_metrics = None
@@ -168,8 +167,8 @@ def train(params: TrainParams) -> TrainResult:
             optimizer.step()
             optimizer.zero_grad()
             scheduler.step()
-            if progress:
-                progress.update(1)
+            step += 1
+            emit_progress(step, total_steps)
 
         # Validation
         total_val_loss = 0.0
@@ -179,8 +178,8 @@ def train(params: TrainParams) -> TrainResult:
                 logits = model(xb)
                 loss = criterion(logits.view(-1, logits.size(-1)), yb.view(-1))
                 total_val_loss += loss.item()
-                if progress:
-                    progress.update(1)
+                step += 1
+                emit_progress(step, total_steps)
 
         val_loss = total_val_loss / len(val_loader)
         last_metrics = TrainingMetrics(
@@ -189,8 +188,7 @@ def train(params: TrainParams) -> TrainResult:
             val_loss=val_loss,
             training_tokens=(epoch + 1) * len(train_loader) * config.data.batch_size * config.model.block_size,
         )
-        if progress:
-            progress.set_message(f'epoch {epoch} val_loss={val_loss:.3f}')
+        emit_progress(step, total_steps, message=f'epoch {epoch} val_loss={val_loss:.3f}')
 
     assert last_metrics is not None
     return TrainResult(

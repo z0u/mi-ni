@@ -2,12 +2,14 @@
 
 import contextlib
 import time
+from typing import cast
 
 import pytest
 
-from mini.progress import ProgressDisplay, get_progress
+from mini.progress import emit_progress
 from mini.local_executor import LocalExecutor
 from mini.modal_executor import ModalExecutor
+import modal
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +28,18 @@ class _MockModalFunction:
         kw = kwargs or {}
         for args in zip(*input_iterators, strict=False):
             yield self._fn(*args, **kw)
+    
+    def aio(self):
+        """Return self for async iteration compatibility."""
+        return self
+
+
+class MockModalImage:
+    """Simulates ``modal.Image`` for testing."""
+
+    def build(self, app):
+        """No-op build for testing."""
+        pass
 
 
 class MockModalApp:
@@ -33,6 +47,7 @@ class MockModalApp:
 
     def __init__(self, name: str = 'test'):
         self.name = name
+        self.app_id = 'mock-app-id'  # Add app_id for newer Modal versions
 
     def function(self, **decorator_kwargs):
         def decorator(fn):
@@ -54,7 +69,10 @@ def _make_local():
 
 
 def _make_modal():
-    return ModalExecutor(MockModalApp())
+    executor = ModalExecutor(cast(modal.App, MockModalApp()))
+    # Provide a mock image to avoid real Modal API calls in tests
+    executor.modal_fn_kwargs['image'] = MockModalImage()
+    return executor
 
 
 @pytest.fixture(params=['local', 'modal'], ids=['LocalExecutor', 'ModalExecutor'])
@@ -163,25 +181,23 @@ def test_local_executor_concurrent():
     assert elapsed < 0.25
 
 
-def test_local_executor_progress_context():
-    """Mapped functions can access progress via get_progress()."""
+def test_local_executor_progress_emission():
+    """Mapped functions can emit progress messages."""
     executor = LocalExecutor('test', max_workers=1)
 
     def fn_with_progress(x):
-        progress = get_progress()
-        assert progress is not None
-        progress.set_total(10)
         for i in range(10):
-            progress.update(1, message=f'step {i}')
+            emit_progress(i, 10, message=f'step {i}')
         return x
 
     results = list(executor.map(fn_with_progress, [1, 2]))
     assert results == [1, 2]
 
 
-def test_progress_not_set_outside_executor():
-    """get_progress() returns None when not inside an executor."""
-    assert get_progress() is None
+def test_progress_emission_outside_executor():
+    """emit_progress() silently does nothing when not inside an executor."""
+    # Should not raise an exception
+    emit_progress(0, 10, message='test')
 
 
 def test_local_executor_exception_propagates():
@@ -200,23 +216,3 @@ def test_local_executor_exception_propagates():
     except ValueError:
         pass
     assert results == [1]
-
-
-# ---------------------------------------------------------------------------
-# ProgressDisplay tests
-# ---------------------------------------------------------------------------
-
-
-def test_progress_display_lifecycle():
-    """ProgressDisplay tracks job lifecycle."""
-    display = ProgressDisplay(2)
-    p0 = display.job_started(0)
-    p0.set_total(5)
-    p0.update(3, message='halfway')
-    display.job_completed(0)
-
-    display.job_started(1)
-    display.job_failed(1, 'oops')
-    display.finish()
-
-    # Just verify it doesn't crash; output goes to stderr

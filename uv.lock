@@ -2634,6 +2634,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
     { name = "requests" },
+    { name = "rich" },
     { name = "scikit-learn" },
     { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
@@ -2672,6 +2673,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.3" },
     { name = "pydantic", specifier = ">=2.10.6" },
     { name = "requests", specifier = ">=2.32.3" },
+    { name = "rich", specifier = ">=14.3.2" },
     { name = "scikit-learn", specifier = ">=1.6.1" },
     { name = "torch", specifier = "~=2.10.0", index = "https://download.pytorch.org/whl/cpu" },
 ]

@@ -1,5 +1,5 @@
 from mini.executor import Executor
-from mini.progress import ProgressDisplay, get_progress
+from mini.progress import ProgressMessage, emit_progress
 from mini.experiment import Experiment
 from mini.hither import AsyncCallback, AsyncBatchCallback, Callback
 from mini.local_executor import LocalExecutor
@@ -13,6 +13,6 @@ __all__ = [
     'Experiment',
     'LocalExecutor',
     'ModalExecutor',
-    'ProgressDisplay',
-    'get_progress',
+    'ProgressMessage',
+    'emit_progress',
 ]

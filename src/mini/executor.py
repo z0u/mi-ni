@@ -3,21 +3,16 @@ Executor protocol and progress reporting infrastructure.
 
 Provides shared components for executor implementations:
 - ``Executor`` protocol defining the map interface
-- ``ProgressDisplay`` for tracking concurrent job progress
-- ``get_progress()`` for mapped functions to report progress
+- ``emit_progress()`` for jobs to report progress
 
 Example::
 
-    from mini.executor import get_progress
+    from mini.progress import emit_progress
 
-    def train(params):
-        progress = get_progress()
-        if progress:
-            progress.set_total(100)
+    def train(config):
         for epoch in range(100):
             ...
-            if progress:
-                progress.update(1, message=f"loss={loss:.4f}")
+            emit_progress(epoch, 100, message=f"loss={loss:.4f}")
         return result
 """
 

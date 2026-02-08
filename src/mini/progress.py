@@ -1,141 +1,108 @@
 from __future__ import annotations
 
 import contextvars
-import sys
-import threading
-import time
+from dataclasses import dataclass
+
+from mini._queues import QueueLike
+from mini.urns import matches_urn, parse_urn, to_urn
 
 # ---------------------------------------------------------------------------
-# Progress reporting
+# Progress message — unified format for all executors
 # ---------------------------------------------------------------------------
 
 
-class ProgressDisplay:
+@dataclass
+class ProgressMessage:
+    """Structured progress update from a job."""
+
+    run_id: str
+    job_id: str
+    step: int
+    total: int
+    message: str = ''
+
+    def __str__(self) -> str:
+        return self.to_urn()
+
+    def to_urn(self) -> str:
+        """Convert to a URN."""
+        return to_urn(
+            'mini', 'run', self.run_id, 'progress', self.job_id, str(self.step), str(self.total), self.message
+        )
+
+    @classmethod
+    def matches(cls, message: str) -> bool:
+        return matches_urn(message, 'mini:run:*:progress:*:*:*:*')
+
+    @classmethod
+    def from_urn(cls, message: str) -> ProgressMessage:
+        """Convert from a URN."""
+        parts = parse_urn(message)
+        match parts:
+            case ('mini', 'run', run_id, 'progress', job_id, step, total, msg):
+                return cls(run_id=run_id, job_id=job_id, step=int(step), total=int(total), message=msg)
+            case _:
+                raise ValueError(f'Invalid progress message format: {message}')
+
+
+# ---------------------------------------------------------------------------
+# Context variables — track current job and optional progress queue
+# ---------------------------------------------------------------------------
+
+_current_job_id: contextvars.ContextVar[str | None] = contextvars.ContextVar('mini_job_id', default=None)
+_current_run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar('mini_run_id', default=None)
+_progress_queue: contextvars.ContextVar[QueueLike[ProgressMessage] | None] = contextvars.ContextVar('mini_progress_queue', default=None)
+
+
+def set_job_context(
+    run_id: str, job_id: str, queue: QueueLike[ProgressMessage] | None = None
+) -> tuple[contextvars.Token, contextvars.Token, contextvars.Token | None]:
+    """Set the current job context. Returns tokens for resetting."""
+    token1 = _current_run_id.set(run_id)
+    token2 = _current_job_id.set(job_id)
+    token3 = _progress_queue.set(queue) if queue is not None else None
+    return token1, token2, token3
+
+
+def reset_job_context(token1: contextvars.Token, token2: contextvars.Token, token3: contextvars.Token | None = None):
+    """Reset the current job context using the given tokens."""
+    _current_run_id.reset(token1)
+    _current_job_id.reset(token2)
+    if token3 is not None:
+        _progress_queue.reset(token3)
+
+
+def emit_progress(step: int, total: int, message: str = ''):
     """
-    Aggregate progress from concurrent jobs and render a live status line.
+    Emit a progress update for the current job.
 
-    Each job gets a slot identified by its index.  Jobs report progress via
-    ``update()``, and the display refreshes on every update.
+    Must be called within a job context where run_id and job_id are set.
+    If a progress queue is available (via set_progress_queue), the message
+    is queued; otherwise it's printed to stdout.
     """
+    run_id = _current_run_id.get()
+    job_id = _current_job_id.get()
 
-    def __init__(self, total_jobs: int):
-        self._total_jobs = total_jobs
-        self._completed = 0
-        self._jobs: dict[int, _JobState] = {}
-        self._lock = threading.Lock()
-        self._start = time.monotonic()
-        self._last_line_len = 0
+    if run_id is None or job_id is None:
+        # Silently ignore if not in a job context (e.g., running outside an executor)
+        return
 
-    def job_started(self, job_index: int) -> JobProgress:
-        with self._lock:
-            state = _JobState()
-            self._jobs[job_index] = state
-            self._render()
-            return JobProgress(job_index, state, self)
+    progress = ProgressMessage(run_id=run_id, job_id=job_id, step=step, total=total, message=message)
 
-    def job_completed(self, job_index: int):
-        with self._lock:
-            self._completed += 1
-            if job_index in self._jobs:
-                self._jobs[job_index].status = 'done'
-            self._render()
-
-    def job_failed(self, job_index: int, error: str):
-        with self._lock:
-            self._completed += 1
-            if job_index in self._jobs:
-                self._jobs[job_index].status = f'FAILED: {error}'
-            self._render()
-
-    def _refresh(self):
-        """Thread-safe render (acquires the lock)."""
-        with self._lock:
-            self._render()
-
-    def _render(self):
-        """Render the status line.  Caller must hold ``_lock``."""
-        elapsed = time.monotonic() - self._start
-        parts: list[str] = []
-        active = [(idx, s) for idx, s in sorted(self._jobs.items()) if s.status == 'running']
-        for idx, s in active[:4]:
-            if s.total:
-                pct = min(s.step / s.total, 1.0) * 100
-                bar_filled = int(pct / 5)
-                bar = '#' * bar_filled + '-' * (20 - bar_filled)
-                detail = f'[{bar}] {pct:4.0f}%'
-            else:
-                detail = '...'
-            msg = f' {s.message}' if s.message else ''
-            parts.append(f'job {idx}: {detail}{msg}')
-
-        status = f'[{elapsed:5.0f}s] {self._completed}/{self._total_jobs} done'
-        if parts:
-            status += ' | ' + ' | '.join(parts)
-
-        # Overwrite the previous line
-        padding = max(0, self._last_line_len - len(status))
-        print(f'\r{status}{" " * padding}', end='', flush=True, file=sys.stderr)
-        self._last_line_len = len(status)
-
-    def finish(self):
-        with self._lock:
-            self._render()
-            print(file=sys.stderr)  # final newline
+    # Try to queue the message if a queue is available
+    queue = _progress_queue.get()
+    if queue is not None:
+        queue.put(progress)
+    else:
+        # Fall back to printing
+        print(progress, flush=True)
 
 
-class _JobState:
-    __slots__ = ('step', 'total', 'message', 'status')
-
-    def __init__(self):
-        self.step = 0
-        self.total = 0
-        self.message = ''
-        self.status = 'running'
+def set_progress_queue(queue: QueueLike[ProgressMessage]) -> contextvars.Token:
+    """Set a queue for collecting progress messages. Returns a token for resetting."""
+    return _progress_queue.set(queue)
 
 
-class JobProgress:
-    """Handle for a single job to report its progress.  Thread-safe."""
-
-    def __init__(self, job_index: int, state: _JobState, display: ProgressDisplay):
-        self._index = job_index
-        self._state = state
-        self._display = display
-
-    def set_total(self, total: int):
-        self._state.total = total
-        self._display._refresh()
-
-    def update(self, n: int = 1, message: str | None = None):
-        self._state.step += n
-        if message is not None:
-            self._state.message = message
-        self._display._refresh()
-
-    def set_message(self, message: str):
-        self._state.message = message
-        self._display._refresh()
-
-
-# ---------------------------------------------------------------------------
-# Context variable — lets mapped functions report progress without needing
-# an explicit callback argument.
-# ---------------------------------------------------------------------------
-
-_current_progress: contextvars.ContextVar[JobProgress | None] = contextvars.ContextVar(
-    'mini_job_progress', default=None
-)
-
-
-def get_progress() -> JobProgress | None:
-    """Get the current job's progress handle, or ``None`` if not in an executor."""
-    return _current_progress.get()
-
-
-def set_progress(progress: JobProgress | None) -> contextvars.Token:
-    """Set the current job's progress handle.  Returns a token for resetting."""
-    return _current_progress.set(progress)
-
-
-def reset_progress(token: contextvars.Token):
-    """Reset the current job's progress handle using the given token."""
-    _current_progress.reset(token)
+def reset_progress_queue(token: contextvars.Token):
+    """Reset the progress queue using the given token."""
+    _progress_queue.reset(token)
