@@ -12,6 +12,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from queue import Empty, Queue
+from typing import Self
 
 from rich.console import Console
 from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TimeRemainingColumn
@@ -70,6 +71,13 @@ class RichProgressDisplay:
         self.progress: Progress | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> Self:
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.stop()
 
     def start(self) -> None:
         """Start the background display thread."""

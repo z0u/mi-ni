@@ -178,18 +178,14 @@ class ModalExecutor(Executor):
             # The `function` decorator must be applied *before* `app.run()` starts the app.
             modal_fn = self.app.function(serialized=True, **self.modal_fn_kwargs)(wrapped_fn)
 
-            with self.app.run():
-                progress_display.start()
-                try:
-                    # Check if we're in an async context (e.g., Marimo)
-                    # If so, use async API in a separate thread to avoid nested event loop issues
-                    if _is_async_context():
-                        log.info('[ModalExecutor] Detected async context, using threaded async map')
-                        yield from _run_async_map_in_thread(modal_fn, count(), *iterables_lists)
-                    else:
-                        yield from modal_fn.map(count(), *iterables_lists)
-                finally:
-                    progress_display.stop()
+            with progress_display, self.app.run():
+                # Check if we're in an async context (e.g., Marimo)
+                # If so, use async API in a separate thread to avoid nested event loop issues
+                if _is_async_context():
+                    log.info('[ModalExecutor] Detected async context, using threaded async map')
+                    yield from _run_async_map_in_thread(modal_fn, count(), *iterables_lists)
+                else:
+                    yield from modal_fn.map(count(), *iterables_lists)
 
 
 def _wrap_for_modal(

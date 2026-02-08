@@ -76,12 +76,8 @@ class LocalExecutor(Executor):
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())
         local_fn = _wrap_for_local(fn, self._before_hooks, run_id, progress_display.queue, kwargs=kwargs or {})
 
-        progress_display.start()
-        try:
-            with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-                yield from pool.map(local_fn, count(), *iterables)
-        finally:
-            progress_display.stop()
+        with progress_display, ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            yield from pool.map(local_fn, count(), *iterables)
 
 
 def _wrap_for_local(
