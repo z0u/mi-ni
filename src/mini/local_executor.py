@@ -15,7 +15,8 @@ import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, Iterable, Iterator, TypeVar, override
 
-from mini.executor import Executor, ProgressDisplay, _current_progress
+from mini.executor import Executor
+from mini.progress import ProgressDisplay, get_progress, set_progress, reset_progress
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ class LocalExecutor(Executor):
             for hook in reversed(self._on_start_hooks):
                 hook()
             progress = display.job_started(index)
-            token = _current_progress.set(progress)
+            token = set_progress(progress)
             try:
                 result = fn(*args, **kw)
                 display.job_completed(index)
@@ -72,7 +73,7 @@ class LocalExecutor(Executor):
                 display.job_failed(index, str(e)[:80])
                 raise
             finally:
-                _current_progress.reset(token)
+                reset_progress(token)
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             futures: list[Future[R]] = [pool.submit(run_one, i, args) for i, args in enumerate(args_list)]

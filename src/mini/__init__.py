@@ -1,4 +1,5 @@
-from mini.executor import Executor, ProgressDisplay, get_progress
+from mini.executor import Executor
+from mini.progress import ProgressDisplay, get_progress
 from mini.experiment import Experiment
 from mini.hither import AsyncCallback, AsyncBatchCallback, Callback
 from mini.local_executor import LocalExecutor

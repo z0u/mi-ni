@@ -19,7 +19,8 @@ from typing import Any, Callable, Iterable, Iterator, TypeVar, override
 
 import modal
 
-from mini.executor import Executor, ProgressDisplay
+from mini.executor import Executor
+from mini.progress import ProgressDisplay
 from utils.requirements import freeze, project_packages
 
 log = logging.getLogger(__name__)

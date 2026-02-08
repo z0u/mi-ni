@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from mini.executor import ProgressDisplay, get_progress
+from mini.progress import ProgressDisplay, get_progress
 from mini.local_executor import LocalExecutor
 from mini.modal_executor import ModalExecutor
 
