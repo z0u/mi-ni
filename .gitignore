@@ -5,4 +5,6 @@ __pycache__
 .vulture-cache
 .install.sh.rc
 _site/
-__marimo__
+__marimo__/
+lightning_logs/
+wandb/
