@@ -9,7 +9,7 @@ This is a template repository for doing AI research. Features:
 - **Inline visualization** with remote-to-local callbacks
 - **AI-assisted coding** with Copilot/VS Code
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni/tree/v1)
 
 &nbsp;
 
