@@ -60,8 +60,8 @@ async with run(), track as callback:
 First, [open in GitHub Codespaces](https://codespaces.new/z0u/mi-ni). Then:
 
 ```bash
-./go install --device=cpu  # CPU deps for local venv
-./go auth                  # Authenticate with Modal for remote compute
+./go install  # CPU deps for local venv
+./go auth     # Authenticate with Modal for remote compute
 ```
 
 Open the [Getting Started notebook](./docs/getting-started.ipynb) and try it out (choose `.venv/bin/python3` as the kernel). For a more complete example, have a look at the [nanoGPT notebook](./docs/nanogpt.ipynb).

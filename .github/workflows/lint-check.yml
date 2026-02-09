@@ -19,7 +19,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
-        run: ./go install --device=cpu
+        run: ./go install
 
       - name: Formatting
         run: ./go format --check
