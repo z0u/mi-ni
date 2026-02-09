@@ -55,6 +55,32 @@ class MockModalImage:
         pass
 
 
+class MockModalQueue:
+    """Simulates ``modal.Queue`` for testing."""
+
+    def __init__(self):
+        self._items = []
+
+    def put(self, item, block=True, timeout=None):
+        del block, timeout
+        self._items.append(item)
+
+    def get_many(self, batch_size, block=True, timeout=None):
+        del block, timeout
+        result = self._items[:batch_size]
+        self._items = self._items[batch_size:]
+        return result
+
+    def len(self):
+        return len(self._items)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def ephemeral():
+        """Return a mock ephemeral queue."""
+        yield MockModalQueue()
+
+
 class MockModalApp:
     """Simulates ``modal.App`` for testing."""
 
@@ -83,7 +109,9 @@ def _make_local():
     return LocalApparatus('test', max_workers=1)
 
 
-def _make_modal():
+def _make_modal(monkeypatch):
+    monkeypatch.setattr('modal.Queue', MockModalQueue)
+    monkeypatch.setattr('modal.enable_output', contextlib.nullcontext)
     executor = ModalApparatus(cast(modal.App, MockModalApp()))
     # Provide a mock image to avoid real Modal API calls in tests
     executor.modal_fn_kwargs['image'] = MockModalImage()
@@ -91,10 +119,10 @@ def _make_modal():
 
 
 @pytest.fixture(params=['local', 'modal'], ids=['LocalApparatus', 'ModalApparatus'])
-def apparatus(request):
+def apparatus(request, monkeypatch):
     if request.param == 'local':
         return _make_local()
-    return _make_modal()
+    return _make_modal(monkeypatch)
 
 
 # ---------------------------------------------------------------------------
