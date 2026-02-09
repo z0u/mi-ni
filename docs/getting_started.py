@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = "0.19.9"
-app = marimo.App(width="medium")
+__generated_with = '0.19.9'
+app = marimo.App(width='medium')
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -55,7 +55,7 @@ def train(x: int) -> int:
     """A task that reports progress."""
     k = 10
     for i in range(k):
-        time.sleep(1/k)
+        time.sleep(1 / k)
         emit_progress(i + 1, 10, message=f'processing item {x}')
     return x * 2
 
@@ -95,5 +95,5 @@ def _():
     return (app_type,)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run()

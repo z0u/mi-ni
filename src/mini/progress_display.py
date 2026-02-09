@@ -13,7 +13,15 @@ from queue import Empty, Queue
 from typing import Self
 
 from rich.console import Console
-from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TimeRemainingColumn, ProgressColumn, TaskProgressColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskID,
+    TextColumn,
+    TimeRemainingColumn,
+    TaskProgressColumn,
+    TimeElapsedColumn,
+)
 
 from mini._queues import EndOfQueue, QueueLike
 from mini.progress import ProgressMessage
