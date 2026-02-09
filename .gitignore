@@ -5,3 +5,4 @@ __pycache__
 .vulture-cache
 .install.sh.rc
 _site/
+__marimo__

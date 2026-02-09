@@ -1,17 +1,12 @@
 """
-Local executor for running experiment sweeps with thread-based concurrency.
+Apparatus for running sweeps locally with thread-based concurrency.
 
 Example::
 
-    from mini.local_executor import LocalExecutor
+    from mini.local_apparatus import LocalApparatus
 
-    executor = LocalExecutor("my-experiment", max_workers=4)
-
-    # Progress bars are shown automatically when running in a terminal
-    results = list(executor.map(train, configs))
-
-    # Disable progress display if needed
-    executor = LocalExecutor("my-experiment", max_workers=4, show_progress=False)
+    app = LocalApparatus("my-experiment", max_workers=4)
+    results = list(app.map(train, configs))
 """
 
 from __future__ import annotations
@@ -24,7 +19,7 @@ from queue import Queue
 from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
 from mini._queues import EndOfQueue, QueueLike
-from mini.executor import Executor
+from mini.apparatus import Apparatus
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 
@@ -33,10 +28,10 @@ log = logging.getLogger(__name__)
 T = TypeVar('T')
 R = TypeVar('R')
 
-__all__ = ['LocalExecutor']
+__all__ = ['LocalApparatus']
 
 
-class LocalExecutor(Executor):
+class LocalApparatus(Apparatus):
     """
     Run functions locally using a thread pool.
 
@@ -49,16 +44,19 @@ class LocalExecutor(Executor):
         self.max_workers = max_workers
         self._before_hooks: list[Callable[[], None]] = []
 
-    def clone(self) -> LocalExecutor:
-        new_executor = LocalExecutor(self.name, self.max_workers)
-        new_executor._before_hooks = self._before_hooks[:]
-        return new_executor
+    def __str__(self) -> str:
+        return f'Local apparatus "{self.name}"'
+
+    def clone(self) -> LocalApparatus:
+        new_app = LocalApparatus(self.name, self.max_workers)
+        new_app._before_hooks = self._before_hooks[:]
+        return new_app
 
     @override
-    def before_each(self, hook: Callable[[], None]) -> LocalExecutor:
-        new_executor = self.clone()
-        new_executor._before_hooks = self._before_hooks + [hook]
-        return new_executor
+    def before_each(self, hook: Callable[[], None]) -> LocalApparatus:
+        new_app = self.clone()
+        new_app._before_hooks = self._before_hooks + [hook]
+        return new_app
 
     @override
     async def amap(
@@ -72,7 +70,7 @@ class LocalExecutor(Executor):
         sizes = [len(it) for it in iterables_lists]
         n = min(sizes) if sizes else None
 
-        log.info('[%s] Running %d jobs with %d workers', self.name, n, self.max_workers)
+        log.info('Running %d jobs with %d workers', n, self.max_workers)
         run_id = secrets.token_hex(4)
 
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())

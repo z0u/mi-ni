@@ -28,11 +28,11 @@ R = TypeVar('R')
 
 
 # ---------------------------------------------------------------------------
-# Executor protocol
+# Apparatus protocol
 # ---------------------------------------------------------------------------
 
 
-class Executor(ABC):
+class Apparatus(ABC):
     """Protocol for running a function over a sweep of inputs."""
 
     def run(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
@@ -96,7 +96,7 @@ class Executor(ABC):
         yield from _map_in_thread(self, fn, *iterables, kwargs=kwargs)
 
     @abstractmethod
-    def before_each(self, hook: Callable[[], None]) -> Executor:
+    def before_each(self, hook: Callable[[], None]) -> Apparatus:
         """
         Return a new executor that runs *hook* before each job.
 
@@ -107,7 +107,7 @@ class Executor(ABC):
 
 
 def _map_in_thread(
-    executor: Executor,
+    executor: Apparatus,
     fn: Callable[..., R],
     *iterables: Iterable[Any],
     kwargs: dict[str, Any] | None,
@@ -149,7 +149,7 @@ def _map_in_thread(
 
 
 def _map_with_new_loop(
-    executor: Executor,
+    executor: Apparatus,
     fn: Callable[..., R],
     *iterables: Iterable[Any],
     kwargs: dict[str, Any] | None,

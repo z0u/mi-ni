@@ -1,14 +1,12 @@
 """
-Modal executor for running experiment sweeps on Modal infrastructure.
+Apparatus for running sweeps on Modal infrastructure.
 
 Example::
 
-    import modal
-    from mini.modal_executor import ModalExecutor
+    from mini.modal_apparatus import ModalApparatus
 
-    app = modal.App("my-experiment")
-    executor = ModalExecutor(app).with_modal_kwargs(gpu="T4", timeout=3600)
-    results = list(executor.map(train, configs))
+    app = ModalApparatus("my-experiment").w(gpu="T4", timeout=3600)
+    results = list(app.map(train, configs))
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ from typing import Any, Callable, Iterable, TypeVar, cast, override
 import modal
 
 from mini._queues import EndOfQueue, QueueLike
-from mini.executor import Executor
+from mini.apparatus import Apparatus
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from utils.requirements import freeze, project_packages
@@ -34,7 +32,7 @@ log = logging.getLogger(__name__)
 T = TypeVar('T')
 R = TypeVar('R')
 
-__all__ = ['ModalExecutor']
+__all__ = ['ModalApparatus']
 
 
 def _is_async_context() -> bool:
@@ -60,7 +58,7 @@ def make_image() -> modal.Image:
     )  # fmt: skip
 
 
-class ModalExecutor(Executor):
+class ModalApparatus(Apparatus):
     """
     Run functions on Modal.
 
@@ -71,8 +69,8 @@ class ModalExecutor(Executor):
 
     Usage::
 
-        executor = ModalExecutor("my-experiment", show_progress=True).w(gpu="T4", timeout=3600)
-        results = list(executor.map(train, configs))
+        app = ModalApparatus("my-experiment", show_progress=True).w(gpu="T4", timeout=3600)
+        results = list(app.map(train, configs))
     """
 
     app: modal.App
@@ -85,13 +83,16 @@ class ModalExecutor(Executor):
         }
         self._before_hooks: list[Callable[[], None]] = []
 
-    def clone(self) -> ModalExecutor:
-        new_executor = ModalExecutor(self.app)
+    def __str__(self) -> str:
+        return f'Modal apparatus "{self.app.name}"'
+
+    def clone(self) -> ModalApparatus:
+        new_executor = ModalApparatus(self.app)
         new_executor.modal_fn_kwargs = self.modal_fn_kwargs.copy()
         new_executor._before_hooks = self._before_hooks[:]
         return new_executor
 
-    def w(self, **kwargs: Any) -> ModalExecutor:
+    def w(self, **kwargs: Any) -> ModalApparatus:
         """
         Return a new executor with additional Modal function kwargs merged in.
 
@@ -104,7 +105,7 @@ class ModalExecutor(Executor):
         return new_executor
 
     @override
-    def before_each(self, hook: Callable[[], None]) -> ModalExecutor:
+    def before_each(self, hook: Callable[[], None]) -> ModalApparatus:
         new_executor = self.clone()
         new_executor._before_hooks = self._before_hooks + [hook]
         return new_executor
@@ -122,7 +123,7 @@ class ModalExecutor(Executor):
         if n == 0:
             return
 
-        log.info('[ModalExecutor] Running %d jobs on Modal', n)
+        log.info('Running %d jobs on Modal', n)
         run_id = secrets.token_hex(4)
 
         hooks = self._before_hooks
