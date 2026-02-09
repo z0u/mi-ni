@@ -6,6 +6,7 @@ from functools import wraps
 from pathlib import PurePosixPath
 from typing import Callable, Literal, ParamSpec, TypeVar, Union, overload
 from uuid import uuid4 as uuid
+from warnings import deprecated
 
 import modal
 
@@ -36,6 +37,7 @@ R = TypeVar('R')
 log = logging.getLogger(__name__)
 
 
+@deprecated('Deprecated. Use Executor instead.')
 class Experiment:
     """A distributed experiment runner."""
 

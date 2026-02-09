@@ -71,7 +71,7 @@ def train_model(
 
         metrics = TrainingMetrics(
             epoch=i,
-            learning_rate=scheduler.get_last_lr()[0],
+            learning_rate=float(scheduler.get_last_lr()[0]),
             val_loss=total_val_loss / len(val_loader),
             training_tokens=(i + 1) * len(train_loader) * config.data.batch_size * config.model.block_size,
         )

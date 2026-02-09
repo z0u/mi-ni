@@ -17,7 +17,7 @@ set -euo pipefail
 
     # Initialize Python environment.
     uv venv --allow-existing < /dev/null
-    ./go install --device=cpu < /dev/null
+    ./go install < /dev/null
 )
 
 echo "Virtual environment created. You may need to restart the Python language server."
