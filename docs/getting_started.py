@@ -91,7 +91,11 @@ def _():
 
 @app.cell
 def _():
-    app_type = mo.ui.dropdown(label='App type', options=['local', 'modal'], value='local')
+    app_type = mo.ui.dropdown(
+        label='App type',
+        options=['local', 'modal'],
+        value=mo.cli_args().get('app', 'local'),
+    )
     return (app_type,)
 
 
