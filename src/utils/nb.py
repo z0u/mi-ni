@@ -7,6 +7,9 @@ if typing.TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
+__all__ = ['displayer', 'save_fig']
+
+
 log = logging.getLogger(__name__)
 
 

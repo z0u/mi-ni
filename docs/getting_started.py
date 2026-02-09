@@ -71,9 +71,9 @@ def _(app_type):
 @app.cell
 async def main(app_type):
     if app_type.value == 'local':
-        executor = LocalExecutor('experiment-1', max_workers=3)
+        executor = LocalApparatus('experiment-1', max_workers=3)
     else:
-        executor = ModalExecutor('experiment-1').w(max_containers=3)
+        executor = ModalApparatus('experiment-1').w(max_containers=3)
 
     print(f'Using {executor}')
     results = [result async for result in executor.amap(train, [1, 2, 3, 4, 5])]

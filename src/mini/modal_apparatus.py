@@ -11,7 +11,6 @@ Example::
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import secrets
 from collections import deque
@@ -33,20 +32,6 @@ T = TypeVar('T')
 R = TypeVar('R')
 
 __all__ = ['ModalApparatus']
-
-
-def _is_async_context() -> bool:
-    """Check if we're running inside an async context (e.g., Marimo, Jupyter with async)."""
-    try:
-        asyncio.get_running_loop()
-        return True
-    except RuntimeError:
-        return False
-
-
-def make_app(name: str) -> modal.App:
-    """Helper to create a Modal app."""
-    return modal.App(name)
 
 
 def make_image() -> modal.Image:

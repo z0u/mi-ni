@@ -26,11 +26,13 @@ class _MockModalMap:
         self._fn = fn
 
     def __call__(self, *input_iterators, kwargs=None, order_outputs=True, return_exceptions=False):
+        del order_outputs, return_exceptions
         kw = kwargs or {}
         for args in zip(*input_iterators, strict=False):
             yield self._fn(*args, **kw)
 
     async def aio(self, *input_iterators, kwargs=None, order_outputs=True, return_exceptions=False):
+        del order_outputs, return_exceptions
         kw = kwargs or {}
         for args in zip(*input_iterators, strict=False):
             yield self._fn(*args, **kw)
@@ -49,6 +51,7 @@ class MockModalImage:
 
     def build(self, app):
         """No-op build for testing."""
+        del app
         pass
 
 
@@ -57,9 +60,11 @@ class MockModalApp:
 
     def __init__(self, name: str = 'test'):
         self.name = name
-        self.app_id = 'mock-app-id'  # Add app_id for newer Modal versions
+        self.app_id = 'mock-app-id'  # Add app_id for newer Modal versions  # noqa
 
     def function(self, **decorator_kwargs):
+        del decorator_kwargs
+
         def decorator(fn):
             return _MockModalFunction(fn)
 
