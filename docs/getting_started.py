@@ -101,10 +101,10 @@ async def main(app_type):
     print(f'Using {executor}')
 
     # Step 1: write shared config to the volume
-    print(await executor.arun(prep))
+    print(executor.run(prep))
 
     # Step 2: train (reads config, writes per-item results to volume)
-    results = [result async for result in executor.amap(train, [1, 2, 3, 4, 5])]
+    results = list(executor.map(train, [1, 2, 3, 4, 5]))
     print('Results:', results)
 
     # Step 3: pull outputs back from the volume

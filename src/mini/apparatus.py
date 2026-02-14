@@ -19,6 +19,7 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import threading
 from abc import ABC, abstractmethod
 from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Generic, Iterable, Iterator, ParamSpec, TypeVar
@@ -28,6 +29,26 @@ from mini.volume import Volume
 P = ParamSpec('P')
 R = TypeVar('R')
 V = TypeVar('V', bound=Volume)
+
+# Persistent background event loop shared across sync-from-async calls.
+# A single loop avoids the problem where frameworks like Modal track state
+# per-loop and don't reset when an ``asyncio.run()`` loop is destroyed.
+_bg_loop: asyncio.AbstractEventLoop | None = None
+_bg_thread: threading.Thread | None = None
+_bg_lock = threading.Lock()
+
+
+def _get_background_loop() -> asyncio.AbstractEventLoop:
+    """Return (and lazily start) a long-lived background event loop."""
+    global _bg_loop, _bg_thread
+    with _bg_lock:
+        if _bg_loop is None or _bg_loop.is_closed():
+            _bg_loop = asyncio.new_event_loop()
+            _bg_thread = threading.Thread(
+                target=_bg_loop.run_forever, daemon=True,
+            )
+            _bg_thread.start()
+        return _bg_loop
 
 
 # ---------------------------------------------------------------------------
@@ -59,12 +80,21 @@ class Apparatus(ABC, Generic[V]):
 
     def run(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         """Run a single function and return its result."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop — call arun directly.
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(self.arun(fn, *args, **kwargs))
+            finally:
+                loop.close()
 
-        @wraps(fn)
-        def wrapper(_) -> R:
-            return fn(*args, **kwargs)
-
-        return next(self.map(wrapper, [None]))
+        # Running loop detected — offload to background loop.
+        future = asyncio.run_coroutine_threadsafe(
+            self.arun(fn, *args, **kwargs), _get_background_loop(),
+        )
+        return future.result()
 
     async def arun(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         """Run a single function and return its result, asynchronously."""
@@ -145,26 +175,18 @@ def _map_in_thread(
     kwargs: dict[str, Any] | None,
 ) -> Iterator[R]:
     import queue as queue_module
-    import threading
 
     results_queue: queue_module.Queue = queue_module.Queue()
-    exception_holder: list[Exception] = []
 
-    def run_in_thread():
+    async def collect():
         try:
-
-            async def collect():
-                async for result in executor.amap(fn, *iterables, kwargs=kwargs):
-                    results_queue.put(('result', result))
-                results_queue.put(('done', None))
-
-            asyncio.run(collect())
+            async for result in executor.amap(fn, *iterables, kwargs=kwargs):
+                results_queue.put(('result', result))
+            results_queue.put(('done', None))
         except Exception as e:
-            exception_holder.append(e)
             results_queue.put(('error', e))
 
-    thread = threading.Thread(target=run_in_thread, daemon=True)
-    thread.start()
+    future = asyncio.run_coroutine_threadsafe(collect(), _get_background_loop())
 
     while True:
         msg_type, value = results_queue.get()
@@ -175,9 +197,8 @@ def _map_in_thread(
         elif msg_type == 'error':
             raise value
 
-    thread.join(timeout=1.0)
-    if exception_holder:
-        raise exception_holder[0]
+    # Ensure the coroutine finished cleanly.
+    future.result()
 
 
 def _map_with_new_loop(

@@ -83,6 +83,14 @@ class MockModalQueue:
         yield MockModalQueue()
 
 
+class MockModalVolume:
+    """Simulates ``modal.Volume`` for testing."""
+
+    def commit(self):
+        """Mock commit — no-op for testing."""
+        pass
+
+
 class MockModalApp:
     """Simulates ``modal.App`` for testing."""
 
@@ -114,6 +122,7 @@ def _make_local():
 def _make_modal(monkeypatch):
     monkeypatch.setattr('modal.Queue', MockModalQueue)
     monkeypatch.setattr('modal.enable_output', contextlib.nullcontext)
+    monkeypatch.setattr('modal.Volume.from_name', lambda name, create_if_missing=False: MockModalVolume())
     executor = ModalApparatus(cast(modal.App, MockModalApp()))
     # Provide a mock image to avoid real Modal API calls in tests
     executor.modal_fn_kwargs['image'] = MockModalImage()
