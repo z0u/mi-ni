@@ -1,5 +1,9 @@
 We are writing code to run AI experiments.
 
+## Compute
+
+`mi-ni` is a library and template repo providing infra management for experiments. Use `Apparatus` and its implementations to write code that can run locally and remotely.
+
 ## Communication style
 
 Don't hesitate to disagree or point out potential issues. The human values technical accuracy and appreciates being corrected when their suggestions might cause problems. Keep the tone friendly but focused.
