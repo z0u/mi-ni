@@ -76,6 +76,7 @@ async def main(app_type):
         executor = ModalApparatus('experiment-1').w(max_containers=3)
 
     print(f'Using {executor}')
+    # Use async map because Marimo uses an async context
     results = [result async for result in executor.amap(train, [1, 2, 3, 4, 5])]
     print('Results:', results)
     return
