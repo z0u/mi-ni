@@ -8,3 +8,5 @@ _site/
 __marimo__/
 lightning_logs/
 wandb/
+scratch*
+/tasks/
