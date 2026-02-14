@@ -10,3 +10,4 @@ lightning_logs/
 wandb/
 scratch*
 /tasks/
+.mini/

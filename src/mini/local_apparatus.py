@@ -15,15 +15,17 @@ import asyncio
 import logging
 import secrets
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 from queue import Queue
 from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
 from mini._queues import EndOfQueue, QueueLike
 from mini.apparatus import Apparatus
+from mini.local_volume import LocalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
-from mini.volume import LocalVolume, Volume, data_dir_context
+from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ R = TypeVar('R')
 __all__ = ['LocalApparatus']
 
 
-class LocalApparatus(Apparatus):
+class LocalApparatus(Apparatus[LocalVolume]):
     """
     Run functions locally using a thread pool.
 
@@ -45,7 +47,7 @@ class LocalApparatus(Apparatus):
         self.name = name
         self.max_workers = max_workers
         self._before_hooks: list[Callable[[], None]] = []
-        self.volume: Volume = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
+        self.volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
 
     def __str__(self) -> str:
         return f'Local apparatus "{self.name}"'
@@ -77,6 +79,9 @@ class LocalApparatus(Apparatus):
         log.info('Running %d jobs with %d workers', n, self.max_workers)
         run_id = secrets.token_hex(4)
 
+        if self.volume is not None:
+            self.volume.path.mkdir(parents=True, exist_ok=True)
+
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())
         # Target ~10 emissions/sec overall: interval = max_workers / target_rate_hz
         emission_interval = self.max_workers / 10.0
@@ -87,7 +92,7 @@ class LocalApparatus(Apparatus):
             progress_display.queue,
             kwargs=kwargs or {},
             emission_interval=emission_interval,
-            data_dir=self.volume.path,
+            data_dir=self.volume.path if self.volume is not None else None,
         )
 
         loop = asyncio.get_running_loop()
@@ -111,10 +116,11 @@ def _wrap_for_local(
     queue: QueueLike[ProgressMessage],
     kwargs: dict[str, Any],
     emission_interval: float,
-    data_dir: Path,
+    data_dir: Path | None,
 ) -> Callable[..., R]:
     def run_one(index: int, *args) -> R:
-        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), data_dir_context(data_dir):
+        dir_ctx = data_dir_context(path=data_dir) if data_dir is not None else nullcontext()
+        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), dir_ctx:
             for hook in reversed(hooks):
                 hook()
             result = fn(*args, **kwargs)

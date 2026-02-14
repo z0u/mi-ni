@@ -18,15 +18,12 @@ Example::
 from __future__ import annotations
 
 import contextvars
-import shutil
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Union
 
-import modal
-
-__all__ = ['Volume', 'LocalVolume', 'ModalVolume', 'get_data_dir', 'data_dir_context']
+__all__ = ['Volume', 'get_data_dir', 'data_dir_context']
 
 PathLike = Union[str, Path, PurePosixPath]
 
@@ -58,7 +55,8 @@ def get_data_dir() -> Path:
     if d is None:
         raise RuntimeError(
             'No data directory configured. '
-            'get_data_dir() must be called inside a function run by an Apparatus.'
+            'get_data_dir() must be called inside a function run by an '
+            'Apparatus, and it must have a Volume configured.'
         )
     return d
 
@@ -86,88 +84,3 @@ class Volume(ABC):
     def download(self, remote_path: PathLike, local_path: PathLike) -> None:
         """Copy a file or directory from the volume to a local path."""
         ...
-
-
-# ---------------------------------------------------------------------------
-# LocalVolume
-# ---------------------------------------------------------------------------
-
-
-class LocalVolume(Volume):
-    """A volume backed by a local directory."""
-
-    def __init__(self, path: Path | str):
-        self._path = Path(path)
-        self._path.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def path(self) -> Path:
-        return self._path
-
-    def upload(self, local_path: PathLike, remote_path: PathLike) -> None:
-        src = Path(local_path)
-        dst = self._path / remote_path
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if src.is_dir():
-            shutil.copytree(src, dst)
-        else:
-            shutil.copy2(src, dst)
-
-    def download(self, remote_path: PathLike, local_path: PathLike) -> None:
-        src = self._path / remote_path
-        dst = Path(local_path)
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if src.is_dir():
-            shutil.copytree(src, dst)
-        else:
-            shutil.copy2(src, dst)
-
-
-# ---------------------------------------------------------------------------
-# ModalVolume
-# ---------------------------------------------------------------------------
-
-
-class ModalVolume(Volume):
-    """A volume backed by a Modal named volume."""
-
-    def __init__(self, name: str, mount_point: str = '/vol'):
-        self._name = name
-        self._mount_point = Path(mount_point)
-        self._modal_volume = modal.Volume.from_name(name, create_if_missing=True)
-
-    @property
-    def path(self) -> Path:
-        return self._mount_point
-
-    def upload(self, local_path: PathLike, remote_path: PathLike) -> None:
-        src = Path(local_path)
-        with self._modal_volume.batch_upload() as batch:
-            if src.is_dir():
-                batch.put_directory(str(src), str(remote_path))
-            else:
-                batch.put_file(str(src), str(remote_path))
-
-    def download(self, remote_path: PathLike, local_path: PathLike) -> None:
-        remote = PurePosixPath(remote_path)
-        dst = Path(local_path)
-
-        # Try reading as a single file first
-        entries = list(self._modal_volume.listdir(str(remote)))
-        if len(entries) == 1 and entries[0].path == str(remote):
-            # It's a single file
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            with open(dst, 'wb') as f:
-                for chunk in self._modal_volume.read_file(str(remote)):
-                    f.write(chunk)
-        else:
-            # It's a directory — download each entry
-            dst.mkdir(parents=True, exist_ok=True)
-            for entry in entries:
-                entry_remote = PurePosixPath(entry.path)
-                entry_local = dst / entry_remote.relative_to(remote)
-                if entry.type.name == 'FILE':
-                    entry_local.parent.mkdir(parents=True, exist_ok=True)
-                    with open(entry_local, 'wb') as f:
-                        for chunk in self._modal_volume.read_file(entry.path):
-                            f.write(chunk)

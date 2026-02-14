@@ -18,13 +18,16 @@ Example::
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import asyncio
+from abc import ABC, abstractmethod
 from functools import wraps
-from typing import Any, AsyncGenerator, Callable, Iterable, Iterator, ParamSpec, TypeVar
+from typing import Any, AsyncGenerator, Callable, Generic, Iterable, Iterator, ParamSpec, TypeVar
+
+from mini.volume import Volume
 
 P = ParamSpec('P')
 R = TypeVar('R')
+V = TypeVar('V', bound=Volume)
 
 
 # ---------------------------------------------------------------------------
@@ -32,8 +35,10 @@ R = TypeVar('R')
 # ---------------------------------------------------------------------------
 
 
-class Apparatus(ABC):
+class Apparatus(ABC, Generic[V]):
     """Protocol for running a function over a sweep of inputs."""
+
+    volume: V | None
 
     def run(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         """Run a single function and return its result."""
@@ -43,6 +48,16 @@ class Apparatus(ABC):
             return fn(*args, **kwargs)
 
         return next(self.map(wrapper, [None]))
+
+    async def arun(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
+        """Run a single function and return its result, asynchronously."""
+
+        @wraps(fn)
+        def wrapper(_) -> R:
+            return fn(*args, **kwargs)
+
+        results = [r async for r in self.amap(wrapper, [None])]
+        return results[0]
 
     @abstractmethod
     def amap(
@@ -112,8 +127,8 @@ def _map_in_thread(
     *iterables: Iterable[Any],
     kwargs: dict[str, Any] | None,
 ) -> Iterator[R]:
-    import threading
     import queue as queue_module
+    import threading
 
     results_queue: queue_module.Queue = queue_module.Queue()
     exception_holder: list[Exception] = []

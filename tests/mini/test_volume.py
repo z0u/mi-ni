@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from mini.volume import LocalVolume, data_dir_context, get_data_dir
+from mini.local_volume import LocalVolume
+from mini.volume import data_dir_context, get_data_dir
 
 
 # ---------------------------------------------------------------------------
@@ -46,12 +47,11 @@ def test_nested_contexts():
 # ---------------------------------------------------------------------------
 
 
-def test_local_volume_creates_directory(tmp_path):
-    """LocalVolume creates the directory on init."""
+def test_local_volume_no_directory_on_init(tmp_path):
+    """LocalVolume does not create the directory on init."""
     vol_path = tmp_path / 'experiment-1'
-    vol = LocalVolume(vol_path)
-    assert vol.path == vol_path
-    assert vol_path.is_dir()
+    LocalVolume(vol_path)
+    assert not vol_path.exists()
 
 
 def test_local_volume_path(tmp_path):
@@ -88,12 +88,30 @@ def test_local_volume_upload_directory(tmp_path):
     assert (vol.path / 'input' / 'dataset' / 'test.csv').read_text() == 'test'
 
 
+def test_local_volume_upload_directory_merges(tmp_path):
+    """upload merges into an existing destination directory."""
+    vol = LocalVolume(tmp_path / 'vol')
+
+    src1 = tmp_path / 'src1'
+    src1.mkdir()
+    (src1 / 'a.txt').write_text('a')
+
+    src2 = tmp_path / 'src2'
+    src2.mkdir()
+    (src2 / 'b.txt').write_text('b')
+
+    vol.upload(src1, 'data')
+    vol.upload(src2, 'data')  # should not fail; merges
+    assert (vol.path / 'data' / 'a.txt').read_text() == 'a'
+    assert (vol.path / 'data' / 'b.txt').read_text() == 'b'
+
+
 def test_local_volume_download_file(tmp_path):
     """download copies a single file from the volume to a local path."""
     vol = LocalVolume(tmp_path / 'vol')
 
     # Put a file in the volume
-    (vol.path / 'models').mkdir()
+    (vol.path / 'models').mkdir(parents=True)
     (vol.path / 'models' / 'best.pt').write_bytes(b'model-data')
 
     dst = tmp_path / 'local'
@@ -117,12 +135,28 @@ def test_local_volume_download_directory(tmp_path):
     assert (dst / 'config.json').read_text() == '{}'
 
 
+def test_local_volume_download_directory_merges(tmp_path):
+    """download merges into an existing destination directory."""
+    vol = LocalVolume(tmp_path / 'vol')
+
+    (vol.path / 'run-1').mkdir(parents=True)
+    (vol.path / 'run-1' / 'weights.pt').write_bytes(b'w1')
+
+    dst = tmp_path / 'local'
+    dst.mkdir()
+    (dst / 'existing.txt').write_text('keep')
+
+    vol.download('run-1', dst)
+    assert (dst / 'weights.pt').read_bytes() == b'w1'
+    assert (dst / 'existing.txt').read_text() == 'keep'
+
+
 # ---------------------------------------------------------------------------
 # Integration: get_data_dir() inside apparatus-mapped functions
 # ---------------------------------------------------------------------------
 
 
-def test_local_apparatus_provides_data_dir():
+def test_local_apparatus_provides_data_dir(tmp_path):
     """get_data_dir() returns a valid Path inside a LocalApparatus-mapped function."""
     from mini.local_apparatus import LocalApparatus
 
@@ -132,7 +166,7 @@ def test_local_apparatus_provides_data_dir():
         captured_dirs.append(get_data_dir())
         return x
 
-    app = LocalApparatus('test-vol', max_workers=1)
+    app = LocalApparatus('test-vol', max_workers=1, data_dir=tmp_path / 'vol')
     results = list(app.map(fn, [1, 2]))
     assert results == [1, 2]
     assert len(captured_dirs) == 2
@@ -141,7 +175,7 @@ def test_local_apparatus_provides_data_dir():
     assert captured_dirs[0] == captured_dirs[1]
 
 
-def test_local_apparatus_data_dir_exists():
+def test_local_apparatus_data_dir_exists(tmp_path):
     """The data directory returned by get_data_dir() exists on disk."""
     from mini.local_apparatus import LocalApparatus
 
@@ -150,7 +184,7 @@ def test_local_apparatus_data_dir_exists():
         assert d.is_dir(), f'{d} is not a directory'
         return x
 
-    app = LocalApparatus('test-vol-exists', max_workers=1)
+    app = LocalApparatus('test-vol-exists', max_workers=1, data_dir=tmp_path / 'vol')
     results = list(app.map(fn, [1]))
     assert results == [1]
 
@@ -168,3 +202,12 @@ def test_local_apparatus_custom_data_dir(tmp_path):
     results = list(app.map(fn, [1]))
     assert results[0] == custom
     assert custom.is_dir()
+
+
+def test_local_apparatus_no_dir_created_without_map(tmp_path):
+    """LocalApparatus does not create the data directory until map() is called."""
+    from mini.local_apparatus import LocalApparatus
+
+    data_dir = tmp_path / 'vol'
+    LocalApparatus('test', max_workers=1, data_dir=data_dir)
+    assert not data_dir.exists()

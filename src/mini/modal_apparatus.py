@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import secrets
 from collections import deque
+from contextlib import nullcontext
 from itertools import count
 from pathlib import Path
 from queue import Empty
@@ -23,10 +24,11 @@ import modal
 
 from mini._queues import EndOfQueue, QueueLike
 from mini.apparatus import Apparatus
+from mini.modal_volume import ModalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, strip_build_tags, uv_freeze
-from mini.volume import ModalVolume, Volume, data_dir_context
+from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ def make_image() -> modal.Image:
     )  # fmt: skip
 
 
-class ModalApparatus(Apparatus):
+class ModalApparatus(Apparatus[ModalVolume]):
     """
     Run functions on Modal.
 
@@ -66,13 +68,20 @@ class ModalApparatus(Apparatus):
     app: modal.App
 
     def __init__(self, app: modal.App | str):
-        self.app = modal.App(app) if isinstance(app, str) else app
+        if isinstance(app, str):
+            name = app
+            self.app = modal.App(name)
+        else:
+            if not app.name:
+                raise ValueError('ModalApparatus requires a named modal.App')
+            name = app.name
+            self.app = app
         self.modal_fn_kwargs: dict[str, Any] = {
             'image': make_image(),
             'max_containers': 1,
         }
         self._before_hooks: list[Callable[[], None]] = []
-        self.volume: Volume = ModalVolume(self.app.name)
+        self.volume: ModalVolume | None = ModalVolume(name)
 
     def __str__(self) -> str:
         return f'Modal apparatus "{self.app.name}"'
@@ -136,7 +145,12 @@ class ModalApparatus(Apparatus):
                 queue=progress_display.queue,
                 kwargs=kwargs or {},
                 emission_interval=emission_interval,
-                data_dir=self.volume.path,
+                data_dir=self.volume.path if self.volume is not None else None,
+                commit_volume=(
+                    self.volume._modal_volume
+                    if isinstance(self.volume, ModalVolume)
+                    else None
+                ),
             )
             # The `function` decorator must be applied *before* `app.run()` starts the app.
             fn_kwargs = {**self.modal_fn_kwargs}
@@ -157,14 +171,19 @@ def _wrap_for_modal(
     queue: QueueLike[ProgressMessage],
     kwargs: dict[str, Any],
     emission_interval: float,
-    data_dir: Path,
+    data_dir: Path | None,
+    commit_volume: modal.Volume | None = None,
 ) -> Callable[..., R]:
     # @wraps(fn)  # Don't use wraps: it confuses Modal
     def wrapped_fn(index: int, *args) -> R:
-        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), data_dir_context(data_dir):
+        dir_ctx = data_dir_context(data_dir) if data_dir is not None else nullcontext()
+        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), dir_ctx:
             for hook in reversed(hooks):
                 hook()
-            return fn(*args, **kwargs)
+            result = fn(*args, **kwargs)
+            if commit_volume is not None:
+                commit_volume.commit()
+            return result
 
     return wrapped_fn
 
