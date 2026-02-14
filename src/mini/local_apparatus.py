@@ -47,7 +47,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
         self.name = name
         self.max_workers = max_workers
         self._before_hooks: list[Callable[[], None]] = []
-        self.volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
+        self._volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
 
     def __str__(self) -> str:
         return f'Local apparatus "{self.name}"'
@@ -55,7 +55,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
     def clone(self) -> LocalApparatus:
         new_app = LocalApparatus(self.name, self.max_workers)
         new_app._before_hooks = self._before_hooks[:]
-        new_app.volume = self.volume
+        new_app._volume = self._volume
         return new_app
 
     @override
@@ -79,8 +79,8 @@ class LocalApparatus(Apparatus[LocalVolume]):
         log.info('Running %d jobs with %d workers', n, self.max_workers)
         run_id = secrets.token_hex(4)
 
-        if self.volume is not None:
-            self.volume.path.mkdir(parents=True, exist_ok=True)
+        if self._volume is not None:
+            self._volume.path.mkdir(parents=True, exist_ok=True)
 
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())
         # Target ~10 emissions/sec overall: interval = max_workers / target_rate_hz
@@ -92,7 +92,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
             progress_display.queue,
             kwargs=kwargs or {},
             emission_interval=emission_interval,
-            data_dir=self.volume.path if self.volume is not None else None,
+            data_dir=self._volume.path if self._volume is not None else None,
         )
 
         loop = asyncio.get_running_loop()

@@ -38,7 +38,24 @@ V = TypeVar('V', bound=Volume)
 class Apparatus(ABC, Generic[V]):
     """Protocol for running a function over a sweep of inputs."""
 
-    volume: V | None
+    _volume: V | None
+
+    @property
+    def volume(self) -> V:
+        """
+        Return the volume.
+
+        Raises ``RuntimeError`` if no volume is configured.
+        """
+        if self._volume is None:
+            # Raise instead of returning None: accessing the volume when none is
+            # configured is exceptional, and None complicates the types.
+            raise RuntimeError('No volume configured for this apparatus. Set .volume before accessing it.')
+        return self._volume
+
+    @volume.setter
+    def volume(self, value: V | None) -> None:
+        self._volume = value
 
     def run(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         """Run a single function and return its result."""

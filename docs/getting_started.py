@@ -79,9 +79,7 @@ def train(x: int) -> int:
 
     output_dir = data_dir / 'outputs'
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / f'result_{x}.txt').write_text(
-        f'input: {x}\nresult: {result}\nlr: {config["learning_rate"]}'
-    )
+    (output_dir / f'result_{x}.txt').write_text(f'input: {x}\nresult: {result}\nlr: {config["learning_rate"]}')
     return result
 
 

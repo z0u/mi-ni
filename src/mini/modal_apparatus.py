@@ -81,7 +81,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
             'max_containers': 1,
         }
         self._before_hooks: list[Callable[[], None]] = []
-        self.volume: ModalVolume | None = ModalVolume(name)
+        self._volume: ModalVolume | None = ModalVolume(name)
 
     def __str__(self) -> str:
         return f'Modal apparatus "{self.app.name}"'
@@ -90,7 +90,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         new_executor = ModalApparatus(self.app)
         new_executor.modal_fn_kwargs = self.modal_fn_kwargs.copy()
         new_executor._before_hooks = self._before_hooks[:]
-        new_executor.volume = self.volume
+        new_executor._volume = self._volume
         return new_executor
 
     def w(self, **kwargs: Any) -> ModalApparatus:
@@ -145,18 +145,14 @@ class ModalApparatus(Apparatus[ModalVolume]):
                 queue=progress_display.queue,
                 kwargs=kwargs or {},
                 emission_interval=emission_interval,
-                data_dir=self.volume.path if self.volume is not None else None,
-                commit_volume=(
-                    self.volume._modal_volume
-                    if isinstance(self.volume, ModalVolume)
-                    else None
-                ),
+                data_dir=self._volume.path if self._volume is not None else None,
+                commit_volume=(self._volume._modal_volume if isinstance(self._volume, ModalVolume) else None),
             )
             # The `function` decorator must be applied *before* `app.run()` starts the app.
             fn_kwargs = {**self.modal_fn_kwargs}
-            if isinstance(self.volume, ModalVolume):
+            if isinstance(self._volume, ModalVolume):
                 volumes = fn_kwargs.get('volumes', {})
-                fn_kwargs['volumes'] = {**volumes, str(self.volume.path): self.volume._modal_volume}
+                fn_kwargs['volumes'] = {**volumes, str(self._volume.path): self._volume._modal_volume}
             modal_fn = self.app.function(serialized=True, **fn_kwargs)(wrapped_fn)
 
             with progress_display, self.app.run():
