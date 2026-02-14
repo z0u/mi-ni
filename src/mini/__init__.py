@@ -4,6 +4,7 @@ from mini.experiment import Experiment
 from mini.hither import AsyncCallback, AsyncBatchCallback, Callback
 from mini.local_apparatus import LocalApparatus
 from mini.modal_apparatus import ModalApparatus
+from mini.volume import get_data_dir
 
 __all__ = [
     'AsyncBatchCallback',
@@ -15,4 +16,5 @@ __all__ = [
     'ModalApparatus',
     'ProgressMessage',
     'emit_progress',
+    'get_data_dir',
 ]

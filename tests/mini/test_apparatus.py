@@ -3,11 +3,13 @@
 import asyncio
 import contextlib
 import time
+from pathlib import Path
 from typing import cast
 
 import pytest
 
 from mini.progress import emit_progress
+from mini.volume import get_data_dir
 from mini.local_apparatus import LocalApparatus
 from mini.modal_apparatus import ModalApparatus
 import modal
@@ -269,3 +271,21 @@ def test_local_apparatus_exception_propagates():
     except ValueError:
         pass
     assert results == [1]
+
+
+# ---------------------------------------------------------------------------
+# Volume integration tests — both executors must provide get_data_dir()
+# ---------------------------------------------------------------------------
+
+
+def test_get_data_dir_available_in_mapped_function(apparatus):
+    """get_data_dir() returns a Path inside a mapped function."""
+
+    def fn(x):
+        d = get_data_dir()
+        assert isinstance(d, Path)
+        return d
+
+    results = list(apparatus.map(fn, [1, 2]))
+    assert len(results) == 2
+    assert all(isinstance(r, Path) for r in results)

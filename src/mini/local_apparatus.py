@@ -15,6 +15,7 @@ import asyncio
 import logging
 import secrets
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from queue import Queue
 from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
@@ -22,6 +23,7 @@ from mini._queues import EndOfQueue, QueueLike
 from mini.apparatus import Apparatus
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
+from mini.volume import LocalVolume, Volume, data_dir_context
 
 log = logging.getLogger(__name__)
 
@@ -39,10 +41,11 @@ class LocalApparatus(Apparatus):
     displayed using Rich progress bars when running in a terminal.
     """
 
-    def __init__(self, name: str, max_workers: int = 1):
+    def __init__(self, name: str, max_workers: int = 1, data_dir: Path | str | None = None):
         self.name = name
         self.max_workers = max_workers
         self._before_hooks: list[Callable[[], None]] = []
+        self.volume: Volume = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
 
     def __str__(self) -> str:
         return f'Local apparatus "{self.name}"'
@@ -50,6 +53,7 @@ class LocalApparatus(Apparatus):
     def clone(self) -> LocalApparatus:
         new_app = LocalApparatus(self.name, self.max_workers)
         new_app._before_hooks = self._before_hooks[:]
+        new_app.volume = self.volume
         return new_app
 
     @override
@@ -83,6 +87,7 @@ class LocalApparatus(Apparatus):
             progress_display.queue,
             kwargs=kwargs or {},
             emission_interval=emission_interval,
+            data_dir=self.volume.path,
         )
 
         loop = asyncio.get_running_loop()
@@ -106,9 +111,10 @@ def _wrap_for_local(
     queue: QueueLike[ProgressMessage],
     kwargs: dict[str, Any],
     emission_interval: float,
+    data_dir: Path,
 ) -> Callable[..., R]:
     def run_one(index: int, *args) -> R:
-        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval):
+        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), data_dir_context(data_dir):
             for hook in reversed(hooks):
                 hook()
             result = fn(*args, **kwargs)

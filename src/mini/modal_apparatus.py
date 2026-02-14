@@ -15,6 +15,7 @@ import logging
 import secrets
 from collections import deque
 from itertools import count
+from pathlib import Path
 from queue import Empty
 from typing import Any, Callable, Iterable, TypeVar, cast, override
 
@@ -25,6 +26,7 @@ from mini.apparatus import Apparatus
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, strip_build_tags, uv_freeze
+from mini.volume import ModalVolume, Volume, data_dir_context
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +72,7 @@ class ModalApparatus(Apparatus):
             'max_containers': 1,
         }
         self._before_hooks: list[Callable[[], None]] = []
+        self.volume: Volume = ModalVolume(self.app.name)
 
     def __str__(self) -> str:
         return f'Modal apparatus "{self.app.name}"'
@@ -78,6 +81,7 @@ class ModalApparatus(Apparatus):
         new_executor = ModalApparatus(self.app)
         new_executor.modal_fn_kwargs = self.modal_fn_kwargs.copy()
         new_executor._before_hooks = self._before_hooks[:]
+        new_executor.volume = self.volume
         return new_executor
 
     def w(self, **kwargs: Any) -> ModalApparatus:
@@ -132,9 +136,14 @@ class ModalApparatus(Apparatus):
                 queue=progress_display.queue,
                 kwargs=kwargs or {},
                 emission_interval=emission_interval,
+                data_dir=self.volume.path,
             )
             # The `function` decorator must be applied *before* `app.run()` starts the app.
-            modal_fn = self.app.function(serialized=True, **self.modal_fn_kwargs)(wrapped_fn)
+            fn_kwargs = {**self.modal_fn_kwargs}
+            if isinstance(self.volume, ModalVolume):
+                volumes = fn_kwargs.get('volumes', {})
+                fn_kwargs['volumes'] = {**volumes, str(self.volume.path): self.volume._modal_volume}
+            modal_fn = self.app.function(serialized=True, **fn_kwargs)(wrapped_fn)
 
             with progress_display, self.app.run():
                 async for result in modal_fn.map.aio(count(), *iterables_lists):
@@ -148,10 +157,11 @@ def _wrap_for_modal(
     queue: QueueLike[ProgressMessage],
     kwargs: dict[str, Any],
     emission_interval: float,
+    data_dir: Path,
 ) -> Callable[..., R]:
     # @wraps(fn)  # Don't use wraps: it confuses Modal
     def wrapped_fn(index: int, *args) -> R:
-        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval):
+        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), data_dir_context(data_dir):
             for hook in reversed(hooks):
                 hook()
             return fn(*args, **kwargs)
