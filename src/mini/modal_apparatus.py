@@ -24,7 +24,7 @@ from mini._queues import EndOfQueue, QueueLike
 from mini.apparatus import Apparatus
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
-from utils.requirements import freeze, project_packages
+from mini.requirements import project_packages, strip_build_tags, uv_freeze
 
 log = logging.getLogger(__name__)
 
@@ -36,9 +36,12 @@ __all__ = ['ModalApparatus']
 
 def make_image() -> modal.Image:
     """Helper to create a Modal image with experiment dependencies."""
+    deps = uv_freeze(all_groups=True, not_groups='local')
+    # Remove build tags (e.g., +cpu, +cu121) to improve cross-platform compatibility. This allows Torch to use devices available in the Modal environment.
+    generic_deps = strip_build_tags(deps)
     return (
         modal.Image.debian_slim()
-        .pip_install(*freeze(all=True, local=False))
+        .pip_install(*generic_deps)
         .add_local_python_source(*project_packages())
     )  # fmt: skip
 
