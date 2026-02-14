@@ -45,7 +45,8 @@ def _get_background_loop() -> asyncio.AbstractEventLoop:
         if _bg_loop is None or _bg_loop.is_closed():
             _bg_loop = asyncio.new_event_loop()
             _bg_thread = threading.Thread(
-                target=_bg_loop.run_forever, daemon=True,
+                target=_bg_loop.run_forever,
+                daemon=True,
             )
             _bg_thread.start()
         return _bg_loop
@@ -92,7 +93,8 @@ class Apparatus(ABC, Generic[V]):
 
         # Running loop detected — offload to background loop.
         future = asyncio.run_coroutine_threadsafe(
-            self.arun(fn, *args, **kwargs), _get_background_loop(),
+            self.arun(fn, *args, **kwargs),
+            _get_background_loop(),
         )
         return future.result()
 

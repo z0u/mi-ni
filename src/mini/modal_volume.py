@@ -22,7 +22,6 @@ class ModalVolume(Volume):
     """
 
     def __init__(self, name: str, mount_point: str = '/vol'):
-        self._name = name
         self._mount_point = Path(mount_point)
         self._modal_volume = modal.Volume.from_name(name, create_if_missing=True)
 

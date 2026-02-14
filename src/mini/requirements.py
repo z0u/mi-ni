@@ -3,8 +3,7 @@ import re
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Literal, Callable
-from types import ModuleType
+from typing import Callable
 
 import modal
 
@@ -58,42 +57,6 @@ def uv_freeze(
     log.info(f'Selected {len(selected_deps)} of {len(all_deps)} dependencies')
     log.debug('Dependencies: %s', selected_deps)
     return selected_deps
-
-
-def modnames(*modules: ModuleType | Literal['self']) -> list[str]:
-    """
-    Convert a list of modules into a list of names.
-
-    'self' is special: it will be converted into the name of the calling module.
-    """
-    ps = set[str]()
-    for mod in modules:
-        if mod == 'self':
-            try:
-                mod = get_calling_module()
-            except RuntimeError as e:
-                raise ValueError('Module "self" has no name') from e
-        if mod.__name__ == '__main__':
-            log.warning('Using __main__ as a requirement')
-        ps.add(mod.__name__)
-    return sorted(ps)
-
-
-def get_calling_module() -> ModuleType:
-    """
-    Search up the stack to find the module that called this function.
-
-    Ignores this module.
-    """
-    import inspect
-
-    frame = inspect.currentframe()
-    while frame:
-        mod = inspect.getmodule(frame)
-        if mod and mod.__name__ != __name__:
-            return mod
-        frame = frame.f_back
-    raise RuntimeError('Could not find calling module')
 
 
 def strip_build_tags(requirements: list[str]) -> list[str]:
@@ -273,23 +236,3 @@ def find_project_root() -> Path:
         current = parent
 
     raise FileNotFoundError(f'Could not find pyproject.toml from {current}')
-
-
-def get_project_name() -> str:
-    """
-    Get the project name from pyproject.toml.
-
-    Returns:
-        The project name as defined in pyproject.toml.
-
-    Raises:
-        FileNotFoundError: If pyproject.toml cannot be found.
-        KeyError: If 'name' is not defined in the project section.
-    """
-    root_dir = find_project_root()
-    pyproject_path = root_dir / 'pyproject.toml'
-
-    with open(pyproject_path, 'rb') as f:
-        pyproject = tomllib.load(f)
-
-    return pyproject['project']['name']  # type: ignore[no-any-return]
