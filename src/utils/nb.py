@@ -3,33 +3,13 @@ import typing
 from pathlib import Path
 
 if typing.TYPE_CHECKING:
-    # This import is only needed for type hinting
     from matplotlib.figure import Figure
 
 
-__all__ = ['displayer', 'save_fig']
+__all__ = ['save_fig']
 
 
 log = logging.getLogger(__name__)
-
-
-def displayer():
-    import secrets
-
-    handle = f'displayer-{secrets.token_hex(16)}'
-    first = True
-
-    def show(ob):
-        nonlocal handle, first
-        from IPython.display import display, update_display
-
-        if first:
-            first = False
-            display(ob, display_id=handle)
-        else:
-            update_display(ob, display_id=handle)
-
-    return show
 
 
 def save_fig(
