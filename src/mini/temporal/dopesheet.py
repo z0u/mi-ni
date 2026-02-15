@@ -242,7 +242,7 @@ class Dopesheet:
             elif pd.api.types.is_float_dtype(df[col]):
                 df[col] = df[col].astype(float)
             else:
-                df[col] = df[col].astype(str).replace({'nan': None, 'NaN': None})
+                df[col] = df[col].astype(str).replace({'nan': None, 'NaN': None})  # pyright: ignore[reportArgumentType]
 
         df = df.set_index('STEP', drop=False)
         df = df.rename(columns=lambda x: str(self.get_prop_config(cast(str, x))))
