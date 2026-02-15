@@ -43,10 +43,12 @@ def make_image() -> modal.Image:
     deps = uv_freeze(all_groups=True, not_groups='local')
     # Remove build tags (e.g., +cpu, +cu121) to improve cross-platform compatibility. This allows Torch to use devices available in the Modal environment.
     generic_deps = strip_build_tags(deps)
+    project_deps = project_packages()
+    print(f'Creating Modal image with dependencies: Project: {project_deps}')
     return (
         modal.Image.debian_slim()
         .pip_install(*generic_deps)
-        .add_local_python_source(*project_packages())
+        .add_local_python_source(*project_deps)
     )  # fmt: skip
 
 
