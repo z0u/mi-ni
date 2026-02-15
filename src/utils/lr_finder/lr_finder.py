@@ -69,7 +69,8 @@ def lr_finder_search(
                 loss = _test_lr(model, criterion, optimizer, inputs, targets, lr, amp_context)
 
                 emit_progress(
-                    zoom * steps_per_zoom + i + 1, total_steps,
+                    zoom * steps_per_zoom + i + 1,
+                    total_steps,
                     message=f'zoom {zoom + 1}/{num_zooms}',
                 )
 

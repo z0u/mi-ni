@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = "0.19.9"
-app = marimo.App(width="medium")
+__generated_with = '0.19.9'
+app = marimo.App(width='medium')
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -88,11 +88,7 @@ def _(app_type):
     if app_type.value == 'local':
         executor = LocalApparatus('nanogpt')
     else:
-        executor = (
-            ModalApparatus('nanogpt')
-            .w(gpu='L4', max_containers=1)
-            .before_each(logging_config.apply)
-        )
+        executor = ModalApparatus('nanogpt').w(gpu='L4', max_containers=1).before_each(logging_config.apply)
     mo.output.append(mo.md(f'Using **{executor}**'))
     return (executor,)
 
@@ -403,5 +399,5 @@ def _():
     return (app_type,)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run()

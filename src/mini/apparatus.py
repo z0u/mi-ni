@@ -160,12 +160,16 @@ class Apparatus(ABC, Generic[V]):
         yield from _map_in_thread(self, fn, *iterables, kwargs=kwargs)
 
     @abstractmethod
-    def before_each(self, hook: Callable[[], None]) -> Apparatus:
+    def before_each(self, hook: Callable[[], Any]) -> Apparatus:
         """
         Return a new executor that runs *hook* before each job.
 
         This is useful for things like configuring logging or setting random
         seeds on a per-job basis.
+
+        Arguments:
+            hook: A function to run before each job. It should take no
+            arguments. Its return value is ignored.
         """
         ...
 

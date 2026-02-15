@@ -46,7 +46,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
     def __init__(self, name: str, max_workers: int = 1, data_dir: Path | str | None = None):
         self.name = name
         self.max_workers = max_workers
-        self._before_hooks: list[Callable[[], None]] = []
+        self._before_hooks: list[Callable[[], Any]] = []
         self._volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
 
     def __str__(self) -> str:
@@ -59,7 +59,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
         return new_app
 
     @override
-    def before_each(self, hook: Callable[[], None]) -> LocalApparatus:
+    def before_each(self, hook: Callable[[], Any]) -> LocalApparatus:
         new_app = self.clone()
         new_app._before_hooks = self._before_hooks + [hook]
         return new_app

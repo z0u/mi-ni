@@ -41,11 +41,16 @@ def plot_lr_finder(history: list[LRFinderSeries], config: LRFinderConfig) -> Fig
         best_losses.append(loss)
 
     ax.semilogx(
-        best_lrs, best_losses, '-',
+        best_lrs,
+        best_losses,
+        '-',
         label='Steepest gradient (weighted av.)',
-        color='black', linewidth=1,
-        markerfacecolor='white', markeredgecolor='black',
-        markeredgewidth=1, markersize=4,
+        color='black',
+        linewidth=1,
+        markerfacecolor='white',
+        markeredgecolor='black',
+        markeredgewidth=1,
+        markersize=4,
     )
 
     ax.legend(loc='upper left')

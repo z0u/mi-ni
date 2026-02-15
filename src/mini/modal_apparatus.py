@@ -82,7 +82,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
             'image': make_image(),
             'max_containers': 1,
         }
-        self._before_hooks: list[Callable[[], None]] = []
+        self._before_hooks: list[Callable[[], Any]] = []
         self._volume: ModalVolume | None = ModalVolume(name)
 
     def __str__(self) -> str:
@@ -108,7 +108,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         return new_executor
 
     @override
-    def before_each(self, hook: Callable[[], None]) -> ModalApparatus:
+    def before_each(self, hook: Callable[[], Any]) -> ModalApparatus:
         new_executor = self.clone()
         new_executor._before_hooks = self._before_hooks + [hook]
         return new_executor

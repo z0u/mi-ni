@@ -30,7 +30,7 @@ from mini.progress import ProgressMessage
 def _is_in_notebook() -> bool:
     """Detect if we're running in a notebook-like environment (Jupyter, IPython, Marimo, etc.)."""
     try:
-        from IPython.core.getipython import get_ipython
+        from IPython.core.getipython import get_ipython  # type: ignore
 
         if get_ipython() is not None:
             return True
