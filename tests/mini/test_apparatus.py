@@ -215,6 +215,24 @@ def test_amap_materializes(apparatus):
     assert results == [2, 3, 4]
 
 
+def test_modal_auth_error_has_actionable_message(monkeypatch):
+    """Modal auth errors are re-raised with a concise remediation hint."""
+    app = _make_modal(monkeypatch)
+
+    async def broken_amap(*args, **kwargs):
+        del args, kwargs
+        raise modal.exception.AuthError('not authenticated')
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(app, '_amap', broken_amap)
+
+    async def collect():
+        return [result async for result in app.amap(lambda x: x, [1])]
+
+    with pytest.raises(RuntimeError, match=r'Modal authentication failed\. Run \./go auth, then try again\.'):
+        asyncio.run(collect())
+
+
 def test_complex_objects_as_args(apparatus):
     """map works with non-trivial argument types (dicts, dataclasses, etc.)."""
 

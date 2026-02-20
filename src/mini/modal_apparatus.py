@@ -38,6 +38,11 @@ R = TypeVar('R')
 __all__ = ['ModalApparatus']
 
 
+def _modal_auth_error_message() -> str:
+    """Build a user-facing message for Modal authentication failures."""
+    return 'Modal authentication failed. Run ./go auth, then try again.'
+
+
 def make_image() -> modal.Image:
     """Helper to create a Modal image with experiment dependencies."""
     deps = uv_freeze(all_groups=True, not_groups='local')
@@ -120,6 +125,19 @@ class ModalApparatus(Apparatus[ModalVolume]):
         *iterables: Iterable[Any],
         kwargs: dict[str, Any] | None = None,
     ):
+        try:
+            async for result in self._amap(fn, *iterables, kwargs=kwargs):
+                yield result
+        except modal.exception.AuthError:
+            log.debug('Modal authentication failed', exc_info=True)
+            raise RuntimeError(_modal_auth_error_message()) from None
+
+    async def _amap(
+        self,
+        fn: Callable[..., R],
+        *iterables: Iterable[Any],
+        kwargs: dict[str, Any] | None = None,
+    ):
         # TODO: support lazy iterables
         iterables_lists: list[list] = [list(it) for it in iterables]
         n = len(iterables_lists[0]) if iterables_lists else 0
@@ -132,6 +150,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         hooks = self._before_hooks
 
         image: modal.Image = self.modal_fn_kwargs.get('image') or modal.Image.debian_slim()
+
         with modal.enable_output(), self.app.run():
             image.build(self.app)
 

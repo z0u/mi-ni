@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = '0.19.9'
-app = marimo.App(width='medium')
+__generated_with = "0.19.11"
+app = marimo.App(width="medium")
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -399,5 +399,5 @@ def _():
     return (app_type,)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()
