@@ -1,90 +1,76 @@
+"""
+Notebook utilities for rendering themed matplotlib figures as HTML.
+"""
+
+from __future__ import annotations
+
 import logging
+from functools import wraps
 from textwrap import dedent
-import typing
-from pathlib import Path
+from typing import Callable, ParamSpec, TypeVar
 
-if typing.TYPE_CHECKING:
-    from matplotlib.figure import Figure
+from .plt import use_style
+from .theme import use_theme
+
+from collections.abc import Sequence
+
+from matplotlib.figure import Figure
+
+from mini.vis.plt import Stylesheet
 
 
-__all__ = ['save_fig', 'themed_figure_html']
+__all__ = ['themed', 'themed_figure_html']
+
+P = ParamSpec('P')
+R = TypeVar('R')
 
 
 log = logging.getLogger(__name__)
 
 
-def save_fig(
-    fig: 'Figure',
-    filepath: str | Path,
-    close_fig: bool = True,
+def themed(
+    plot: Callable[P, Figure],
+    *,
     alt_text: str | None = None,
     max_width: str | None = '70rem',
-    **savefig_kwargs,
-) -> str:
+    light_styles: Sequence[Stylesheet] = ('base', 'light'),
+    dark_styles: Sequence[Stylesheet] = ('base', 'dark'),
+) -> Callable[P, str]:
+    """Wrap a plot function to render in both light and dark themes.
+
+    Inside each call, :func:`~mini.vis.plt.use_theme` sets an active
+    theme so the plot can use :func:`~mini.vis.plt.light_dark` to
+    pick theme-dependent values.
+
+    Returns a wrapper; call it with the original arguments::
+
+        themed(plot_lr_finder)(lr_history, lr_config)
     """
-    Save a matplotlib Figure to a file and returns an HTML img tag string.
 
-    Ensures the target directory exists, saves the figure with sensible defaults
-    (like tight bounding box and matching facecolor), optionally closes the
-    figure object, and adds a cache-busting query parameter to the img src.
+    @wraps(plot)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> str:
+        with use_theme('light'), use_style(*light_styles):
+            light_fig = plot(*args, **kwargs)
+        with use_theme('dark'), use_style(*dark_styles):
+            dark_fig = plot(*args, **kwargs)
 
-    Args:
-        fig: The matplotlib Figure object.
-        filepath: The path (including filename and extension) to save the figure.
-        close_fig: Whether to close the figure object after saving (prevents potential double display in some environments).
-        alt_text: Optional alt text for the HTML img tag. Defaults to a generic message.
-        max_width: Optional CSS max-width for the img tag.
-        **savefig_kwargs: Additional keyword arguments passed to fig.savefig().
-                          Defaults include facecolor=fig.get_facecolor(),
-                          bbox_inches='tight', and dpi=150.
+        if light_fig is None or dark_fig is None:
+            msg = f'{plot.__name__} returned None'
+            raise ValueError(msg)
 
-    Returns:
-        An HTML string '<img src="..." alt="...">'.
-    """
-    import html
-    import secrets
-    import urllib.parse
+        return themed_figure_html(
+            light_fig,
+            dark_fig,
+            alt_text=alt_text,
+            max_width=max_width,
+        )
 
-    import matplotlib.pyplot as plt
-
-    filepath = Path(filepath)
-    log.debug(f"Saving figure to '{filepath}'")
-
-    # Ensure the parent directory exists
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-
-    # Sensible defaults for savefig, allowing user overrides
-    defaults = {
-        'facecolor': fig.get_facecolor(),
-        'bbox_inches': 'tight',
-        'dpi': 150,  # A good balance for notebooks
-    }
-    save_args = defaults | savefig_kwargs
-
-    # Save the figure
-    fig.savefig(filepath, **save_args)
-    log.debug(f"Figure saved: '{filepath}'")
-
-    if close_fig:
-        plt.close(fig)
-        log.debug(f"Closed figure object for '{filepath}'")
-
-    # Use figure filename as default alt text if not provided
-    if alt_text is None:
-        alt_text = f'Plot saved at {filepath.name}'
-
-    style = f'max-width: {max_width};' if max_width is not None else ''
-
-    escaped_alt = html.escape(alt_text)
-    cache_buster = secrets.token_urlsafe()
-    safe_src = urllib.parse.quote(filepath.as_posix())
-    escaped_style = html.escape(style)
-    return f'<img src="{safe_src}?v={cache_buster}" alt="{escaped_alt}" style="{escaped_style}" />'
+    return wrapper
 
 
 def themed_figure_html(
-    light_fig: 'Figure',
-    dark_fig: 'Figure',
+    light_fig: Figure,
+    dark_fig: Figure,
     *,
     close_fig: bool = True,
     alt_text: str | None = None,
@@ -105,9 +91,9 @@ def themed_figure_html(
     }
     save_args = defaults | savefig_kwargs
 
-    def _to_data_uri(fig: 'Figure') -> str:
+    def _to_data_uri(fig: Figure) -> str:
         img_io = BytesIO()
-        fig.savefig(img_io, format='png', facecolor=fig.get_facecolor(), **save_args)
+        fig.savefig(img_io, format='png', facecolor=fig.get_facecolor(), **save_args)  # ty:ignore[invalid-argument-type]
         payload = base64.b64encode(img_io.getvalue()).decode('ascii')
         return f'data:image/png;base64,{payload}'
 

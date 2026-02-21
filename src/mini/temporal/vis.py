@@ -10,8 +10,7 @@ from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from pandas.api.types import is_numeric_dtype
 
-from mini.vis.plt import Theme
-
+from mini.vis import light_dark
 from .dopesheet import RESERVED_COLS
 from .timeline import Timeline
 
@@ -97,7 +96,6 @@ def plot_timeline(  # noqa: C901
     title: str = 'Timeline property evolution',
     show_phase_labels: bool = True,
     line_styles: Sequence[tuple[str | re.Pattern, dict[str, Any]]] | None = None,
-    theme: Theme | None = None,
 ):
     if groups is None:
         cols = [col for col in history_df.columns if col not in RESERVED_COLS]
@@ -114,8 +112,6 @@ def plot_timeline(  # noqa: C901
         # If no axis provided, create a new figure and axes based on groups
         height_ratios = [g.height_ratio for g in groups]
         figsize = (15, 3.5 * len(groups))
-        if not theme:
-            plt.style.use('dark_background')
         fig, axes_list = plt.subplots(
             len(groups),
             1,
@@ -125,8 +121,6 @@ def plot_timeline(  # noqa: C901
             squeeze=False,  # Always return a 2D array
             constrained_layout=True,
         )
-        if not theme:
-            fig.set_facecolor('#333')
         # Use the first axes from the created list if multiple groups, else the single axes
         main_ax = axes_list[0, 0]
         axes_to_plot_on = axes_list.flatten()
@@ -139,8 +133,7 @@ def plot_timeline(  # noqa: C901
         axes_to_plot_on = [ax]  # Plot only on the provided axes
         groups = [groups[0]]  # Use only the first group
 
-    is_light_theme = theme is not None and theme.name == 'light'
-    marker_color = '#444' if is_light_theme else '#aaa'
+    marker_color = light_dark('#444', '#aaa')
 
     # --- Plotting Data ---
     # Plot each group on its corresponding axes (or the single provided axes)
@@ -151,8 +144,6 @@ def plot_timeline(  # noqa: C901
 
         if current_ax.get_figure() is None:  # Check if axes belongs to a figure
             raise ValueError('Provided axes does not belong to a figure.')
-        if not theme:
-            current_ax.set_facecolor('#222')
         for prop in group.params:
             # Ensure the property exists in the history dataframe before plotting
             if prop in history_df.columns:
@@ -170,7 +161,7 @@ def plot_timeline(  # noqa: C901
                             prop_keyframes['STEP'],
                             prop_keyframes[prop],
                             marker='o',
-                            facecolor='white' if is_light_theme else 'black',
+                            facecolor=light_dark('white', 'black'),
                             s=25,
                             zorder=5,
                             color=line.get_color(),
@@ -231,7 +222,7 @@ def plot_timeline(  # noqa: C901
                 va='bottom',  # Align bottom of text to top of plot
                 fontweight='bold',
                 fontsize=10,
-                bbox=dict(boxstyle='round,pad=0.3', fc='#222' if not theme else None, alpha=0.7, ec='none'),
+                bbox=dict(boxstyle='round,pad=0.3', fc=light_dark(None, '#222'), alpha=0.7, ec='none'),
             )
 
     # --- Action Markers (Plot only on main_ax) ---
@@ -253,12 +244,6 @@ def plot_timeline(  # noqa: C901
         main_ax.set_title(title)
     main_ax.set_ylabel('Property value')
     main_ax.set_xlabel('Step')
-
-    # --- Final Adjustments ---
-    if ax is None and theme is None:  # Only call tight_layout if we created the figure
-        main_ax.grid(True, which='major', axis='both', linestyle=':', alpha=0.1)
-        main_ax.margins(y=0.15)
-        plt.tight_layout()
 
     # Return the figure and the main axes (or list of axes if created internally)
     return fig, main_ax if ax is not None else axes_to_plot_on

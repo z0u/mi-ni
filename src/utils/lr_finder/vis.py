@@ -3,18 +3,15 @@ import numpy as np
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 
-from mini.vis.plt import Theme
+from mini.vis import light_dark
 from utils.lr_finder.types import LRFinderConfig, LRFinderSeries
 
 
 def plot_lr_finder(
     history: list[LRFinderSeries],
     config: LRFinderConfig,
-    *,
-    theme: Theme | None = None,
 ) -> Figure:
     """Plot multi-scale LR finder search results."""
-    theme = theme or Theme('indeterminate')
     fig, ax = plt.subplots(figsize=(10, 3))
 
     fig.suptitle(f'Learning Rate Finder ({config.method.title()})', y=0.95)
@@ -39,7 +36,7 @@ def plot_lr_finder(
     ax.semilogx(series.lrs, series.losses, color=color, linewidth=1)
     ax.axvline(
         x=series.best_lr,
-        color=theme.val('#666', light='#666', dark='#aaa'),
+        color=light_dark('#666', '#aaa'),
         linestyle='--',
         label='Suggested LR',
     )
@@ -57,14 +54,13 @@ def plot_lr_finder(
         best_losses,
         '-',
         label='Steepest gradient (weighted av.)',
-        color=theme.val('#111', light='#111', dark='#eee'),
+        color=light_dark('#111', '#eee'),
         linewidth=1,
-        markerfacecolor=theme.val('#fff', light='#fff', dark='#111'),
-        markeredgecolor=theme.val('#111', light='#111', dark='#eee'),
+        markerfacecolor=light_dark('#fff', '#111'),
+        markeredgecolor=light_dark('#111', '#eee'),
         markeredgewidth=1,
         markersize=4,
     )
 
     ax.legend(loc='upper left')
-    fig.tight_layout()
     return fig

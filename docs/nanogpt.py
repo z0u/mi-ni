@@ -11,6 +11,8 @@ with app.setup(hide_code=True):
     from mini import LocalApparatus, ModalApparatus  # noqa: F401
     from mini import get_data_dir
     from mini.logging import SimpleLoggingConfig
+    from mini.vis import themed
+    from utils.lr_finder.vis import plot_lr_finder
 
     logging_config = SimpleLoggingConfig().info('notebook', 'experiment', 'mini', 'utils')
     logging_config.apply()
@@ -213,20 +215,10 @@ def _(app, config):
 
 @app.cell
 def _(lr_config, lr_history):
-    from mini.vis.plt import Theme, use_theme
-    from utils.nb import themed_figure_html
-    from utils.lr_finder.vis import plot_lr_finder
-
-    with use_theme('base', 'light'):
-        light_fig = plot_lr_finder(lr_history, lr_config, theme=Theme('light'))
-    with use_theme('base', 'dark'):
-        dark_fig = plot_lr_finder(lr_history, lr_config, theme=Theme('dark'))
-
     mo.Html(
-        themed_figure_html(
-            light_fig,
-            dark_fig,
-            alt_text='Learning-rate finder plot',
+        themed(plot_lr_finder, alt_text='Learning-rate finder plot')(
+            lr_history,
+            lr_config,
         )
     )
     return
@@ -269,7 +261,7 @@ def _(app, config):
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Loss')
     ax.plot(epochs, val_losses)
-    fig
+    fig  # pyright: ignore[reportUnusedExpression]
     return
 
 
