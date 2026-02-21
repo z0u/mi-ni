@@ -1,0 +1,16 @@
+# mi-ni: light style
+axes.facecolor: none
+figure.facecolor: none
+savefig.facecolor: none
+savefig.edgecolor: none
+
+# Ticks and labels
+xtick.color: "#8888"
+xtick.labelcolor: "#888"
+ytick.color: "#8888"
+ytick.labelcolor: "#888"
+
+# Text and axes labels
+text.color: "#888"
+axes.labelcolor: "#888"
+axes.edgecolor: "#8888"

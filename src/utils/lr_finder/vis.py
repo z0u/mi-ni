@@ -3,11 +3,18 @@ import numpy as np
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 
+from mini.vis.plt import Theme
 from utils.lr_finder.types import LRFinderConfig, LRFinderSeries
 
 
-def plot_lr_finder(history: list[LRFinderSeries], config: LRFinderConfig) -> Figure:
-    """Plot the multi-scale LR finder search results."""
+def plot_lr_finder(
+    history: list[LRFinderSeries],
+    config: LRFinderConfig,
+    *,
+    theme: Theme | None = None,
+) -> Figure:
+    """Plot multi-scale LR finder search results."""
+    theme = theme or Theme('indeterminate')
     fig, ax = plt.subplots(figsize=(10, 3))
 
     fig.suptitle(f'Learning Rate Finder ({config.method.title()})', y=0.95)
@@ -30,7 +37,12 @@ def plot_lr_finder(history: list[LRFinderSeries], config: LRFinderConfig) -> Fig
     series = history[-1]
     color = cmap(norm(series.zoom))
     ax.semilogx(series.lrs, series.losses, color=color, linewidth=1)
-    ax.axvline(x=series.best_lr, color='gray', linestyle='--', label='Suggested LR')
+    ax.axvline(
+        x=series.best_lr,
+        color=theme.val('#666', light='#666', dark='#aaa'),
+        linestyle='--',
+        label='Suggested LR',
+    )
 
     # Steepest-gradient progression across zooms
     best_lrs = []
@@ -45,10 +57,10 @@ def plot_lr_finder(history: list[LRFinderSeries], config: LRFinderConfig) -> Fig
         best_losses,
         '-',
         label='Steepest gradient (weighted av.)',
-        color='black',
+        color=theme.val('#111', light='#111', dark='#eee'),
         linewidth=1,
-        markerfacecolor='white',
-        markeredgecolor='black',
+        markerfacecolor=theme.val('#fff', light='#fff', dark='#111'),
+        markeredgecolor=theme.val('#111', light='#111', dark='#eee'),
         markeredgewidth=1,
         markersize=4,
     )

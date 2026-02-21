@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = "0.19.11"
-app = marimo.App(width="medium")
+__generated_with = '0.20.1'
+app = marimo.App(width='medium')
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -86,11 +86,11 @@ def _(app_type):
 @app.cell(hide_code=True)
 def _(app_type):
     if app_type.value == 'local':
-        executor = LocalApparatus('nanogpt')
+        app = LocalApparatus('nanogpt')
     else:
-        executor = ModalApparatus('nanogpt').w(gpu='L4', max_containers=1).before_each(logging_config.apply)
-    mo.output.append(mo.md(f'Using **{executor}**'))
-    return (executor,)
+        app = ModalApparatus('nanogpt').w(gpu='L4', max_containers=1).before_each(logging_config.apply)
+    mo.output.append(mo.md(f'Using **{app}**'))
+    return (app,)
 
 
 @app.cell(hide_code=True)
@@ -149,10 +149,10 @@ def prepare_data():
 
 
 @app.cell
-def _(config, executor):
+def _(app, config):
     from experiment.utils import align
 
-    input_metadata = executor.run(prepare_data)
+    input_metadata = app.run(prepare_data)
 
     config.tokenizer = input_metadata.tokenizer_config.model_copy()
     config.model.vocab_size = align(config.tokenizer.vocab_size, 64)
@@ -203,8 +203,8 @@ def find_learning_rate(config):
 
 
 @app.cell
-def _(config, executor):
-    suggested_lr, lr_config, lr_history = executor.run(find_learning_rate, config)
+def _(app, config):
+    suggested_lr, lr_config, lr_history = app.run(find_learning_rate, config)
 
     config.optimizer.learning_rate = suggested_lr
     mo.output.append(mo.md(f'Suggested learning rate: **{suggested_lr:.2e}**'))
@@ -213,9 +213,22 @@ def _(config, executor):
 
 @app.cell
 def _(lr_config, lr_history):
+    from mini.vis.plt import Theme, use_theme
+    from utils.nb import themed_figure_html
     from utils.lr_finder.vis import plot_lr_finder
 
-    plot_lr_finder(lr_history, lr_config)
+    with use_theme('base', 'light'):
+        light_fig = plot_lr_finder(lr_history, lr_config, theme=Theme('light'))
+    with use_theme('base', 'dark'):
+        dark_fig = plot_lr_finder(lr_history, lr_config, theme=Theme('dark'))
+
+    mo.Html(
+        themed_figure_html(
+            light_fig,
+            dark_fig,
+            alt_text='Learning-rate finder plot',
+        )
+    )
     return
 
 
@@ -241,10 +254,11 @@ def train(config):
 
 
 @app.cell
-def _(config, executor):
+def _(app, config):
     import matplotlib.pyplot as plt
 
-    training_metrics = executor.run(train, config)
+    mo.stop(True)
+    training_metrics = app.run(train, config)
 
     # Plot training curve
     epochs = [m.epoch + 1 for m in training_metrics]
@@ -298,13 +312,13 @@ def generate(prompts: list[str], max_new_tokens: int, temperature: float):
 
 
 @app.cell
-def _(executor):
+def _(app):
     prompts = [
         'It is a truth uni',
         'Mr. Darcy walked across the',
     ]
-
-    continuations, gen_metadata = executor.run(
+    mo.stop(True)
+    continuations, gen_metadata = app.run(
         partial(generate, prompts=prompts, max_new_tokens=300, temperature=0.5),
     )
 
@@ -399,5 +413,5 @@ def _():
     return (app_type,)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run()
