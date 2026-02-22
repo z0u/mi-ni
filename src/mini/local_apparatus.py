@@ -17,11 +17,11 @@ import secrets
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
-from queue import Queue
 from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
-from mini._queues import EndOfQueue, QueueLike
+from mini._queues import QueueLike
 from mini.apparatus import Apparatus
+from mini.local_queue import LocalQueue
 from mini.local_volume import LocalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
@@ -127,22 +127,3 @@ def _wrap_for_local(
             return result
 
     return run_one
-
-
-class LocalQueue(QueueLike[T]):
-    """A simple thread-safe queue for local use."""
-
-    def __init__(self):
-        self._queue: Queue[T | EndOfQueue] = Queue()
-
-    def put(self, item: T | EndOfQueue, /, block: bool = True, timeout: float | None = None) -> None:
-        self._queue.put(item, block=block, timeout=timeout)
-
-    def get(self, /, block: bool = True, timeout: float | None = None) -> T:
-        item = self._queue.get(block=block, timeout=timeout)
-        if isinstance(item, EndOfQueue):
-            raise item
-        return item
-
-    def empty(self) -> bool:
-        return self._queue.empty()

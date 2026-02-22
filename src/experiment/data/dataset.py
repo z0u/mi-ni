@@ -19,9 +19,9 @@ class TextDataset(Dataset):
     def __len__(self):
         return len(self.data) - self.block_size - 1
 
-    def __getitem__(self, idx: NonNegativeInt) -> tuple[Int[torch.Tensor, ' T'], Int[torch.Tensor, ' T']]:
-        x = self.data[idx : idx + self.block_size]
-        y = self.data[idx + 1 : idx + self.block_size + 1]
+    def __getitem__(self, index: NonNegativeInt) -> tuple[Int[torch.Tensor, ' T'], Int[torch.Tensor, ' T']]:
+        x = self.data[index : index + self.block_size]
+        y = self.data[index + 1 : index + self.block_size + 1]
 
         # Randomly pad the beginning of the sequence
         if self.padding_chance and torch.rand(1).item() < self.padding_chance:

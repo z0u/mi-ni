@@ -222,6 +222,7 @@ def test_modal_auth_error_has_actionable_message(monkeypatch):
     async def broken_amap(*args, **kwargs):
         del args, kwargs
         raise modal.exception.AuthError('not authenticated')
+        # pyrefly: ignore [unreachable]
         yield  # pragma: no cover
 
     monkeypatch.setattr(app, '_amap', broken_amap)

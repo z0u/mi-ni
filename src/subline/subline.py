@@ -28,7 +28,7 @@ class Subline:
         """Split tokens into lines based on total width, returning (start,end) indices."""
         lines: list[slice] = []
         line_start = 0
-        current_width = 0
+        current_width = 0.0
 
         for i, span in enumerate(spans):
             if current_width + span.width > self.chars_per_line * self.char_width:
@@ -121,7 +121,7 @@ class Subline:
         )
 
         # Track cumulative x position as we place tokens
-        pos = 0
+        pos = 0.0
         for token in line_tokens:
             width = len(token) * self.char_width
             mid = pos + width / 2

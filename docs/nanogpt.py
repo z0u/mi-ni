@@ -261,7 +261,7 @@ def _(app, config):
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Loss')
     ax.plot(epochs, val_losses)
-    fig  # pyright: ignore[reportUnusedExpression]
+    fig
     return
 
 

@@ -89,7 +89,7 @@ class Dopesheet:
         steps_col = self._df['STEP']
 
         insertion_point = steps_col.searchsorted(step, side='right')
-        idx = max(0, insertion_point - 1)
+        idx = max(0, int(insertion_point - 1))
 
         phase_insertion_point = np.searchsorted(self._phase_indices, idx, side='right')
 
@@ -98,8 +98,8 @@ class Dopesheet:
         else:
             phase_idx = self._phase_indices[phase_insertion_point - 1]
 
-        phase = self._df['PHASE'][phase_idx] or ''
-        phase_start = steps_col[phase_idx] == step
+        phase = str(self._df['PHASE'][phase_idx] or '')
+        phase_start = bool(steps_col[phase_idx] == step)
 
         if phase_insertion_point < len(self._phase_indices):
             next_phase_df_idx = self._phase_indices[phase_insertion_point]
@@ -242,7 +242,7 @@ class Dopesheet:
             elif pd.api.types.is_float_dtype(df[col]):
                 df[col] = df[col].astype(float)
             else:
-                df[col] = df[col].astype(str).replace({'nan': None, 'NaN': None})  # pyright: ignore[reportArgumentType]
+                df[col] = df[col].astype(str).replace({'nan': None, 'NaN': None})  # pyrefly: ignore [bad-argument-type]
 
         df = df.set_index('STEP', drop=False)
         df = df.rename(columns=lambda x: str(self.get_prop_config(cast(str, x))))
@@ -302,7 +302,7 @@ def _identify_anchors(steps: pd.Series) -> tuple[pd.Index, dict[int, int], pd.Se
     """Identify anchor steps (non-negative integers) and initialize resolved series."""
     resolved_steps = pd.Series(pd.NA, index=steps.index, dtype='Int64')
     anchor_indices_list = []
-    anchor_steps_dict = {}
+    anchor_steps_dict: dict[int, int] = {}
 
     for idx, step_str in steps.items():
         if not step_str.startswith(('-', '+')):
@@ -314,7 +314,7 @@ def _identify_anchors(steps: pd.Series) -> tuple[pd.Index, dict[int, int], pd.Se
                     continue
 
                 step_val = int(step_str)
-                anchor_steps_dict[idx] = step_val
+                anchor_steps_dict[cast(int, idx)] = step_val
                 resolved_steps.loc[idx] = step_val  # type: ignore
                 anchor_indices_list.append(idx)
             except ValueError:

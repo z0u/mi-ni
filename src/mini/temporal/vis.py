@@ -102,7 +102,7 @@ def plot_timeline(  # noqa: C901
         groups = [ParamGroup(name='', params=cols, height_ratio=1.0)]
 
     # Convert str matchers to regex patterns, escaping special characters
-    line_styles = [
+    compiled_styles: list[tuple[re.Pattern[str], dict[str, Any]]] = [
         (re.compile(re.escape(pattern)) if isinstance(pattern, str) else pattern, style)
         for pattern, style in line_styles or []
     ]
@@ -147,7 +147,7 @@ def plot_timeline(  # noqa: C901
         for prop in group.params:
             # Ensure the property exists in the history dataframe before plotting
             if prop in history_df.columns:
-                line_style = get_styles(prop, line_styles, {'alpha': 0.75})
+                line_style = get_styles(prop, compiled_styles, {'alpha': 0.75})
                 (line,) = current_ax.plot(history_df['STEP'], history_df[prop], label=f'{prop}', **line_style)
                 # Add to the current axes' legend items
                 lines_for_current_ax.append(line)
@@ -222,7 +222,7 @@ def plot_timeline(  # noqa: C901
                 va='bottom',  # Align bottom of text to top of plot
                 fontweight='bold',
                 fontsize=10,
-                bbox=dict(boxstyle='round,pad=0.3', fc=light_dark(None, '#222'), alpha=0.7, ec='none'),
+                bbox=dict(boxstyle='round,pad=0.3', fc=light_dark('none', '#222'), alpha=0.7, ec='none'),
             )
 
     # --- Action Markers (Plot only on main_ax) ---

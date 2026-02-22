@@ -93,7 +93,8 @@ def themed_figure_html(
 
     def _to_data_uri(fig: Figure) -> str:
         img_io = BytesIO()
-        fig.savefig(img_io, format='png', facecolor=fig.get_facecolor(), **save_args)  # ty:ignore[invalid-argument-type]
+        # pyrefly: ignore [bad-argument-type]
+        fig.savefig(img_io, format='png', facecolor=fig.get_facecolor(), **save_args)
         payload = base64.b64encode(img_io.getvalue()).decode('ascii')
         return f'data:image/png;base64,{payload}'
 

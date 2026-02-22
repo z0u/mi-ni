@@ -25,13 +25,13 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "basedpyright>=1.29.1",
     "pandas-stubs",
     "pytest-asyncio>=0.25.3",
     "pytest>=8.3.5",
     "ruff>=0.9.7",
     "vulture>=2.14",
     "scipy-stubs>=1.15.2.2",
+    "pyrefly>=0.53.0",
 ]
 # Dependencies that aren't needed remotely (e.g. in Modal)
 local = [
@@ -98,17 +98,6 @@ ignore = [
     "D",
 ]
 
-[tool.basedpyright]
-venvPath = "."
-venv = ".venv"
-typeCheckingMode = "standard"
-include = [
-    "src",
-    "tests",
-    "docs",
-]
-
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -143,4 +132,10 @@ paths = [
     ".vulture-allowlist.py"
 ]
 sort_by_size = true
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
 # verbose = true

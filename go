@@ -52,7 +52,7 @@ case "${1:-all}" in
 			  check:             run all checks
 			  format [...args]:  format code (ruff format)
 			  lint   [...args]:  run linters (ruff check)
-			  types  [...args]:  check types (pyright)
+			  types  [...args]:  check types (pyrefly)
 			  tests  [...args]:  run tests (pytest)
 			  build  [...args]:  build static site
 			EOF

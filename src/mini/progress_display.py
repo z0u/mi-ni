@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from queue import Empty, Queue
+from queue import Empty
 from typing import Self
 
 from rich.console import Console
@@ -17,13 +17,14 @@ from rich.progress import (
     BarColumn,
     Progress,
     TaskID,
-    TextColumn,
-    TimeRemainingColumn,
     TaskProgressColumn,
+    TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 
 from mini._queues import EndOfQueue, QueueLike
+from mini.local_queue import LocalQueue
 from mini.progress import ProgressMessage
 
 
@@ -66,9 +67,11 @@ class RichProgressDisplay:
     new progress messages and updating the Rich display.
     """
 
+    queue: QueueLike[ProgressMessage]
+
     def __init__(self, total_jobs: int, queue: QueueLike[ProgressMessage] | None = None):
         self.total_jobs = total_jobs
-        self.queue: QueueLike[ProgressMessage] = queue or Queue()
+        self.queue = queue or LocalQueue()
         self.jobs: dict[str, JobState] = {}
         if _is_in_notebook():
             self.console = Console(force_terminal=True)

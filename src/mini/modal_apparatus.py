@@ -13,17 +13,16 @@ from __future__ import annotations
 
 import logging
 import secrets
-from collections import deque
 from contextlib import nullcontext
 from itertools import count
 from pathlib import Path
-from queue import Empty
-from typing import Any, Callable, Iterable, TypeVar, cast, override
+from typing import Any, Callable, Iterable, TypeVar, override
 
 import modal
 
-from mini._queues import EndOfQueue, QueueLike
+from mini._queues import QueueLike
 from mini.apparatus import Apparatus
+from mini.modal_queue import ModalQueue
 from mini.modal_volume import ModalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
@@ -203,48 +202,3 @@ def _wrap_for_modal(
             return result
 
     return wrapped_fn
-
-
-class ModalQueue(QueueLike[T]):
-    """A Modal-backed queue with buffered batch reads."""
-
-    def __init__(self, queue: modal.Queue, batch_size: int = 5_000):
-        self._queue = queue
-        self._batch_size = batch_size
-        self._buffer: deque[T] = deque()
-        self._saw_end = False
-
-    def put(self, item: T | EndOfQueue, /, block: bool = True, timeout: float | None = None) -> None:
-        self._queue.put(item, block=block, timeout=timeout)
-
-    def get(self, /, block: bool = True, timeout: float | None = None) -> T:
-        if self._buffer:
-            return self._buffer.popleft()
-        if self._saw_end:
-            raise EndOfQueue()
-
-        # Modal's Queue returns None instead of raising Empty when no item is available.
-        items = self._queue.get_many(self._batch_size, block=block, timeout=timeout)
-        if not items:
-            raise Empty('Modal queue returned no items, treating as empty')
-
-        cleaned: list[T] = []
-        for item in items:
-            if isinstance(item, EndOfQueue):
-                self._saw_end = True
-                break
-            if item is None:
-                continue
-            cleaned.append(cast(T, item))
-
-        if not cleaned:
-            if self._saw_end:
-                raise EndOfQueue()
-            raise Empty('Modal queue returned no items, treating as empty')
-
-        self._buffer.extend(cleaned)
-        return self._buffer.popleft()
-
-    def empty(self) -> bool:
-        # Modal's Queue doesn't have an empty() method.
-        return self._queue.len() == 0

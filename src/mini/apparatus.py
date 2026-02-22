@@ -87,13 +87,13 @@ class Apparatus(ABC, Generic[V]):
             # No running loop — call arun directly.
             loop = asyncio.new_event_loop()
             try:
-                return loop.run_until_complete(self.arun(fn, *args, **kwargs))
+                return loop.run_until_complete(self.arun(fn, *args, **kwargs))  # pyrefly: ignore [bad-argument-type]
             finally:
                 loop.close()
 
         # Running loop detected — offload to background loop.
         future = asyncio.run_coroutine_threadsafe(
-            self.arun(fn, *args, **kwargs),
+            self.arun(fn, *args, **kwargs),  # pyrefly: ignore [bad-argument-type]
             _get_background_loop(),
         )
         return future.result()

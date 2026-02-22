@@ -1,5 +1,8 @@
 {
     "recommendations": [
         "ms-vscode-remote.remote-containers"
+    ],
+    "unwantedRecommendations": [
+        "ms-python.vscode-pylance",
     ]
 }

@@ -1,4 +1,4 @@
-from src.mini.urns import matches_urn
+from mini.urns import matches_urn
 
 
 def test_matches_exact():
