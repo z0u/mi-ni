@@ -205,8 +205,8 @@ def find_learning_rate(config):
 
 
 @app.cell
-def _(app, config):
-    suggested_lr, lr_config, lr_history = app.run(find_learning_rate, config)
+async def _(app, config):
+    suggested_lr, lr_config, lr_history = await app.arun(find_learning_rate, config)
 
     config.optimizer.learning_rate = suggested_lr
     mo.output.append(mo.md(f'Suggested learning rate: **{suggested_lr:.2e}**'))
@@ -246,11 +246,11 @@ def train(config):
 
 
 @app.cell
-def _(app, config):
+async def _(app, config):
     import matplotlib.pyplot as plt
 
     mo.stop(True)
-    training_metrics = app.run(train, config)
+    training_metrics = await app.arun(train, config)
 
     # Plot training curve
     epochs = [m.epoch + 1 for m in training_metrics]
