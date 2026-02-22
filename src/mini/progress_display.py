@@ -114,6 +114,9 @@ class RichProgressDisplay:
         """
         self.queue.put(EndOfQueue(), timeout=drain_timeout)
         self._stop_event.set()
+        # Wake any threads waiting on _any_message (e.g. the startup watchdog)
+        # so they don't block process exit via the ThreadPoolExecutor atexit handler.
+        self._any_message.set()
         if self._thread:
             self._thread.join(timeout=drain_timeout)
         self.console.file.flush()
