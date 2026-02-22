@@ -44,6 +44,24 @@ def _modal_auth_error_message() -> str:
     return 'Modal authentication failed. Run ./go auth, then try again.'
 
 
+def _app_page_url(app: modal.App) -> str | None:
+    """Extract the dashboard URL from a running Modal app.
+
+    The URL comes from the backend via ``RunningApp.app_page_url``, but
+    synchronicity hides ``_running_app`` on the public ``App`` wrapper.
+    Reach through the wrapper to get it.
+    """
+    # synchronicity stores the underlying _App as the sole entry in __dict__
+    inner_values = list(app.__dict__.values())
+    if not inner_values:
+        return None
+    inner_app = inner_values[0]
+    running = getattr(inner_app, '_running_app', None)
+    if running is None:
+        return None
+    return running.app_page_url
+
+
 def make_image() -> modal.Image:
     """Helper to create a Modal image with experiment dependencies."""
     deps = uv_freeze(all_groups=True, not_groups=['local', 'dev'])
@@ -165,6 +183,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
             )
 
             async with display, self.app.run():
+                if url := _app_page_url(self.app):
+                    print(f'View app at {url}')
                 async with _startup_watchdog(display, startup_timeout):
                     async for result in modal_fn.map.aio(count(), *iterables_lists):
                         yield result
