@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import secrets
 from contextlib import nullcontext
+from functools import wraps
 from itertools import count
 from pathlib import Path
 from typing import Any, Callable, Iterable, TypeVar, override
@@ -44,7 +45,7 @@ def _modal_auth_error_message() -> str:
 
 def make_image() -> modal.Image:
     """Helper to create a Modal image with experiment dependencies."""
-    deps = uv_freeze(all_groups=True, not_groups='local')
+    deps = uv_freeze(all_groups=True, not_groups=['local', 'dev'])
     # Remove build tags (e.g., +cpu, +cu121) to improve cross-platform compatibility. This allows Torch to use devices available in the Modal environment.
     generic_deps = strip_build_tags(deps)
     project_deps = project_packages()
@@ -191,7 +192,7 @@ def _wrap_for_modal(
     data_dir: Path | None,
     commit_volume: modal.Volume | None = None,
 ) -> Callable[..., R]:
-    # @wraps(fn)  # Don't use wraps: it confuses Modal
+    @wraps(fn)
     def wrapped_fn(index: int, *args) -> R:
         dir_ctx = data_dir_context(data_dir) if data_dir is not None else nullcontext()
         with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), dir_ctx:
@@ -201,5 +202,10 @@ def _wrap_for_modal(
             if commit_volume is not None:
                 commit_volume.commit()
             return result
+
+    # Give the wrapper a unique name so that repeated submissions of the same
+    # function on a single App don't trigger Modal's name-collision warning.
+    wrapped_fn.__name__ = f'{fn.__name__}_{run_id}'
+    wrapped_fn.__qualname__ = f'{fn.__qualname__}_{run_id}'
 
     return wrapped_fn
