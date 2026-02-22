@@ -74,6 +74,7 @@ class RichProgressDisplay:
         self.total_jobs = total_jobs
         self.queue = queue or LocalQueue()
         self.jobs: dict[str, JobState] = {}
+        self._any_message = threading.Event()
         if _is_in_notebook():
             self.console = Console(force_terminal=True)
         else:
@@ -128,56 +129,53 @@ class RichProgressDisplay:
             console=self.console,
         ) as progress:
             self.progress = progress
-
-            # Add a task for overall progress
-            overall_task = progress.add_task(
+            self._completed = 0
+            self._overall_task = progress.add_task(
                 '[cyan]Overall progress[/]',
                 total=self.total_jobs or None,
             )
 
-            completed = 0
-
-            def update(msg: ProgressMessage) -> None:
-                nonlocal completed
-                job_id = msg.job_id
-                if job_id not in self.jobs:
-                    # New job — create a task for it
-                    task_id = progress.add_task(
-                        f'[cyan]Job {job_id}[/]',
-                        total=msg.total if msg.total > 0 else None,
-                    )
-                    self.jobs[job_id] = JobState(task_id=task_id, total=msg.total)
-
-                state = self.jobs[job_id]
-                state.step = msg.step
-                state.message = msg.message
-                if msg.total > 0 and state.total != msg.total:
-                    state.total = msg.total
-
-                # Update the job task
-                if state.task_id is not None and state.total > 0:
-                    desc = f'[cyan]Job {job_id}[/]'
-                    if state.message:
-                        desc += f' — {state.message}'
-                    progress.update(
-                        state.task_id,
-                        completed=state.step,
-                        total=state.total,
-                        description=desc,
-                    )
-
-                # Update overall progress if this job is done
-                if msg.step >= msg.total and msg.total > 0:
-                    completed += 1
-                    progress.update(overall_task, completed=completed)
-
             while True:
                 try:
                     msg = self.queue.get(timeout=1.0)
-                    update(msg)
+                    self._any_message.set()
+                    self._update_job(msg)
                 except EndOfQueue:
                     break
                 except Empty:
                     if self._stop_event.is_set():
                         break
                     continue
+
+    def _update_job(self, msg: ProgressMessage) -> None:
+        """Apply a single progress message to the display."""
+        assert self.progress is not None
+        job_id = msg.job_id
+
+        if job_id not in self.jobs:
+            task_id = self.progress.add_task(
+                f'[cyan]Job {job_id}[/]',
+                total=msg.total if msg.total > 0 else None,
+            )
+            self.jobs[job_id] = JobState(task_id=task_id, total=msg.total)
+
+        state = self.jobs[job_id]
+        state.step = msg.step
+        state.message = msg.message
+        if msg.total > 0 and state.total != msg.total:
+            state.total = msg.total
+
+        if state.task_id is not None and state.total > 0:
+            desc = f'[cyan]Job {job_id}[/]'
+            if state.message:
+                desc += f' — {state.message}'
+            self.progress.update(
+                state.task_id,
+                completed=state.step,
+                total=state.total,
+                description=desc,
+            )
+
+        if msg.step >= msg.total and msg.total > 0:
+            self._completed += 1
+            self.progress.update(self._overall_task, completed=self._completed)
