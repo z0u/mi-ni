@@ -150,10 +150,11 @@ class ModalApparatus(Apparatus[ModalVolume]):
 
         image: modal.Image = self.modal_fn_kwargs.get('image') or modal.Image.debian_slim()
 
-        with modal.enable_output(), self.app.run():
-            image.build(self.app)
+        with modal.enable_output():
+            async with self.app.run():
+                await image.build.aio(self.app)
 
-        with modal.Queue.ephemeral() as progress_queue:
+        async with modal.Queue.ephemeral() as progress_queue:
             progress_display = RichProgressDisplay(total_jobs=n, queue=ModalQueue(progress_queue))
             # Target ~10 emissions/sec overall: interval = max_containers / target_rate_hz
             max_containers = self.modal_fn_kwargs.get('max_containers', 1)
@@ -175,7 +176,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
                 fn_kwargs['volumes'] = {**volumes, str(self._volume.path): self._volume._modal_volume}
             modal_fn = self.app.function(serialized=True, **fn_kwargs)(wrapped_fn)
 
-            with progress_display, self.app.run():
+            async with progress_display, self.app.run():
                 async for result in modal_fn.map.aio(count(), *iterables_lists):
                     yield result
 

@@ -32,4 +32,4 @@ Define container images with explicit dependencies using `modal.Image`. Use pinn
 
 - Use `ModalApparatus` to run functions remotely on Modal.
 - In modern Modal, ~~"stubs"~~ are now called "apps".
-- Do not use Modal's `@app.function()` directly in user code: it creates tight coupling with Modal. Use `ModalApparatus.run(fn)` or `ModalApparatus.wrap(fn)` instead so users can easily switch to other execution backends.
+- Do not use Modal's `@app.function()` directly in user code: it creates tight coupling with Modal. Use `ModalApparatus.run(fn)` or `ModalApparatus.map(fn)` instead so users can easily switch to other execution backends.

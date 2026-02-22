@@ -48,13 +48,23 @@ class _MockModalFunction:
         self.map = _MockModalMap(fn)
 
 
+class _AsyncNoop:
+    """Callable that returns a no-op coroutine. Used to mock Modal's .aio interface."""
+
+    async def __call__(self, *args, **kwargs):
+        pass
+
+
 class MockModalImage:
     """Simulates ``modal.Image`` for testing."""
 
-    def build(self, app):
-        """No-op build for testing."""
-        del app
-        pass
+    class build:
+        """Mock build that supports both sync and async (.aio) calls."""
+
+        aio = _AsyncNoop()
+
+        def __init__(self, app):
+            del app
 
 
 class MockModalQueue:
@@ -77,8 +87,8 @@ class MockModalQueue:
         return len(self._items)
 
     @staticmethod
-    @contextlib.contextmanager
-    def ephemeral():
+    @contextlib.asynccontextmanager
+    async def ephemeral():
         """Return a mock ephemeral queue."""
         yield MockModalQueue()
 
@@ -107,7 +117,8 @@ class MockModalApp:
         return decorator
 
     def run(self):
-        return contextlib.nullcontext()
+        """Return an async context manager (no-op)."""
+        return contextlib.AsyncExitStack()
 
 
 # ---------------------------------------------------------------------------

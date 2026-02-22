@@ -7,6 +7,7 @@ ProgressMessage objects via a queue and rendering them with Rich.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from dataclasses import dataclass
 from queue import Empty
@@ -88,6 +89,14 @@ class RichProgressDisplay:
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.stop()
 
+    async def __aenter__(self) -> Self:
+        self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Stop the display, running the drain in a worker thread to avoid sync-in-async warnings."""
+        await asyncio.to_thread(self.stop)
+
     def start(self) -> None:
         """Start the background display thread."""
         self._stop_event.clear()
@@ -164,9 +173,11 @@ class RichProgressDisplay:
 
             while True:
                 try:
-                    msg = self.queue.get(timeout=10.0)
+                    msg = self.queue.get(timeout=1.0)
                     update(msg)
                 except EndOfQueue:
                     break
                 except Empty:
+                    if self._stop_event.is_set():
+                        break
                     continue
