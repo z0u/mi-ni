@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = '0.19.9'
+__generated_with = '0.20.1'
 app = marimo.App(width='medium')
 
 with app.setup(hide_code=True):
@@ -101,15 +101,15 @@ async def main(app_type):
     print(f'Using {executor}')
 
     # Step 1: write shared config to the volume
-    print(executor.run(prep))
+    print(await executor.arun(prep))
 
     # Step 2: train (reads config, writes per-item results to volume)
-    results = list(executor.map(train, [1, 2, 3, 4, 5]))
+    results = [x async for x in executor.amap(train, [1, 2, 3, 4, 5])]
     print('Results:', results)
 
     # Step 3: pull outputs back from the volume
     with tempfile.TemporaryDirectory() as tmp:
-        executor.volume.download('outputs', f'{tmp}/outputs')
+        await executor.volume.download('outputs', f'{tmp}/outputs')
         print('\nVolume outputs:')
         for p in sorted(Path(tmp, 'outputs').iterdir()):
             print(f'\n--- {p.name} ---')

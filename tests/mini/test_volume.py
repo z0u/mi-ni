@@ -60,7 +60,7 @@ def test_local_volume_path(tmp_path):
     assert vol.path == tmp_path / 'data'
 
 
-def test_local_volume_upload_file(tmp_path):
+async def test_local_volume_upload_file(tmp_path):
     """upload copies a single file into the volume."""
     vol = LocalVolume(tmp_path / 'vol')
 
@@ -69,11 +69,11 @@ def test_local_volume_upload_file(tmp_path):
     src.mkdir()
     (src / 'data.csv').write_text('a,b,c')
 
-    vol.upload(src / 'data.csv', 'input/data.csv')
+    await vol.upload(src / 'data.csv', 'input/data.csv')
     assert (vol.path / 'input' / 'data.csv').read_text() == 'a,b,c'
 
 
-def test_local_volume_upload_directory(tmp_path):
+async def test_local_volume_upload_directory(tmp_path):
     """upload copies a directory tree into the volume."""
     vol = LocalVolume(tmp_path / 'vol')
 
@@ -83,12 +83,12 @@ def test_local_volume_upload_directory(tmp_path):
     (src / 'train.csv').write_text('train')
     (src / 'test.csv').write_text('test')
 
-    vol.upload(src, 'input/dataset')
+    await vol.upload(src, 'input/dataset')
     assert (vol.path / 'input' / 'dataset' / 'train.csv').read_text() == 'train'
     assert (vol.path / 'input' / 'dataset' / 'test.csv').read_text() == 'test'
 
 
-def test_local_volume_upload_directory_merges(tmp_path):
+async def test_local_volume_upload_directory_merges(tmp_path):
     """upload merges into an existing destination directory."""
     vol = LocalVolume(tmp_path / 'vol')
 
@@ -100,13 +100,13 @@ def test_local_volume_upload_directory_merges(tmp_path):
     src2.mkdir()
     (src2 / 'b.txt').write_text('b')
 
-    vol.upload(src1, 'data')
-    vol.upload(src2, 'data')  # should not fail; merges
+    await vol.upload(src1, 'data')
+    await vol.upload(src2, 'data')  # should not fail; merges
     assert (vol.path / 'data' / 'a.txt').read_text() == 'a'
     assert (vol.path / 'data' / 'b.txt').read_text() == 'b'
 
 
-def test_local_volume_download_file(tmp_path):
+async def test_local_volume_download_file(tmp_path):
     """download copies a single file from the volume to a local path."""
     vol = LocalVolume(tmp_path / 'vol')
 
@@ -116,11 +116,11 @@ def test_local_volume_download_file(tmp_path):
 
     dst = tmp_path / 'local'
     dst.mkdir()
-    vol.download('models/best.pt', dst / 'best.pt')
+    await vol.download('models/best.pt', dst / 'best.pt')
     assert (dst / 'best.pt').read_bytes() == b'model-data'
 
 
-def test_local_volume_download_directory(tmp_path):
+async def test_local_volume_download_directory(tmp_path):
     """download copies a directory tree from the volume."""
     vol = LocalVolume(tmp_path / 'vol')
 
@@ -130,12 +130,12 @@ def test_local_volume_download_directory(tmp_path):
     (vol.path / 'models' / 'run-1' / 'config.json').write_text('{}')
 
     dst = tmp_path / 'local'
-    vol.download('models/run-1', dst)
+    await vol.download('models/run-1', dst)
     assert (dst / 'weights.pt').read_bytes() == b'w1'
     assert (dst / 'config.json').read_text() == '{}'
 
 
-def test_local_volume_download_directory_merges(tmp_path):
+async def test_local_volume_download_directory_merges(tmp_path):
     """download merges into an existing destination directory."""
     vol = LocalVolume(tmp_path / 'vol')
 
@@ -146,7 +146,7 @@ def test_local_volume_download_directory_merges(tmp_path):
     dst.mkdir()
     (dst / 'existing.txt').write_text('keep')
 
-    vol.download('run-1', dst)
+    await vol.download('run-1', dst)
     assert (dst / 'weights.pt').read_bytes() == b'w1'
     assert (dst / 'existing.txt').read_text() == 'keep'
 

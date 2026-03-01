@@ -76,11 +76,11 @@ class Volume(ABC):
         ...
 
     @abstractmethod
-    def upload(self, local_path: PathLike, remote_path: PathLike) -> None:
+    async def upload(self, local_path: PathLike, remote_path: PathLike) -> None:
         """Copy a local file or directory into the volume."""
         ...
 
     @abstractmethod
-    def download(self, remote_path: PathLike, local_path: PathLike) -> None:
+    async def download(self, remote_path: PathLike, local_path: PathLike) -> None:
         """Copy a file or directory from the volume to a local path."""
         ...

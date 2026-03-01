@@ -3,6 +3,7 @@ Volume backed by a local directory.
 """
 
 from __future__ import annotations
+from typing import override
 
 import shutil
 from pathlib import Path
@@ -26,7 +27,8 @@ class LocalVolume(Volume):
     def path(self) -> Path:
         return self._path
 
-    def upload(self, local_path: PathLike, remote_path: PathLike) -> None:
+    @override
+    async def upload(self, local_path: PathLike, remote_path: PathLike) -> None:
         """
         Copy a local file or directory into the volume.
 
@@ -54,7 +56,8 @@ class LocalVolume(Volume):
         else:
             shutil.copy2(src, dst)
 
-    def download(self, remote_path: PathLike, local_path: PathLike) -> None:
+    @override
+    async def download(self, remote_path: PathLike, local_path: PathLike) -> None:
         """
         Copy a file or directory from the volume to a local path.
 
