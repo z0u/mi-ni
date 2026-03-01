@@ -2,6 +2,6 @@
 
 set -euo pipefail
 
-( set -x; uv run pyrefly check "$@" )
+( set -x; uv run ty check "$@" )
 
 echo "✅ Type check passed"

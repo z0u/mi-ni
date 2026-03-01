@@ -31,7 +31,7 @@ dev = [
     "ruff>=0.9.7",
     "vulture>=2.14",
     "scipy-stubs>=1.15.2.2",
-    "pyrefly>=0.53.0",
+    "ty>=0.0.19",
 ]
 # Dependencies that aren't needed remotely (e.g. in Modal)
 local = [

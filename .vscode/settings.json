@@ -6,7 +6,6 @@
         ".pytest_cache": true,
         ".ruff_cache": true
     },
-    "python.defaultInterpreterPath": "./.venv/bin/python",
     "jupyter.kernels.excludePythonEnvironments": [
         "/bin/python3",
         "/usr/bin/python3",

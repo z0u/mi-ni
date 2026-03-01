@@ -291,7 +291,7 @@ def _wrap_for_modal(
 
     # Give the wrapper a unique name so that repeated submissions of the same
     # function on a single App don't trigger Modal's name-collision warning.
-    wrapped_fn.__name__ = f'{fn.__name__}_{run_id}'
-    wrapped_fn.__qualname__ = f'{fn.__qualname__}_{run_id}'
+    wrapped_fn.__name__ = f'{wrapped_fn.__name__}_{run_id}'
+    wrapped_fn.__qualname__ = f'{wrapped_fn.__qualname__}_{run_id}'
 
     return wrapped_fn

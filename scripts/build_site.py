@@ -126,13 +126,23 @@ def convert_notebooks(no_code: bool = False, output_format: str = 'html'):
         print('  No notebooks found to convert.')
         return
 
-    cmd = ['uv', 'run', '--', 'jupyter', 'nbconvert', '--config', str(NBCONVERT_CONFIG), '--to', output_format]
+    cmd: list[str] = [
+        'uv',
+        'run',
+        '--',
+        'jupyter',
+        'nbconvert',
+        '--config',
+        str(NBCONVERT_CONFIG),
+        '--to',
+        output_format,
+    ]
 
     if no_code:
         print('  Excluding code input cells (--no-input).')
         cmd.append('--no-input')
 
-    cmd.extend(map(str, notebook_files))
+    cmd.extend(map(str, notebook_files))  # ty:ignore[invalid-argument-type]
 
     run_command(cmd, cwd=WORKSPACE_ROOT)
 

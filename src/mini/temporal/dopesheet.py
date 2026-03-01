@@ -242,7 +242,7 @@ class Dopesheet:
             elif pd.api.types.is_float_dtype(df[col]):
                 df[col] = df[col].astype(float)
             else:
-                df[col] = df[col].astype(str).replace({'nan': None, 'NaN': None})  # pyrefly: ignore [bad-argument-type]
+                df[col] = df[col].astype(str).replace({'nan': None, 'NaN': None})  # ty:ignore[invalid-argument-type]
 
         df = df.set_index('STEP', drop=False)
         df = df.rename(columns=lambda x: str(self.get_prop_config(cast(str, x))))
@@ -284,7 +284,7 @@ def style_dopesheet(df: pd.DataFrame) -> Styler:
         [
             {'selector': 'td,th', 'props': 'white-space: nowrap'},
             *[{'selector': f'.col{i}', 'props': 'text-align: left'} for i in non_numeric_cols],
-        ]
+        ]  # ty:ignore[invalid-argument-type]
     ).format(na_rep='')
     for i, precision in decimal_places.items():
         style = style.format(na_rep='', precision=precision, subset=[i])

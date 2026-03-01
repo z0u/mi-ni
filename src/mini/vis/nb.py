@@ -75,7 +75,7 @@ def themed_figure_html(
     close_fig: bool = True,
     alt_text: str | None = None,
     max_width: str | None = '70rem',
-    **savefig_kwargs,
+    **savefig_kwargs: str | int | bool,
 ) -> str:
     """Render light/dark matplotlib figures as an HTML figure element."""
     import base64
@@ -93,8 +93,7 @@ def themed_figure_html(
 
     def _to_data_uri(fig: Figure) -> str:
         img_io = BytesIO()
-        # pyrefly: ignore [bad-argument-type]
-        fig.savefig(img_io, format='png', facecolor=fig.get_facecolor(), **save_args)
+        fig.savefig(img_io, format='png', facecolor=fig.get_facecolor(), **save_args)  # ty:ignore[invalid-argument-type]
         payload = base64.b64encode(img_io.getvalue()).decode('ascii')
         return f'data:image/png;base64,{payload}'
 
