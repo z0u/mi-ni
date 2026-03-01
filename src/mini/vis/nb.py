@@ -32,7 +32,7 @@ def themed(
     plot: Callable[P, Figure],
     *,
     alt_text: str | None = None,
-    max_width: str | None = '70rem',
+    max_width: str | None = None,
     light_styles: Sequence[Stylesheet] = ('base', 'light'),
     dark_styles: Sequence[Stylesheet] = ('base', 'dark'),
 ) -> Callable[P, str]:
@@ -74,7 +74,7 @@ def themed_figure_html(
     *,
     close_fig: bool = True,
     alt_text: str | None = None,
-    max_width: str | None = '70rem',
+    max_width: str | None = None,
     **savefig_kwargs: str | int | bool,
 ) -> str:
     """Render light/dark matplotlib figures as an HTML figure element."""

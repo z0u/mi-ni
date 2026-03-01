@@ -8,11 +8,14 @@ with app.setup(hide_code=True):
     import logging
     from functools import partial
 
+    import matplotlib.pyplot as plt
+
     from mini import LocalApparatus, ModalApparatus  # noqa: F401
     from mini import get_data_dir
     from mini.logging import SimpleLoggingConfig
     from mini.vis import themed
     from utils.lr_finder.vis import plot_lr_finder
+    from utils.time import duration as t
 
     logging_config = SimpleLoggingConfig().info('notebook', 'experiment', 'mini', 'utils')
     logging_config.apply()
@@ -89,8 +92,19 @@ def _(app_type):
 def _(app_type):
     if app_type.value == 'local':
         app = LocalApparatus('nanogpt')
+    elif app_type.value == 'modal':
+        app = (
+            ModalApparatus('nanogpt')
+            .w(
+                gpu='L4',
+                max_containers=1,
+                timeout=int(t('10 min')),
+            )
+            .before_each(logging_config.apply)
+        )
     else:
-        app = ModalApparatus('nanogpt').w(gpu='L4', max_containers=1).before_each(logging_config.apply)
+        print(f'Unknown apparatus: {app_type.value}')
+        mo.stop(True, 'Select an apparatus')
     mo.output.append(mo.md(f'Using **{app}**'))
     return (app,)
 
@@ -151,10 +165,10 @@ def prepare_data():
 
 
 @app.cell
-def _(app, config):
+async def _(app, config):
     from experiment.utils import align
 
-    input_metadata = app.run(prepare_data)
+    input_metadata = await app.arun(prepare_data)
 
     config.tokenizer = input_metadata.tokenizer_config.model_copy()
     config.model.vocab_size = align(config.tokenizer.vocab_size, 64)
@@ -247,21 +261,26 @@ def train(config):
 
 @app.cell
 async def _(app, config):
-    import matplotlib.pyplot as plt
-
-    mo.stop(True)
     training_metrics = await app.arun(train, config)
+    return (training_metrics,)
 
+
+@app.cell
+def _(training_metrics):
     # Plot training curve
     epochs = [m.epoch + 1 for m in training_metrics]
     val_losses = [m.val_loss for m in training_metrics]
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.set_title('Validation loss')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.plot(epochs, val_losses)
-    fig
+    @themed
+    def plot():
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.set_title('Validation loss')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
+        ax.plot(epochs, val_losses)
+        return fig
+
+    mo.Html(plot())
     return
 
 
@@ -304,13 +323,12 @@ def generate(prompts: list[str], max_new_tokens: int, temperature: float):
 
 
 @app.cell
-def _(app):
+async def _(app):
     prompts = [
         'It is a truth uni',
         'Mr. Darcy walked across the',
     ]
-    mo.stop(True)
-    continuations, gen_metadata = app.run(
+    continuations, gen_metadata = await app.arun(
         partial(generate, prompts=prompts, max_new_tokens=300, temperature=0.5),
     )
 
@@ -400,7 +418,7 @@ def _():
     app_type = mo.ui.dropdown(
         label='Apparatus',
         options=['local', 'modal'],
-        value=mo.cli_args().get('app', 'modal'),
+        value=mo.cli_args().get('app'),
     )
     return (app_type,)
 

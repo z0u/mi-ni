@@ -1,18 +1,16 @@
 from pathlib import Path
+from typing import Literal
 
-import torch
+import lightning as L
 
 from experiment.compute.data_pipelines import load_data
 from experiment.compute.model import save_checkpoint
-from experiment.config import TrainingConfig
+from experiment.config import MixedPrecisionConfig, TrainingConfig
 from experiment.data.dataloader import get_dataloader
 from experiment.model.gpt import GPT
 from experiment.training.metrics import TrainingMetrics
-from experiment.training.optimizer import configure_optimizer
-from experiment.training.scheduler import configure_scheduler
-from mini.progress import emit_progress
-from utils.torch.mixed_precision import AMPContext
-from utils.torch.types import get_device
+from experiment.training.module import GPTModule
+from mini.torch.lightning import LightningProgress
 
 
 def train_model(
@@ -31,57 +29,73 @@ def train_model(
     assert metadata.tokenizer_config.vocab_size <= config.model.vocab_size, 'Vocab size mismatch'
 
     model = GPT(config.model)
-    criterion = torch.nn.CrossEntropyLoss(ignore_index=0)
-    if torch.cuda.is_available():
-        data = data.cuda()
-        model = model.cuda()
-        criterion = criterion.cuda()
-
     train_loader, val_loader = get_dataloader(data, config.data, config.model)
-
-    optimizer = configure_optimizer(model, config.optimizer)
-    scheduler = configure_scheduler(optimizer, config.scheduler, epoch_length=len(train_loader))
-    amp_context = AMPContext(use_amp=config.amp.enabled, device_type=get_device(model), dtype=config.amp.dtype)
-
-    steps_per_epoch = len(train_loader) + len(val_loader)
-    total_steps = config.scheduler.epochs * steps_per_epoch
-    step = 0
-    all_metrics: list[TrainingMetrics] = []
 
     if checkpoint_every is None:
         checkpoint_every = max(1, config.scheduler.epochs // 50)
 
-    for epoch in range(config.scheduler.epochs):
-        model.train()
-        for xb, yb in train_loader:
-            with amp_context.forward_pass():
-                logits = model(xb)
-                loss = criterion(logits.view(-1, logits.size(-1)), yb.view(-1))
-            amp_context.backward_pass(loss, optimizer)
-            scheduler.step()
-            step += 1
-            emit_progress(step, total_steps, message=f'epoch {epoch + 1}/{config.scheduler.epochs} train')
+    tokens_per_epoch = len(train_loader) * config.data.batch_size * config.model.block_size
+    metrics_cb = _MetricsCallback(checkpoint_every, config, model, data_dir, tokens_per_epoch)
 
-        total_val_loss = 0.0
-        model.eval()
-        with torch.no_grad():
-            for xb, yb in val_loader:
-                with amp_context.forward_pass():
-                    logits = model(xb)
-                    loss = criterion(logits.view(-1, logits.size(-1)), yb.view(-1))
-                total_val_loss += loss.item()
-                step += 1
-                emit_progress(step, total_steps, message=f'epoch {epoch + 1}/{config.scheduler.epochs} val')
+    trainer = L.Trainer(
+        max_epochs=config.scheduler.epochs,
+        precision=_precision(config.amp),
+        callbacks=[LightningProgress(), metrics_cb],
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        log_every_n_steps=min(50, len(train_loader)),
+    )
+    trainer.fit(
+        GPTModule(model, config, epoch_length=len(train_loader)),
+        train_loader,
+        val_loader,
+    )
 
+    return model, metrics_cb.all_metrics
+
+
+def _precision(amp: MixedPrecisionConfig) -> Literal['32-true', '16-mixed', 'bf16-mixed']:
+    """Map MixedPrecisionConfig to a Lightning precision string."""
+    if not amp.enabled:
+        return '32-true'
+    dtype = amp.dtype or 'float16'
+    return 'bf16-mixed' if dtype == 'bfloat16' else '16-mixed'
+
+
+class _MetricsCallback(L.Callback):
+    """Collect per-epoch metrics and save checkpoints on schedule."""
+
+    def __init__(
+        self,
+        checkpoint_every: int,
+        config: TrainingConfig,
+        model: GPT,
+        data_dir: Path,
+        tokens_per_epoch: int,
+    ):
+        self.checkpoint_every = checkpoint_every
+        self.config = config
+        self.model = model
+        self.data_dir = data_dir
+        self.tokens_per_epoch = tokens_per_epoch
+        self.all_metrics: list[TrainingMetrics] = []
+
+    def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule):
+        epoch = trainer.current_epoch
+        val_loss = float(trainer.callback_metrics.get('val_loss', float('nan')))
+        lr = float(trainer.optimizers[0].param_groups[0]['lr'])
         metrics = TrainingMetrics(
             epoch=epoch,
-            learning_rate=float(scheduler.get_last_lr()[0]),
-            val_loss=total_val_loss / len(val_loader),
-            training_tokens=(epoch + 1) * len(train_loader) * config.data.batch_size * config.model.block_size,
+            learning_rate=lr,
+            val_loss=val_loss,
+            training_tokens=(epoch + 1) * self.tokens_per_epoch,
         )
-        all_metrics.append(metrics)
+        self.all_metrics.append(metrics)
 
-        if epoch > 0 and epoch % checkpoint_every == 0 or epoch == config.scheduler.epochs - 1:
-            save_checkpoint(model, config, metrics, data_dir)
+        if epoch > 0 and epoch % self.checkpoint_every == 0:
+            save_checkpoint(self.model, self.config, metrics, self.data_dir)
 
-    return model, all_metrics
+    def on_fit_end(self, trainer: L.Trainer, pl_module: L.LightningModule):
+        if self.all_metrics:
+            save_checkpoint(self.model, self.config, self.all_metrics[-1], self.data_dir)
