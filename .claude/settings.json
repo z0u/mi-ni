@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json.schemastore.org/claude-code-settings.json",
+    "sandbox": {
+        "network": {
+            "allowedDomains": [
+                "download.pytorch.org",
+                "download-r2.pytorch.org"
+            ]
+        }
+    }
+}
