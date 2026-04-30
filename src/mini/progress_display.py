@@ -8,12 +8,15 @@ ProgressMessage objects via a queue and rendering them with Rich.
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from queue import Empty
 from typing import Self
 
 from rich.console import Console
+from rich.logging import RichHandler
 from rich.progress import (
     BarColumn,
     Progress,
@@ -27,6 +30,28 @@ from rich.progress import (
 from mini._queues import EndOfQueue, QueueLike
 from mini.local_queue import LocalQueue
 from mini.progress import ProgressMessage
+
+
+@contextmanager
+def _route_logging_to(console: Console):
+    """Route root-logger output through a Rich console for the duration.
+
+    Rich's Live (used by Progress) repaints the bar after each console write,
+    so log records emitted via this handler appear above a stable progress bar
+    instead of clobbering it. Stdout/stderr are already redirected by Progress
+    itself (``redirect_stdout``/``redirect_stderr`` default to True).
+
+    Existing root handlers (e.g. those installed by ``mini.logging``) are
+    restored on exit; per-logger levels are untouched.
+    """
+    root = logging.getLogger()
+    handler = RichHandler(console=console, show_path=False, rich_tracebacks=True, markup=False)
+    saved_handlers = root.handlers[:]
+    root.handlers = [handler]
+    try:
+        yield
+    finally:
+        root.handlers = saved_handlers
 
 
 def _is_in_notebook() -> bool:
@@ -130,7 +155,7 @@ class RichProgressDisplay:
             TimeRemainingColumn(),
             TimeElapsedColumn(),
             console=self.console,
-        ) as progress:
+        ) as progress, _route_logging_to(progress.console):
             self.progress = progress
             self._completed = 0
             self._overall_task = progress.add_task(
