@@ -17,6 +17,10 @@ URL_RE = re.compile(rb'https?://[^\s\x1b\'"`<>]+')
 
 def render_qr(url: str) -> None:
     qr = segno.make(url, error='l')
+    # Clear the current line and move the cursor to the beginning, because Modal
+    # setup contains a progress spinner that overwrites the same line
+    # repeatedly.
+    print("\033[2K\r", end='', flush=True, file=sys.stderr)
     qr.terminal(out=sys.stdout, compact=True)
     sys.stdout.flush()
 
