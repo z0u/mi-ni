@@ -19,6 +19,7 @@ dependencies = [
     "requests>=2.32.3",
     "rich>=14.3.2",
     "scikit-learn>=1.6.1",
+    "segno>=1.6.1",
     "torch~=2.10.0",
     "wandb>=0.25.0",
 ]
