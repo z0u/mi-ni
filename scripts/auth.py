@@ -78,7 +78,7 @@ def main() -> int:
     old_attrs = None
     if os.isatty(in_fd):
         old_attrs = termios.tcgetattr(in_fd)
-        tty.setraw(in_fd)
+        tty.setcbreak(in_fd)
 
     try:
         pump(fd, in_fd, sys.stdout.fileno())
