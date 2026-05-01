@@ -8,7 +8,10 @@
     // Use a persistent volume for the UV cache; can be shared with other containers
     "source=uv-cache,target=/home/vscode/.cache/uv,type=volume",
     // Use a persistent volume for the virtual environment
-    "source=${localWorkspaceFolderBasename}-venv,target=${containerWorkspaceFolder}/.venv,type=volume"
+    "source=${localWorkspaceFolderBasename}-venv,target=${containerWorkspaceFolder}/.venv,type=volume",
+    // Persist user config across container rebuilds
+    "source=${localWorkspaceFolderBasename}-marimo-config,target=/home/vscode/.config/marimo,type=volume",
+    "source=${localWorkspaceFolderBasename}-claude-config,target=/home/vscode/.claude,type=volume"
   ],
   "containerEnv": {
     "UV_CACHE_DIR": "/home/vscode/.cache/uv",
