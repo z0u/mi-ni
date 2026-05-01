@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Run `modal setup` and render any auth URLs in its output as QR codes."""
+"""Run a command, intercept auth URLs in its output, and render them as QR codes or open in browser."""
 
 import errno
 import os
@@ -7,25 +7,35 @@ import pty
 import re
 import select
 import sys
-import termios
-import tty
+import webbrowser
+from urllib.parse import urlparse
 
 import segno
 
 URL_RE = re.compile(rb'https?://[^\s\x1b\'"`<>]+')
+AUTH_PATH_RE = re.compile(r'/(auth|authorize|login|setup|token|key|verify|confirm|activate)', re.IGNORECASE)
+
+
+def is_auth_url(url: str) -> bool:
+    return bool(AUTH_PATH_RE.search(urlparse(url).path))
 
 
 def render_qr(url: str) -> None:
     qr = segno.make(url, error='l')
-    # Clear the current line and move the cursor to the beginning, because Modal
-    # setup contains a progress spinner that overwrites the same line
-    # repeatedly.
-    print("\033[2K\r", end='', flush=True, file=sys.stderr)
+    # Clear the current line because some tools (e.g. Modal) use a spinner that
+    # overwrites the same line repeatedly.
+    print('\033[2K\r', end='', flush=True, file=sys.stderr)
     qr.terminal(out=sys.stdout, compact=True)
     sys.stdout.flush()
 
 
-def scan_lines(buf: bytearray, seen: set[bytes]) -> None:
+def open_url(url: str) -> None:
+    print('\033[2K\r', end='', flush=True, file=sys.stderr)
+    if not webbrowser.open(url):
+        render_qr(url)
+
+
+def scan_lines(buf: bytearray, seen: set[bytes], handle_url) -> None:
     while True:
         nl = buf.find(b'\n')
         if nl < 0:
@@ -36,13 +46,16 @@ def scan_lines(buf: bytearray, seen: set[bytes]) -> None:
             if match in seen:
                 continue
             seen.add(match)
+            url = match.decode('utf-8', 'replace')
+            if not is_auth_url(url):
+                continue
             try:
-                render_qr(match.decode('utf-8', 'replace'))
+                handle_url(url)
             except Exception as e:
-                sys.stderr.write(f'(QR render failed: {e})\n')
+                sys.stderr.write(f'(URL handling failed: {e})\n')
 
 
-def pump(child_fd: int, in_fd: int, out_fd: int) -> None:
+def pump(child_fd: int, in_fd: int, out_fd: int, handle_url) -> None:
     seen: set[bytes] = set()
     buf = bytearray()
     while True:
@@ -68,27 +81,30 @@ def pump(child_fd: int, in_fd: int, out_fd: int) -> None:
                 return
             os.write(out_fd, chunk)
             buf.extend(chunk)
-            scan_lines(buf, seen)
+            scan_lines(buf, seen, handle_url)
 
 
 def main() -> int:
-    cmd = ['uv', 'run', 'modal', 'setup', *sys.argv[1:]]
+    args = sys.argv[1:]
+
+    mode = 'open'
+    if args and args[0] in ('--qr', '--open'):
+        mode = args[0][2:]
+        args = args[1:]
+
+    if not args:
+        sys.stderr.write(f'Usage: {sys.argv[0]} [--qr|--open] <cmd...>\n')
+        return 1
+
+    handle_url = render_qr if mode == 'qr' else open_url
 
     pid, fd = pty.fork()
     if pid == 0:
-        os.execvp(cmd[0], cmd)
-
-    in_fd = sys.stdin.fileno()
-    old_attrs = None
-    if os.isatty(in_fd):
-        old_attrs = termios.tcgetattr(in_fd)
-        tty.setcbreak(in_fd)
+        os.execvp(args[0], args)
 
     try:
-        pump(fd, in_fd, sys.stdout.fileno())
+        pump(fd, sys.stdin.fileno(), sys.stdout.fileno(), handle_url)
     finally:
-        if old_attrs is not None:
-            termios.tcsetattr(in_fd, termios.TCSADRAIN, old_attrs)
         try:
             os.close(fd)
         except OSError:
