@@ -148,14 +148,17 @@ class RichProgressDisplay:
 
     def _run(self) -> None:
         """Main loop for the display thread."""
-        with Progress(
-            TextColumn('[progress.description]{task.description}'),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeRemainingColumn(),
-            TimeElapsedColumn(),
-            console=self.console,
-        ) as progress, _route_logging_to(progress.console):
+        with (
+            Progress(
+                TextColumn('[progress.description]{task.description}'),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                TimeElapsedColumn(),
+                console=self.console,
+            ) as progress,
+            _route_logging_to(progress.console),
+        ):
             self.progress = progress
             self._completed = 0
             self._overall_task = progress.add_task(

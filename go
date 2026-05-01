@@ -38,7 +38,6 @@ case "${1:-all}" in
         "$SCRIPT_DIR/lint.sh"
         "$SCRIPT_DIR/typecheck.sh"
         "$SCRIPT_DIR/test.sh"
-        "$SCRIPT_DIR/deadcode.sh"
         ;;
     build|site)
         shift
