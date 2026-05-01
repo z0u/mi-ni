@@ -24,19 +24,20 @@
     "vscode": {
       "extensions": [
         "anthropic.claude-code",
+        "astral-sh.ty",
         "bierner.github-markdown-preview",
         "charliermarsh.ruff",
         "esbenp.prettier-vscode",
         "GitHub.copilot-chat",
         "GitHub.copilot",
         "github.vscode-github-actions",
+        "marimo-team.vscode-marimo",
+        "mechatroner.rainbow-csv",
         "ms-python.python",
         "ms-toolsai.jupyter-renderers",
         "ms-toolsai.jupyter",
         "ms-toolsai.vscode-jupyter-cell-tags",
-        "ms-toolsai.vscode-jupyter-slideshow",
-        "mechatroner.rainbow-csv",
-        "astral-sh.ty"
+        "ms-toolsai.vscode-jupyter-slideshow"
       ]
     }
   },

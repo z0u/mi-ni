@@ -28,7 +28,7 @@ set -euo pipefail
     curl -fsSL https://claude.ai/install.sh | bash
 
     # Agent skills — install to user home to avoid conflicts with project skills.
-    npx skills add marimo-team/marimo-pair -g --agent claude-code --yes
+    npx skills add marimo-team/marimo-pair -g --agent claude-code --yes < /dev/null
 )
 
 echo "Virtual environment created. You may need to restart the Python language server."
