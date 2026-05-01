@@ -1,27 +1,25 @@
 ---
 name: testing
-description: Guidelines for writing tests in this project. Patterns, what to test, how to write assertions.
+description: Guidelines for running and writing tests in this project. Patterns, what to test, how to write assertions.
 ---
 
 # Writing tests
 
 This project uses pytest.
 
-Use pytest idioms: fixtures, parametrize, assert.
-Prefer functional tests (not class-based).
-Prefer brevity where possible.
+- Use pytest idioms: fixtures, parametrize, assert, approx, ANY.
+- Prefer brevity.
 
-Prefer pytest-native tools.
-
+Prefer specialized testing utilities, and specify tolerances.
 ```diff
-+ from pytest import approx
-
-- np.isclose(x, y)  # ❌
-+ pytest.approx(x) == y  # ✅
+- assert np.allclose(x, y)  # ❌
+- assert torch.allclose(a, b)  # ❌
++ np.testing.assert_allclose(x, y, rtol=1e-7, atol=0)  # ✅
++ torch.testing.assert_close(a, b, rtol=1e-7, atol=0)  # ✅
 ```
+Reason: Specialized testing utilities will give you better error messages when assertions fail, and they often have additional features that make them more powerful and flexible than generic assertions. Tolerances are highly context-dependent, so choose them based on principle.
 
 Use structural assertions.
-
 ```diff
 + from unittest.mock import ANY
 
@@ -29,28 +27,29 @@ Use structural assertions.
 - assert 'z' in props and approx(props['z']) == 0.8  # ❌
 + assert approx(props) == {'x': 1.0, 'y': ANY, 'z': 0.8}  # ✅
 ```
+Reason: Structural assertions that fail will show you the entire structure and all the differences, not just the first failed assertion. This makes it much easier to understand what went wrong.
 
 Use reserved domains to avoid accidentally fetching from real domains: `.example`, `.test`, `.invalid`.
-
 ```diff
 - response = requests.get('test.com')  # ❌ this is a real domain!
 + response = requests.get('service.test')  # ✅ guaranteed not to resolve
 ```
+Reason: Using real resources in tests can lead to flaky tests and unintended side effects.
 
-Use explicit, literal pre-conditions where possible:
-
+Use explicit, literal pre-conditions:
 ```diff
 - input = np.arange(5) * 2  # ❌ have to mentally evaluate this
 + input = [0, 2, 4, 6, 8]  # ✅ immediately clear what the input is
 ```
+Reason: Bugs can hide in complex test setup code.
 
-Use explicit, literal expected values where possible:
-
+Use explicit, closed-form analytical expected values:
 ```diff
   output = add(a, b)
 - assert output == a + b  # ❌ tautological assertion; doesn't verify anything
 + assert output == 5  # ✅ verifies that the function produces the expected result
 ```
+Reason: A tautological assertion could easily share the same bug as the code under test, and thus fail to catch it. Analytical expected values can be verified by hand.
 
 Use `pytest.mark.parametrize` to test multiple cases without repetition.
 

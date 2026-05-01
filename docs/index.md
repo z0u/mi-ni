@@ -2,14 +2,13 @@
 
 > **<ruby>見<rt>み</rt>に</ruby> /mi·ni/** — _with intent to see_ [^etymology]
 
-[^etymology]: From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something." This library is about small AI experiments—quick, lightweight explorations to try and see what happens.
+[^etymology]: From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something."
 
 mi-ni is a template repository and library for doing AI research. Features:
 
-- **Local Python notebooks**
-- **Remote per-function GPU compute** [^modal]
-- **Inline visualization** with remote-to-local callbacks
-- **AI-assisted coding** with Copilot/VS Code
+- **Local Python notebooks** with Marimo, with outputs stored in Git LFS and published to GitHub Pages
+- **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
+- **Agentic coding config** for Claude Code and GH Copilot
 
 [See z0u/mi-ni](https://github.com/z0u/mi-ni).
 
@@ -21,5 +20,5 @@ Notebooks are automatically published to GitHub Pages, including assets stored i
 
 Index:
 
-- [Getting started](./getting-started.ipynb)
-- [nanoGPT demo](./nanogpt.ipynb)
+- [Getting started](./getting_started.py)
+- [nanoGPT demo](./nanogpt.py)
