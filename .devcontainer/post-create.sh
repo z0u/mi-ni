@@ -18,6 +18,12 @@ set -euo pipefail
     # Initialize Python environment.
     uv venv --allow-existing < /dev/null
     ./go install < /dev/null
+
+    # Install Claude Code here rather than in Dockerfile, because it updates itself frequently.
+    curl -fsSL https://claude.ai/install.sh | bash
+
+    # Agent skills — install to user home to avoid conflicts with project skills.
+    npx skills add marimo-team/marimo-pair -g --agent claude-code --yes
 )
 
 echo "Virtual environment created. You may need to restart the Python language server."

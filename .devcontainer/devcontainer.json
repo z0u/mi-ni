@@ -20,6 +20,7 @@
   "customizations": {
     "vscode": {
       "extensions": [
+        "anthropic.claude-code",
         "bierner.github-markdown-preview",
         "charliermarsh.ruff",
         "esbenp.prettier-vscode",
