@@ -17,8 +17,14 @@
     "UV_CACHE_DIR": "/home/vscode/.cache/uv",
     // Copy instead of hardlinking due to separate volumes
     "UV_LINK_MODE": "copy",
-    // Put Python bytecode outisde the project, so it doesn't get synced to the host
-    "PYTHONPYCACHEPREFIX": "/home/vscode/.cache/pycache"
+    // Don't write .pyc files for project modules: avoids conflicts when the
+    // same source tree is run from both the container (Linux) and the host
+    // (macOS/Windows). Previously we used PYTHONPYCACHEPREFIX, but marimo
+    // mirrors its __marimo__/ output dir under that prefix too, hiding the
+    // notebook auto-export files. Pair with UV_COMPILE_BYTECODE so installed
+    // packages in .venv are still pre-compiled at install time.
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "UV_COMPILE_BYTECODE": "1"
   },
   "customizations": {
     "vscode": {
