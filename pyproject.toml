@@ -1,42 +1,46 @@
 [project]
-name = "utils"
-version = "0.1.0"
+name = "mi-ni"
+version = "2.0"
 description = "AI experiments"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "datasets>=3.0.0",
-    "ftfy>=6.3.1",
+    "datasets>=3.0.0",  # Hugging Face Datasets
+    "ftfy>=6.3.1",  # text cleaning for NLP tasks
+    "imageio-ffmpeg>=0.6.0",  # for video support in matplotlib
     "jaxtyping>=0.2.38",
-    "lightning>=2.6.1",
-    "marimo>=0.19.10",
-    "matplotlib>=3.10.0",
-    "modal>=1.3",
-    "numpy>=2.2.3",
-    "pandas>=2.2.3",
-    "pydantic>=2.10.6",
+    "lightning>=2.6.1",  # PyTorch Lightning for training loops and utilities
+    "marimo>=0.19.10",  # interactive notebooks
+    "matplotlib>=3.10.0",  # plotting and visualization
+    "modal>=1.3",  # remote (cloud) GPU compute
+    "numpy>=2.2.3",  # numerical computing (multi-dimensional arrays)
+    "pandas>=2.2.3",  # tabular data manipulation
+    "pydantic>=2.10.6",  # data validation
     "pyzmq>=27.1.0",
     "requests>=2.32.3",
-    "rich>=14.3.2",
+    "rich>=14.3.2",  # pretty terminal output
     "scikit-learn>=1.6.1",
-    "segno>=1.6.1",
     "torch~=2.10.0",
-    "wandb>=0.25.0",
+    "wandb>=0.25.0",  # experiment tracking
 ]
 
 [dependency-groups]
+# Dependencies that aren't needed remotely (e.g. in Modal)
+#
+#     deps = mini.requirements.uv_freeze(all_groups=True, not_groups=['local', 'dev'])
+#     image = modal.Image.debian_slim().pip_install(*deps)
+#
 dev = [
     "pandas-stubs",
     "pytest-asyncio>=0.25.3",
     "pytest>=8.3.5",
-    "ruff>=0.9.7",
-    "vulture>=2.14",
+    "ruff>=0.9.7",  # linter and formatter
     "scipy-stubs>=1.15.2.2",
-    "ty>=0.0.19",
+    "segno>=1.6.1",  # QR code generation
+    "ty>=0.0.19",  # type checker
+    "vulture>=2.14",  # dead code detection
 ]
-# Dependencies that aren't needed remotely (e.g. in Modal)
 local = [
-    "imageio-ffmpeg>=0.6.0",  # for video support in matplotlib
 ]
 
 [tool.uv]
