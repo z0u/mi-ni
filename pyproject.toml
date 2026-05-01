@@ -44,6 +44,9 @@ local = [
 ]
 
 [tool.uv]
+# Dependency cooldown to mitigate risk of supply chain attacks.
+# https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns
+exclude-newer = "3 days"
 
 [tool.uv.sources]
 torch = [
