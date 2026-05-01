@@ -3,8 +3,10 @@
     "sandbox": {
         "network": {
             "allowedDomains": [
-                "download.pytorch.org",
-                "download-r2.pytorch.org"
+                "*.pytorch.org",
+                "modal.com",
+                "*.modal.com",
+                "*.modal.run"
             ]
         }
     }
