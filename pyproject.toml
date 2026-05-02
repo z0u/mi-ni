@@ -42,6 +42,9 @@ dev = [
 ]
 local = [
 ]
+pages = [
+    "markdown>=3",
+]
 
 [tool.uv]
 # Dependency cooldown to mitigate risk of supply chain attacks.

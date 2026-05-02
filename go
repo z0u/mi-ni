@@ -41,7 +41,8 @@ case "${1:-all}" in
         ;;
     build|site)
         shift
-        "$SCRIPT_DIR/build_site.py" "$@"
+        "$SCRIPT_DIR/clean_docs.py"
+        uv run "$SCRIPT_DIR/build_site.py" "$@"
         ;;
     clean)
         shift

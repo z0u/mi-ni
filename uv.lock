@@ -905,6 +905,9 @@ dev = [
     { name = "ty" },
     { name = "vulture" },
 ]
+pages = [
+    { name = "markdown" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -939,6 +942,7 @@ dev = [
     { name = "vulture", specifier = ">=2.14" },
 ]
 local = []
+pages = [{ name = "markdown", specifier = ">=3" }]
 
 [[package]]
 name = "modal"
