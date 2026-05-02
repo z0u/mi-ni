@@ -2,7 +2,9 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/scripts"
+SELF="${BASH_SOURCE[0]}"
+PROJECT_ROOT="$( cd -- "$( dirname -- "$SELF" )" &> /dev/null && pwd )"
+SCRIPT_DIR="$PROJECT_ROOT/scripts"
 
 case "${1:-all}" in
     install)
@@ -49,8 +51,8 @@ case "${1:-all}" in
         "$SCRIPT_DIR/clean_docs.py" "$@"
         ;;
     serve)
-        "$SCRIPT_DIR/clean_docs.py"
-        python3 -m http.server 8000 -d "$(dirname "$SCRIPT_DIR")/docs/__marimo__"
+        "$SELF" build
+        npx serve -n "$PROJECT_ROOT/_site"
         ;;
     *)
         # Important: heredoc indented with tab characters.
