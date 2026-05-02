@@ -54,30 +54,52 @@ def copy_assets():
         shutil.copy2(item, dest)
 
 
-def convert_index():
-    """Convert docs/index.md to _site/index.html, rewriting .py links to .html."""
-    index_md = DOCS_DIR / 'index.md'
-    if not index_md.exists():
-        return
-    print('Converting index...')
-    text = index_md.read_text('utf-8')
-    text = re.sub(r'\]\(([^)]+)\.py\)', r'](\1.html)', text)
-    body = md_lib.markdown(text, extensions=['extra'])
-    html = (
-        '<!DOCTYPE html>\n'
-        '<html lang="en">\n'
-        '<head>\n'
-        '<meta charset="utf-8">\n'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        '<title>mi-ni</title>\n'
-        '</head>\n'
-        '<body>\n'
-        + body
-        + '\n</body>\n</html>\n'
-    )
-    dest = SITE_DIR / 'index.html'
-    dest.write_text(html, 'utf-8')
-    print(f'  {index_md.relative_to(WORKSPACE_ROOT)} -> {dest.relative_to(WORKSPACE_ROOT)}')
+def site_root(dest: Path) -> str:
+    """Return the relative path prefix from dest back to the site root."""
+    depth = len(dest.relative_to(SITE_DIR).parts) - 1
+    return '../' * depth
+
+
+def copy_md_stylesheet():
+    """Copy the Markdown page stylesheet to _site/."""
+    print('Copying Markdown stylesheet...')
+    css_src = WORKSPACE_ROOT / 'scripts' / 'md.css'
+    css_dest = SITE_DIR / 'md.css'
+    shutil.copy2(css_src, css_dest)
+    print(f'  {css_src.relative_to(WORKSPACE_ROOT)} -> {css_dest.relative_to(WORKSPACE_ROOT)}')
+
+
+def convert_markdown():
+    """Convert all .md files in docs/ (except README.md) to .html in _site/."""
+    print('Converting Markdown...')
+    skip = {'README.md'}
+    for md_file in sorted(DOCS_DIR.rglob('*.md')):
+        if md_file.name in skip:
+            continue
+        rel = md_file.relative_to(DOCS_DIR).with_suffix('.html')
+        dest = SITE_DIR / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        text = md_file.read_text('utf-8')
+        text = re.sub(r'\]\(([^)]+)\.py\)', r'](\1.html)', text)
+        body = md_lib.markdown(text, extensions=['extra'])
+        title_match = re.search(r'^#\s+(.+)$', text, re.MULTILINE)
+        title = title_match.group(1).strip() if title_match else md_file.stem
+        root = site_root(dest)
+        html = (
+            '<!DOCTYPE html>\n'
+            '<html lang="en">\n'
+            '<head>\n'
+            '<meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+            f'<title>{title}</title>\n'
+            f'<link rel="stylesheet" href="{root}md.css">\n'
+            '</head>\n'
+            '<body>\n'
+            + body
+            + '\n</body>\n</html>\n'
+        )
+        dest.write_text(html, 'utf-8')
+        print(f'  {md_file.relative_to(WORKSPACE_ROOT)} -> {dest.relative_to(WORKSPACE_ROOT)}')
 
 
 def add_nojekyll():
@@ -88,7 +110,8 @@ def main():
     prepare_dirs()
     copy_marimo_output()
     copy_assets()
-    convert_index()
+    copy_md_stylesheet()
+    convert_markdown()
     add_nojekyll()
     print(f'\nSite written to {SITE_DIR.relative_to(WORKSPACE_ROOT)}/')
 
