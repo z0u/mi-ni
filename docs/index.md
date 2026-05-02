@@ -22,4 +22,5 @@ Index:
 
 - [Getting started](./getting_started.py)
 - [Themed (light/dark) plots](./themed.py)
+- [Sparkline text annotations](./subline_demo.py)
 - [nanoGPT demo](./nanogpt.py)
