@@ -21,4 +21,5 @@ Notebooks are automatically published to GitHub Pages, including assets stored i
 Index:
 
 - [Getting started](./getting_started.py)
+- [Themed (light/dark) plots](./themed.py)
 - [nanoGPT demo](./nanogpt.py)

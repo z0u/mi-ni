@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from functools import wraps
 from textwrap import dedent
-from typing import Callable, ParamSpec, TypeVar
+from typing import Callable, ParamSpec, TypeVar, overload
 
 from .plt import use_style
 from .theme import use_theme
@@ -28,44 +28,77 @@ R = TypeVar('R')
 log = logging.getLogger(__name__)
 
 
+@overload
 def themed(
     plot: Callable[P, Figure],
+    *,
+    alt_text: str | None = ...,
+    max_width: str | None = ...,
+    light_styles: Sequence[Stylesheet] = ...,
+    dark_styles: Sequence[Stylesheet] = ...,
+) -> Callable[P, str]: ...
+
+
+@overload
+def themed(
+    plot: None = ...,
+    *,
+    alt_text: str | None = ...,
+    max_width: str | None = ...,
+    light_styles: Sequence[Stylesheet] = ...,
+    dark_styles: Sequence[Stylesheet] = ...,
+) -> Callable[[Callable[P, Figure]], Callable[P, str]]: ...
+
+
+def themed(
+    plot: Callable[P, Figure] | None = None,
     *,
     alt_text: str | None = None,
     max_width: str | None = None,
     light_styles: Sequence[Stylesheet] = ('base', 'light'),
     dark_styles: Sequence[Stylesheet] = ('base', 'dark'),
-) -> Callable[P, str]:
+) -> Callable[P, str] | Callable[[Callable[P, Figure]], Callable[P, str]]:
     """Wrap a plot function to render in both light and dark themes.
 
     Inside each call, :func:`~mini.vis.plt.use_theme` sets an active
     theme so the plot can use :func:`~mini.vis.plt.light_dark` to
     pick theme-dependent values.
 
-    Returns a wrapper; call it with the original arguments::
+    Can be used as a plain decorator, a decorator factory, or called directly::
 
-        themed(plot_lr_finder)(lr_history, lr_config)
+        @themed
+        def plot(): ...
+
+        @themed(alt_text='My plot')
+        def plot(): ...
+
+        themed(plot_lr_finder, alt_text='LR finder')(lr_history, lr_config)
     """
 
-    @wraps(plot)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> str:
-        with use_theme('light'), use_style(*light_styles):
-            light_fig = plot(*args, **kwargs)
-        with use_theme('dark'), use_style(*dark_styles):
-            dark_fig = plot(*args, **kwargs)
+    def decorator(fn: Callable[P, Figure]) -> Callable[P, str]:
+        @wraps(fn)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> str:
+            with use_theme('light'), use_style(*light_styles):
+                light_fig = fn(*args, **kwargs)
+            with use_theme('dark'), use_style(*dark_styles):
+                dark_fig = fn(*args, **kwargs)
 
-        if light_fig is None or dark_fig is None:
-            msg = f'{plot.__name__} returned None'
-            raise ValueError(msg)
+            if light_fig is None or dark_fig is None:
+                msg = f'{fn.__name__} returned None'
+                raise ValueError(msg)
 
-        return themed_figure_html(
-            light_fig,
-            dark_fig,
-            alt_text=alt_text,
-            max_width=max_width,
-        )
+            return themed_figure_html(
+                light_fig,
+                dark_fig,
+                alt_text=alt_text,
+                max_width=max_width,
+            )
 
-    return wrapper
+        return wrapper
+
+    if plot is not None:
+        return decorator(plot)
+    return decorator
 
 
 def themed_figure_html(

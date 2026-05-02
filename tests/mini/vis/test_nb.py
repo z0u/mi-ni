@@ -44,3 +44,14 @@ def test_themed_value_is_used():
 def test_alt_text():
     result = themed(_dummy_plot, alt_text='My plot')(1, 2)
     assert 'alt="My plot"' in result
+
+
+def test_decorator_factory():
+    @themed(alt_text='Factory plot')
+    def plot(x: int) -> Figure:
+        fig, _ = plt.subplots()
+        return fig
+
+    result = plot(1)
+    assert 'alt="Factory plot"' in result
+    assert 'mini-themed-img-light' in result
