@@ -68,11 +68,13 @@ For matplotlib figures, use `utils.nb.save_fig` instead of displaying them direc
 [Modal]: https://modal.com
 [uv]: https://astral.sh/uv
 
+<!-- template-only -->
+
 &nbsp;
 
 ## Contributing & licence
 
-This project is dedicated to the public domain [^unlicense][^attrib]. In your own experiments, there's no need to contribute back! The code is yours to modify as you please.
+This project is dedicated to the public domain [^unlicense]. In your own experiments, there's no need to contribute back! The code is yours to modify as you please.
 
 If you do want to contribute to _this template_, then fork it as usual. Before making a pull request, run:
 
@@ -80,6 +82,6 @@ If you do want to contribute to _this template_, then fork it as usual. Before m
 ./go check
 ```
 
-[^not-fork]: Since your project isn't a fork, you don't need to worry about keeping the code in sync, and you can add and remove Python packages as you wish.
 [^unlicense]: Technically, the licence is the [Unlicense](https://unlicense.org), which is about as close as you can get to "do whatever you want".
-[^attrib]: Exception: Code in `src/experiment` is derived from [nanoGPT](https://github.com/karpathy/nanoGPT) by Andrej Karpathy and is subject to MIT license terms. See the [LICENSE](LICENSE) file for details.
+
+<!-- /template-only -->
