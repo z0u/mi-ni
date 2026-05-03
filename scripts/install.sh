@@ -30,5 +30,15 @@ done
 
 ( set -x; uv sync --all-groups < /dev/null )
 
+# Install versioned git hooks
+HOOKS_SRC="$SCRIPT_DIR/hooks"
+HOOKS_DST="$SCRIPT_DIR/../.git/hooks"
+if [[ -d "$HOOKS_DST" ]]; then
+    for hook in "$HOOKS_SRC"/*; do
+        name="$(basename "$hook")"
+        ln -sf "../../scripts/hooks/$name" "$HOOKS_DST/$name"
+        echo "Installed git hook: $name"
+    done
+fi
 
 echo "✅ Installation complete"

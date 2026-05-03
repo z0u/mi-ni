@@ -96,7 +96,7 @@ Theme: TypeAlias = Mapping[str, LightDark]
 PartialTheme: TypeAlias = Mapping[str, str | LightDark]
 
 
-_default_theme: PartialTheme = {
+_default_theme: dict[str, str | LightDark] = {
     'bg-color': ('#fff', '#2a2a2a'),
     'sun-color': 'goldenrod',
     'moon-color': 'silver',

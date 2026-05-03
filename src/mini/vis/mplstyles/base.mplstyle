@@ -1,0 +1,17 @@
+xtick.labelsize: small
+ytick.labelsize: small
+
+axes.titlesize: small
+axes.grid: False
+axes3d.grid: False
+axes3d.xaxis.panecolor: none
+axes3d.yaxis.panecolor: none
+axes3d.zaxis.panecolor: none
+
+legend.frameon: False
+legend.fontsize: small
+
+figure.frameon: False
+figure.constrained_layout.use: True
+
+lines.solid_capstyle: round

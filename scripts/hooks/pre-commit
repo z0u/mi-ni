@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Apply terminal control sequences in staged Marimo output before committing.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+mapfile -t STAGED < <(
+    git diff --cached --name-only --diff-filter=ACM \
+    | grep -E '^docs/__marimo__/(.*\.html|session/.*\.py\.json)$' \
+    || true
+)
+
+if [[ ${#STAGED[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+echo 'Cleaning Marimo console output...'
+cd "$ROOT"
+uv run -- python scripts/clean_docs.py "${STAGED[@]}"
+git add -- "${STAGED[@]}"

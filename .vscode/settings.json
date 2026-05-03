@@ -6,29 +6,11 @@
         ".pytest_cache": true,
         ".ruff_cache": true
     },
-    "python.defaultInterpreterPath": "./.venv/bin/python",
     "jupyter.kernels.excludePythonEnvironments": [
         "/bin/python3",
         "/usr/bin/python3",
         "/usr/local/bin/python"
     ],
-    "github.copilot.chat.codeGeneration.instructions": [
-        {
-            "language": "python",
-            "file": ".github/copilot-python-gen.md"
-        }
-    ],
-    "github.copilot.chat.testGeneration.instructions": [
-        {
-            "language": "python",
-            "text": "Use pytest"
-        },
-        {
-            "language": "python",
-            "file": ".github/copilot-python-gen.md"
-        }
-    ],
-    "github.copilot.chat.codeGeneration.useInstructionFiles": true,
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff"
     },

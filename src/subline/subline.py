@@ -6,7 +6,6 @@ from subline.series import Series
 from subline.sparkline import Sparkline
 from subline.types import TokenBB
 from utils.dom import Element
-from utils.theming import svg_theme_toggle
 
 
 class Subline:
@@ -15,20 +14,18 @@ class Subline:
         self.font_size = 14
         self.line_height = self.font_size
         self.line_gap = self.line_height
-        self.char_width = 8.4  # Width of each character in SVG units
+        self.char_width = 8.4
         self.sparkline_height = 20
-        self.margin = 10  # Margin around visualization
-        self.legend_height = self.line_height  # Height for legend area
-        self.toggle_width = 20  # Space for theme toggle
+        self.margin = 10
+        self.legend_height = self.line_height
 
-        # Register SVG namespace for proper rendering
         ET.register_namespace('', 'http://www.w3.org/2000/svg')
 
     def _wrap_tokens(self, spans: list[TokenBB]) -> list[slice]:
         """Split tokens into lines based on total width, returning (start,end) indices."""
         lines: list[slice] = []
         line_start = 0
-        current_width = 0
+        current_width = 0.0
 
         for i, span in enumerate(spans):
             if current_width + span.width > self.chars_per_line * self.char_width:
@@ -121,7 +118,7 @@ class Subline:
         )
 
         # Track cumulative x position as we place tokens
-        pos = 0
+        pos = 0.0
         for token in line_tokens:
             width = len(token) * self.char_width
             mid = pos + width / 2
@@ -147,7 +144,7 @@ class Subline:
             None,
             'svg',
             xmlns='http://www.w3.org/2000/svg',
-            style='background-color: var(--bg-color); box-shadow: 0 0 0 10px var(--bg-color);',
+            style='color-scheme: light dark; background-color: var(--bg-color); box-shadow: 0 0 0 10px var(--bg-color);',
         )
         Element(
             svg,
@@ -160,6 +157,23 @@ class Subline:
                     font-weight: 400;
                     white-space: pre;
                 }
+                svg {
+                    color-scheme: light dark;
+                    --col-series-1: light-dark(#ef4444, #ff7878);
+                    --col-series-2: light-dark(#3b82f6, #3b82f6);
+                    --col-series-3: light-dark(#22c55e, #45e881);
+                    --col-series-4: light-dark(#f97316, #ffa261);
+                    --col-series-5: light-dark(#a855f7, #d9b1ff);
+                    --col-text: light-dark(#666666, #dddddd);
+                    --col-baseline: light-dark(#cccccc, #666666);
+                    --bg-color: light-dark(#fff, #2a2a2a);
+                    --blend-mode: multiply;
+                }
+                @media (prefers-color-scheme: dark) {
+                    svg { --blend-mode: screen; }
+                }
+                rect, circle, line, path, text { transition: fill 0.3s, stroke 0.3s; }
+                svg { transition: background-color 0.3s; }
             """),
         )
 
@@ -190,30 +204,7 @@ class Subline:
         legend_y = content_height + self.line_gap + self.legend_height / 2
         legend_width = self._add_legend(svg, self.margin, legend_y, series)
 
-        # Calculate final width needed
-        min_width = text_width + 2 * self.margin
-        total_width = max(min_width, legend_width + self.toggle_width + 2 * self.margin)
-
-        # Add theme toggle using final width
-        svg_theme_toggle(
-            svg,
-            toggle_pos=(
-                total_width - self.toggle_width / 2,
-                total_height - self.toggle_width / 2,
-            ),
-            theme_vars={
-                'col-series-1': ('#ef4444', '#ff7878'),
-                'col-series-2': '#3b82f6',
-                'col-series-3': ('#22c55e', '#45e881'),
-                'col-series-4': ('#f97316', '#ffa261'),
-                'col-series-5': ('#a855f7', '#d9b1ff'),
-                'col-text': ('#666666', '#dddddd'),
-                'col-baseline': ('#cccccc', '#666666'),
-                'blend-mode': ('multiply', 'screen'),
-            },
-        )
-
-        # Set viewBox now that we know final dimensions
+        total_width = max(text_width + 2 * self.margin, legend_width + 2 * self.margin)
         svg.set('viewBox', f'0 0 {total_width} {total_height}')
 
         return ET.tostring(svg, encoding='unicode')

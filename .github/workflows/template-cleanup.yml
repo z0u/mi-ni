@@ -1,0 +1,29 @@
+name: Initialize repository
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  init:
+    # Only run in repos created from this template, not in the template itself.
+    # Note: if main is branch-protected, the bot's push will be rejected — grant it bypass first.
+    if: github.event.repository.is_template == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Customize for new repository
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          sed -i "s|z0u/mi-ni|${REPO}|g" README.md
+          sed -i '/<!-- template-only -->/,/<!-- \/template-only -->/d' README.md
+          rm -f LICENSE
+          rm -f .github/workflows/template-cleanup.yml
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "Initialize from template"
+          git push

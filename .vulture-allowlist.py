@@ -2,13 +2,6 @@
 # https://github.com/jendrikseipp/vulture?tab=readme-ov-file#handling-false-positives
 # type: ignore
 
-
-exception  # unused variable (src/mini/_state.py:22)
-_.exception  # unused attribute (src/mini/experiment.py:282)
-_.before_each  # unused method (src/mini/experiment.py:170)
-_.after_each  # unused method (src/mini/experiment.py:170)
-_.hither  # unused attribute (src/mini/experiment.py:94)
-
 _.base_level  # unused method (src/utils/logging.py:66)
 _.to_stream  # unused method (src/utils/logging.py:71)
 _.critical  # unused method (src/utils/logging.py:76)

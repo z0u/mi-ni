@@ -15,13 +15,17 @@ import asyncio
 import logging
 import secrets
 from concurrent.futures import ThreadPoolExecutor
-from queue import Queue
+from contextlib import nullcontext
+from pathlib import Path
 from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
-from mini._queues import EndOfQueue, QueueLike
+from mini._queues import QueueLike
 from mini.apparatus import Apparatus
+from mini.local_queue import LocalQueue
+from mini.local_volume import LocalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
+from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +35,7 @@ R = TypeVar('R')
 __all__ = ['LocalApparatus']
 
 
-class LocalApparatus(Apparatus):
+class LocalApparatus(Apparatus[LocalVolume]):
     """
     Run functions locally using a thread pool.
 
@@ -39,10 +43,11 @@ class LocalApparatus(Apparatus):
     displayed using Rich progress bars when running in a terminal.
     """
 
-    def __init__(self, name: str, max_workers: int = 1):
+    def __init__(self, name: str, max_workers: int = 1, data_dir: Path | str | None = None):
         self.name = name
         self.max_workers = max_workers
-        self._before_hooks: list[Callable[[], None]] = []
+        self._before_hooks: list[Callable[[], Any]] = []
+        self._volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
 
     def __str__(self) -> str:
         return f'Local apparatus "{self.name}"'
@@ -50,10 +55,11 @@ class LocalApparatus(Apparatus):
     def clone(self) -> LocalApparatus:
         new_app = LocalApparatus(self.name, self.max_workers)
         new_app._before_hooks = self._before_hooks[:]
+        new_app._volume = self._volume
         return new_app
 
     @override
-    def before_each(self, hook: Callable[[], None]) -> LocalApparatus:
+    def before_each(self, hook: Callable[[], Any]) -> LocalApparatus:
         new_app = self.clone()
         new_app._before_hooks = self._before_hooks + [hook]
         return new_app
@@ -73,6 +79,9 @@ class LocalApparatus(Apparatus):
         log.info('Running %d jobs with %d workers', n, self.max_workers)
         run_id = secrets.token_hex(4)
 
+        if self._volume is not None:
+            self._volume.path.mkdir(parents=True, exist_ok=True)
+
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())
         # Target ~10 emissions/sec overall: interval = max_workers / target_rate_hz
         emission_interval = self.max_workers / 10.0
@@ -83,6 +92,7 @@ class LocalApparatus(Apparatus):
             progress_display.queue,
             kwargs=kwargs or {},
             emission_interval=emission_interval,
+            data_dir=self._volume.path if self._volume is not None else None,
         )
 
         loop = asyncio.get_running_loop()
@@ -106,31 +116,14 @@ def _wrap_for_local(
     queue: QueueLike[ProgressMessage],
     kwargs: dict[str, Any],
     emission_interval: float,
+    data_dir: Path | None,
 ) -> Callable[..., R]:
     def run_one(index: int, *args) -> R:
-        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval):
+        dir_ctx = data_dir_context(path=data_dir) if data_dir is not None else nullcontext()
+        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), dir_ctx:
             for hook in reversed(hooks):
                 hook()
             result = fn(*args, **kwargs)
             return result
 
     return run_one
-
-
-class LocalQueue(QueueLike[T]):
-    """A simple thread-safe queue for local use."""
-
-    def __init__(self):
-        self._queue: Queue[T | EndOfQueue] = Queue()
-
-    def put(self, item: T | EndOfQueue, /, block: bool = True, timeout: float | None = None) -> None:
-        self._queue.put(item, block=block, timeout=timeout)
-
-    def get(self, /, block: bool = True, timeout: float | None = None) -> T:
-        item = self._queue.get(block=block, timeout=timeout)
-        if isinstance(item, EndOfQueue):
-            raise item
-        return item
-
-    def empty(self) -> bool:
-        return self._queue.empty()

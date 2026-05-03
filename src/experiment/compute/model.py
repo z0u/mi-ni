@@ -1,20 +1,22 @@
+from pathlib import Path
+
 import torch
 
-from experiment.compute.app import data_dir
 from experiment.config import TrainingConfig
 from experiment.model.gpt import GPT
 from experiment.training.metrics import TrainingMetrics
 from utils.param_types import validate_call
-
-model_path = data_dir / 'model' / 'checkpoint.pt'
 
 
 @validate_call
 def save_checkpoint(
     model: GPT,
     config: TrainingConfig,
-    metrics: TrainingMetrics | None = None,
+    metrics: TrainingMetrics | None,
+    data_dir: Path,
 ) -> None:
+    """Save a model checkpoint to the given directory."""
+    model_path = data_dir / 'model' / 'checkpoint.pt'
     model_path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint = {
         'model': model.state_dict(),
@@ -25,7 +27,9 @@ def save_checkpoint(
 
 
 @validate_call
-def load_checkpoint() -> tuple[GPT, TrainingConfig, TrainingMetrics | None]:
+def load_checkpoint(data_dir: Path) -> tuple[GPT, TrainingConfig, TrainingMetrics | None]:
+    """Load a model checkpoint from the given directory."""
+    model_path = data_dir / 'model' / 'checkpoint.pt'
     checkpoint = torch.load(model_path, map_location='cpu')
     config = TrainingConfig.model_validate(checkpoint['config'])
     model = GPT(config.model)

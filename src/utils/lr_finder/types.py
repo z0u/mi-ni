@@ -1,5 +1,6 @@
 from typing import Literal, TypeAlias
-from pydantic import NonNegativeFloat, NonNegativeInt, PositiveFloat, PositiveInt, model_validator
+
+from pydantic import NonNegativeFloat, PositiveFloat, PositiveInt, model_validator
 from pydantic.dataclasses import dataclass
 
 
@@ -34,10 +35,3 @@ class LRFinderSeries:
     best_lr: NonNegativeFloat
     steepest_lr: NonNegativeFloat
     zoom: int
-
-
-@dataclass
-class Progress:
-    step: NonNegativeInt | None = None
-    total_steps: NonNegativeInt | None = None
-    info: dict | None = None

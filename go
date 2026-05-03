@@ -2,7 +2,9 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/scripts"
+SELF="${BASH_SOURCE[0]}"
+PROJECT_ROOT="$( cd -- "$( dirname -- "$SELF" )" &> /dev/null && pwd )"
+SCRIPT_DIR="$PROJECT_ROOT/scripts"
 
 case "${1:-all}" in
     install)
@@ -38,23 +40,33 @@ case "${1:-all}" in
         "$SCRIPT_DIR/lint.sh"
         "$SCRIPT_DIR/typecheck.sh"
         "$SCRIPT_DIR/test.sh"
-        "$SCRIPT_DIR/deadcode.sh"
         ;;
     build|site)
         shift
-        "$SCRIPT_DIR/build_site.py" "$@"
+        "$SCRIPT_DIR/clean_docs.py"
+        uv run "$SCRIPT_DIR/build_site.py" "$@"
+        ;;
+    clean)
+        shift
+        "$SCRIPT_DIR/clean_docs.py" "$@"
+        ;;
+    serve)
+        "$SELF" build
+        npx serve -n "$PROJECT_ROOT/_site"
         ;;
     *)
         # Important: heredoc indented with tab characters.
         cat <<-EOF 1>&2
-			Usage: $0 {check|lint|format|types|tests|build}
-			  install:           install dependencies (uv sync)
+			Usage: $0 {check|lint|format|types|tests|build|clean|serve}
+			  install:           install dependencies (uv sync) and git hooks
 			  check:             run all checks
 			  format [...args]:  format code (ruff format)
 			  lint   [...args]:  run linters (ruff check)
-			  types  [...args]:  check types (pyright)
+			  types  [...args]:  check types (ty)
 			  tests  [...args]:  run tests (pytest)
 			  build  [...args]:  build static site
+			  clean  [...args]:  clean Marimo HTML/session output (apply control chars)
+			  serve:             clean docs and serve at http://localhost:8000
 			EOF
         exit 1
         ;;

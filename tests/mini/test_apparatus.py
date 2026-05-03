@@ -3,11 +3,13 @@
 import asyncio
 import contextlib
 import time
+from pathlib import Path
 from typing import cast
 
 import pytest
 
 from mini.progress import emit_progress
+from mini.volume import get_data_dir
 from mini.local_apparatus import LocalApparatus
 from mini.modal_apparatus import ModalApparatus
 import modal
@@ -46,13 +48,23 @@ class _MockModalFunction:
         self.map = _MockModalMap(fn)
 
 
+class _AsyncNoop:
+    """Callable that returns a no-op coroutine. Used to mock Modal's .aio interface."""
+
+    async def __call__(self, *args, **kwargs):
+        pass
+
+
 class MockModalImage:
     """Simulates ``modal.Image`` for testing."""
 
-    def build(self, app):
-        """No-op build for testing."""
-        del app
-        pass
+    class build:
+        """Mock build that supports both sync and async (.aio) calls."""
+
+        aio = _AsyncNoop()
+
+        def __init__(self, app):
+            del app
 
 
 class MockModalQueue:
@@ -75,10 +87,18 @@ class MockModalQueue:
         return len(self._items)
 
     @staticmethod
-    @contextlib.contextmanager
-    def ephemeral():
+    @contextlib.asynccontextmanager
+    async def ephemeral():
         """Return a mock ephemeral queue."""
         yield MockModalQueue()
+
+
+class MockModalVolume:
+    """Simulates ``modal.Volume`` for testing."""
+
+    def commit(self):
+        """Mock commit — no-op for testing."""
+        pass
 
 
 class MockModalApp:
@@ -97,7 +117,8 @@ class MockModalApp:
         return decorator
 
     def run(self):
-        return contextlib.nullcontext()
+        """Return an async context manager (no-op)."""
+        return contextlib.AsyncExitStack()
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +133,7 @@ def _make_local():
 def _make_modal(monkeypatch):
     monkeypatch.setattr('modal.Queue', MockModalQueue)
     monkeypatch.setattr('modal.enable_output', contextlib.nullcontext)
+    monkeypatch.setattr('modal.Volume.from_name', lambda name, create_if_missing=False: MockModalVolume())  # noqa
     executor = ModalApparatus(cast(modal.App, MockModalApp()))
     # Provide a mock image to avoid real Modal API calls in tests
     executor.modal_fn_kwargs['image'] = MockModalImage()
@@ -204,6 +226,25 @@ def test_amap_materializes(apparatus):
     assert results == [2, 3, 4]
 
 
+def test_modal_auth_error_has_actionable_message(monkeypatch):
+    """Modal auth errors are re-raised with a concise remediation hint."""
+    app = _make_modal(monkeypatch)
+
+    async def broken_amap(*args, **kwargs):
+        del args, kwargs
+        raise modal.exception.AuthError('not authenticated')
+        # pyrefly: ignore [unreachable]
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(app, '_amap', broken_amap)
+
+    async def collect():
+        return [result async for result in app.amap(lambda x: x, [1])]
+
+    with pytest.raises(RuntimeError, match=r'Modal authentication failed\. Run \./go auth, then try again\.'):
+        asyncio.run(collect())
+
+
 def test_complex_objects_as_args(apparatus):
     """map works with non-trivial argument types (dicts, dataclasses, etc.)."""
 
@@ -269,3 +310,21 @@ def test_local_apparatus_exception_propagates():
     except ValueError:
         pass
     assert results == [1]
+
+
+# ---------------------------------------------------------------------------
+# Volume integration tests — both executors must provide get_data_dir()
+# ---------------------------------------------------------------------------
+
+
+def test_get_data_dir_available_in_mapped_function(apparatus):
+    """get_data_dir() returns a Path inside a mapped function."""
+
+    def fn(x):
+        d = get_data_dir()
+        assert isinstance(d, Path)
+        return d
+
+    results = list(apparatus.map(fn, [1, 2]))
+    assert len(results) == 2
+    assert all(isinstance(r, Path) for r in results)
