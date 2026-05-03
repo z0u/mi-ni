@@ -17,7 +17,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           sed -i "s|z0u/mi-ni|${REPO}|g" README.md
-          sed -i '/<!-- template-only -->/,/<!-- \/template-only -->/d' README.md
+          sed -i '/<!-- template-only -->/,/<!-- \/template-only -->/d' README.md .github/pull_request_template.md
           rm -f LICENSE
           rm -f .github/workflows/template-cleanup.yml
       - name: Commit and push

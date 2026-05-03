@@ -6,6 +6,8 @@
 - [ ] I've added documentation where appropriate
 - [ ] I've tested my changes
 
+<!-- template-only -->
+
 ## Copyright Dedication
 
 I dedicate any and all copyright interest in this software to the
@@ -15,3 +17,5 @@ dedication to be an overt act of relinquishment in perpetuity of all
 present and future rights to this software under copyright law.
 
 From [Unlicence.org](https://unlicense.org/#unlicensing-contributions)
+
+<!-- /template-only -->

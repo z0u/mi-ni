@@ -52,15 +52,13 @@ uv run python example.py
 <details>
 <summary>Working with large files (Git LFS)</summary>
 
-This project is preconfigured to use [Git LFS](https://git-lfs.com). If you commit a matching file, it won't clog up your main Git history. By default, files in `docs/large-assets/` are stored in LFS, but you can change that by editing `.gitattributes`.
+This project is preconfigured to use [Git LFS](https://git-lfs.com). If you commit a matching file, it won't clog up your main Git history. By default, files in `docs/**/__marimo__/` are stored in LFS; see [`.gitattributes`](.gitattributes).
 
 Typically, you would store _data_ rather than code in LFS:
 
 - training data
 - model weights
 - visualizations (images and video)
-
-For matplotlib figures, use `utils.nb.save_fig` instead of displaying them directly: that stores them outside the notebook, which makes the notebook easier to view in `git diff`, and easier for AI assistants to process (because the notebook contains fewer tokens).
 
 </details>
 
