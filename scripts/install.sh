@@ -30,6 +30,8 @@ done
 
 ( set -x; uv sync --all-groups < /dev/null )
 
+( set -x; npm install )
+
 # Install versioned git hooks
 HOOKS_SRC="$SCRIPT_DIR/hooks"
 HOOKS_DST="$SCRIPT_DIR/../.git/hooks"

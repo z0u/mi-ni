@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
-# Apply terminal control sequences in staged Marimo output before committing.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
 
+# Auto-fix formatting and linting on staged Python files.
+# lint-staged stashes unstaged changes so only staged content is processed.
+npx lint-staged
+
+# Apply terminal control sequences in staged Marimo output before committing.
 mapfile -t STAGED < <(
     git diff --cached --name-only --diff-filter=ACM \
     | grep -E '^docs/__marimo__/(.*\.html|session/.*\.py\.json)$' \
     || true
 )
 
-if [[ ${#STAGED[@]} -eq 0 ]]; then
-    exit 0
+if [[ ${#STAGED[@]} -gt 0 ]]; then
+    echo 'Cleaning Marimo console output...'
+    uv run --no-sync python scripts/clean_docs.py "${STAGED[@]}"
+    git add -- "${STAGED[@]}"
 fi
-
-echo 'Cleaning Marimo console output...'
-cd "$ROOT"
-uv run -- python scripts/clean_docs.py "${STAGED[@]}"
-git add -- "${STAGED[@]}"

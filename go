@@ -36,10 +36,12 @@ case "${1:-all}" in
         "$SCRIPT_DIR/test.sh" "$@"
         ;;
     check)
-        "$SCRIPT_DIR/format.sh"
-        "$SCRIPT_DIR/lint.sh"
-        "$SCRIPT_DIR/typecheck.sh"
-        "$SCRIPT_DIR/test.sh"
+        if [[ $# -gt 1 ]]; then
+            shift
+            "$SCRIPT_DIR/check.sh" "$@"
+        else
+            "$SCRIPT_DIR/check.sh" --lint --format --typecheck --test
+        fi
         ;;
     build|site)
         shift
@@ -59,7 +61,7 @@ case "${1:-all}" in
         cat <<-EOF 1>&2
 			Usage: $0 {check|lint|format|types|tests|build|clean|serve}
 			  install:           install dependencies (uv sync) and git hooks
-			  check:             run all checks
+			  check  [...args]:  run all checks in parallel (--lint --format --typecheck --test --fix)
 			  format [...args]:  format code (ruff format)
 			  lint   [...args]:  run linters (ruff check)
 			  types  [...args]:  check types (ty)

@@ -1,0 +1,12 @@
+{
+  "devDependencies": {
+    "lint-staged": "^15",
+    "serve": "^14"
+  },
+  "lint-staged": {
+    "*.py": [
+      "uv run --no-sync ruff check --fix --force-exclude",
+      "uv run --no-sync ruff format --force-exclude"
+    ]
+  }
+}
