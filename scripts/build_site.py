@@ -94,9 +94,7 @@ def convert_markdown():
             f'<title>{title}</title>\n'
             f'<link rel="stylesheet" href="{root}md.css">\n'
             '</head>\n'
-            '<body>\n'
-            + body
-            + '\n</body>\n</html>\n'
+            '<body>\n' + body + '\n</body>\n</html>\n'
         )
         dest.write_text(html, 'utf-8')
         print(f'  {md_file.relative_to(WORKSPACE_ROOT)} -> {dest.relative_to(WORKSPACE_ROOT)}')

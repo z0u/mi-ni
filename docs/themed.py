@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = "0.23.3"
-app = marimo.App(width="medium", auto_download=["html"])
+__generated_with = '0.23.3'
+app = marimo.App(width='medium', auto_download=['html'])
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -101,5 +101,5 @@ def _(x):
     return
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run()

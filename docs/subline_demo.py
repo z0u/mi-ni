@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = "0.23.3"
-app = marimo.App(width="medium", auto_download=["html"])
+__generated_with = '0.23.3'
+app = marimo.App(width='medium', auto_download=['html'])
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -42,16 +42,16 @@ def _():
     text = 'The quick brown fox'
     tokens = list(text)
 
-    # Rough per-character surprise (higher = more unexpected)
+    # Rough per-character surprisal (higher = more unexpected)
     surprise = np.array([
         0.40, 0.20, 0.15,             # The
-        0.05,                          # (space)
+        0.05,                         # (space)
         0.80, 0.20, 0.25, 0.20, 0.50, # quick
-        0.05,                          # (space)
+        0.05,                         # (space)
         0.30, 0.25, 0.20, 0.35, 0.20, # brown
-        0.05,                          # (space)
+        0.05,                         # (space)
         0.30, 0.20, 0.90,             # fox
-    ])
+    ])  # fmt: skip
 
     mo.Html(Subline().plot(tokens, [Series(surprise, label='Surprisal')]))
     return surprise, tokens
@@ -76,10 +76,13 @@ def _(surprise, tokens):
     model_b = np.clip(surprise * 0.55 + rng.normal(0, 0.05, len(tokens)), 0, 1)
 
     mo.Html(
-        Subline().plot(tokens, [
-            Series(model_a, label='Model A'),
-            Series(model_b, label='Model B', dasharray='2'),
-        ])
+        Subline().plot(
+            tokens,
+            [
+                Series(model_a, label='Model A'),
+                Series(model_b, label='Model B', dasharray='2'),
+            ],
+        )
     )
     return
 
@@ -98,12 +101,9 @@ def _():
 
 @app.cell
 def _():
-    long_text = (
-        'To be or not to be, that is the question: '
-        'whether tis nobler in the mind to suffer'
-    )
+    long_text = 'To be or not to be, that is the question: whether tis nobler in the mind to suffer'
     long_tokens = long_text.split()
-    long_tokens = [long_tokens[0]] + [f" {tok}" for tok in long_tokens[1:]]
+    long_tokens = [long_tokens[0]] + [f' {tok}' for tok in long_tokens[1:]]
     rng2 = np.random.default_rng(1)
     vals = np.abs(rng2.normal(0.35, 0.2, len(long_tokens))).clip(0, 1)
 
@@ -111,5 +111,5 @@ def _():
     return
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run()

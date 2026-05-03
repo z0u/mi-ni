@@ -11,7 +11,7 @@ DOCS_DIR = Path(__file__).parent.parent / 'docs' / '__marimo__'
 _CSI = re.compile(r'\x1b\[([0-9;?]*)([A-Za-z])')
 
 
-def _apply_terminal(text: str) -> str:
+def _apply_terminal(text: str) -> str:  # noqa: C901
     """Collapse CR/erase/cursor-up sequences; keep SGR color codes."""
     lines: list[list[str]] = [[]]
     row = 0
@@ -83,6 +83,7 @@ def clean_html(path: Path) -> bool:
 
 # --- Session JSON cleaning (proper JSON parse/dump) ---
 
+
 def _clean_console(entries: list) -> bool:
     """Clean console entries in-place. Returns True if any changed."""
     changed = False
@@ -111,6 +112,7 @@ def clean_session_json(path: Path) -> bool:
 
 # --- Main ---
 
+
 def _clean(path: Path) -> bool:
     if path.suffix == '.html':
         return clean_html(path)
@@ -123,10 +125,7 @@ def main() -> None:
     if sys.argv[1:]:
         paths = [Path(a) for a in sys.argv[1:]]
     else:
-        paths = (
-            list(DOCS_DIR.glob('*.html'))
-            + list((DOCS_DIR / 'session').glob('*.py.json'))
-        )
+        paths = list(DOCS_DIR.glob('*.html')) + list((DOCS_DIR / 'session').glob('*.py.json'))
 
     changed = 0
     for p in paths:
