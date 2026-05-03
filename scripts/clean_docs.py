@@ -10,6 +10,21 @@ DOCS_DIR = Path(__file__).parent.parent / 'docs' / '__marimo__'
 
 _CSI = re.compile(r'\x1b\[([0-9;?]*)([A-Za-z])')
 
+REDACT: list[tuple[re.Pattern, str]] = [
+    (re.compile(r'https://modal\.com/apps/\S+'), '[modal.com/apps/…]'),
+]
+
+
+def _needs_redaction(text: str) -> bool:
+    return any(p.search(text) for p, _ in REDACT)
+
+
+def _redact(text: str) -> str:
+    """Redact patterns that should not appear in published output."""
+    for pattern, replacement in REDACT:
+        text = pattern.sub(replacement, text)
+    return text
+
 
 def _apply_terminal(text: str) -> str:  # noqa: C901
     """Collapse CR/erase/cursor-up sequences; keep SGR color codes."""
@@ -65,13 +80,16 @@ def clean_html(path: Path) -> bool:
 
     def replace(m: re.Match) -> str:
         prefix, inner = m.group(1), m.group(2)
-        if not _has_control_seqs(inner):
+        if not _has_control_seqs(inner) and not _needs_redaction(inner):
             return m.group(0)
         try:
             text = json.loads(f'"{inner}"')
         except json.JSONDecodeError:
             return m.group(0)
-        cleaned = _apply_terminal(text)
+        cleaned = _apply_terminal(text) if _has_control_seqs(inner) else text
+        cleaned = _redact(cleaned)
+        if cleaned == text:
+            return m.group(0)
         return prefix + json.dumps(cleaned)[1:-1] + '"'
 
     new_content = _TEXT_FIELD.sub(replace, content)
@@ -89,9 +107,13 @@ def _clean_console(entries: list) -> bool:
     changed = False
     for entry in entries:
         text = entry.get('text', '')
-        if not text or not ('\r' in text or '\x1b' in text):
+        if not text:
             continue
-        cleaned = _apply_terminal(text)
+        needs_clean = '\r' in text or '\x1b' in text
+        if not needs_clean and not _needs_redaction(text):
+            continue
+        cleaned = _apply_terminal(text) if needs_clean else text
+        cleaned = _redact(cleaned)
         if cleaned != text:
             entry['text'] = cleaned
             changed = True

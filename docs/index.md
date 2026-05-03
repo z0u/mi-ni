@@ -16,9 +16,11 @@ mi-ni is a template repository and library for doing AI research. Features:
 
 ## Published notebooks
 
-Notebooks are automatically published to GitHub Pages, including assets stored in Git LFS. But if this site was built from the _template itself_, the notebooks won't include results.
+Notebooks are automatically published to GitHub Pages, including assets stored in Git LFS.
 
 Index:
+
+<!-- These URLs are rewritten to point to the published notebooks -->
 
 - [Getting started](./getting_started.py)
 - [Themed (light/dark) plots](./themed.py)

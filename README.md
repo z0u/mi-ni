@@ -50,6 +50,23 @@ uv run python example.py
 </details>
 
 <details>
+<summary>Notebook output cleaning</summary>
+
+A pre-commit hook runs [`scripts/clean_docs.py`](scripts/clean_docs.py) on staged Marimo outputs. It does two things:
+
+- **Terminal sequences** — collapses `\r`/cursor-up/erase sequences that progress bars leave behind, keeping colour codes intact.
+- **Redaction** — replaces patterns that shouldn't appear in published notebooks. By default, Modal app URLs are redacted (they expose your username and app IDs). Add your own patterns to the `REDACT` list at the top of `clean_docs.py`:
+
+  ```python
+  REDACT: list[tuple[re.Pattern, str]] = [
+      (re.compile(r'https://modal\.com/apps/\S+'), '[modal.com/apps/…]'),
+      (re.compile(r'your-pattern'), '[replacement]'),
+  ]
+  ```
+
+</details>
+
+<details>
 <summary>Working with large files (Git LFS)</summary>
 
 This project is preconfigured to use [Git LFS](https://git-lfs.com). If you commit a matching file, it won't clog up your main Git history. By default, files in `docs/**/__marimo__/` are stored in LFS; see [`.gitattributes`](.gitattributes).

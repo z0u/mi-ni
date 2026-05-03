@@ -38,6 +38,8 @@ R = TypeVar('R')
 
 __all__ = ['ModalApparatus']
 
+STARTUP_TIMEOUT_SECONDS = 120
+
 
 def _modal_auth_error_message() -> str:
     """Build a user-facing message for Modal authentication failures."""
@@ -213,7 +215,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
             commit_volume=(self._volume._modal_volume if isinstance(self._volume, ModalVolume) else None),
         )
         fn_kwargs = {**self.modal_fn_kwargs}
-        startup_timeout: float = fn_kwargs.pop('startup_timeout', 15)
+        startup_timeout: float = fn_kwargs.pop('startup_timeout', STARTUP_TIMEOUT_SECONDS)
         if isinstance(self._volume, ModalVolume):
             volumes = fn_kwargs.get('volumes', {})
             fn_kwargs['volumes'] = {
