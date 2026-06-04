@@ -2,4 +2,6 @@
 
     ./go auth
 
-Then open and run ./getting-started.ipynb
+Then try:
+
+    uv run marimo edit docs/getting_started.py

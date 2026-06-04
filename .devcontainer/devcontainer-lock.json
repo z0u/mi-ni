@@ -1,0 +1,64 @@
+{
+  "features": {
+    "ghcr.io/devcontainer-community/devcontainer-features/jonas-tig:1": {
+      "version": "1.0.2",
+      "resolved": "ghcr.io/devcontainer-community/devcontainer-features/jonas-tig@sha256:5ffe260917084e40fa0e4a7812b471e9a9df1b80134af77243591a37a79ac642",
+      "integrity": "sha256:5ffe260917084e40fa0e4a7812b471e9a9df1b80134af77243591a37a79ac642"
+    },
+    "ghcr.io/devcontainers-extra/features/claude-code:2": {
+      "version": "2.0.0",
+      "resolved": "ghcr.io/devcontainers-extra/features/claude-code@sha256:37b0d444a704021ee5f6d24242a4621bf337867d110e4e3c06b863a3a78122ac",
+      "integrity": "sha256:37b0d444a704021ee5f6d24242a4621bf337867d110e4e3c06b863a3a78122ac"
+    },
+    "ghcr.io/devcontainers-extra/features/uv:1": {
+      "version": "1.0.2",
+      "resolved": "ghcr.io/devcontainers-extra/features/uv@sha256:1ac5b9f17a9e9e745933d0ac2ecf758e06ed3da4423cd22c94cce4d482fd2dd8",
+      "integrity": "sha256:1ac5b9f17a9e9e745933d0ac2ecf758e06ed3da4423cd22c94cce4d482fd2dd8"
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "version": "2.5.9",
+      "resolved": "ghcr.io/devcontainers/features/common-utils@sha256:cb0c4d3c276f157eed17935747e364178d75fee17f55c4e129966f64633deb3a",
+      "integrity": "sha256:cb0c4d3c276f157eed17935747e364178d75fee17f55c4e129966f64633deb3a"
+    },
+    "ghcr.io/devcontainers/features/git-lfs:1": {
+      "version": "1.2.5",
+      "resolved": "ghcr.io/devcontainers/features/git-lfs@sha256:71c2b371cf12ab7fcec47cf17369c6f59156100dad9abf9e4c593049d789de72",
+      "integrity": "sha256:71c2b371cf12ab7fcec47cf17369c6f59156100dad9abf9e4c593049d789de72"
+    },
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "2.0.0",
+      "resolved": "ghcr.io/devcontainers/features/node@sha256:fedd4c11f7adfb64283b578dddc7da906728daa25fa293351c9d913231acf12f",
+      "integrity": "sha256:fedd4c11f7adfb64283b578dddc7da906728daa25fa293351c9d913231acf12f"
+    },
+    "ghcr.io/helpers4/devcontainer/shell-history-per-project:1": {
+      "version": "1.0.6",
+      "resolved": "ghcr.io/helpers4/devcontainer/shell-history-per-project@sha256:c7124bb171231a203fe7d6ca06e69974f086f6dc8cdaf8738425bf843a3a8936",
+      "integrity": "sha256:c7124bb171231a203fe7d6ca06e69974f086f6dc8cdaf8738425bf843a3a8936"
+    },
+    "ghcr.io/jsburckhardt/devcontainer-features/bat:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/jsburckhardt/devcontainer-features/bat@sha256:47c8b08751999d00265363e4903c60ceeea494ebfaccd6aceb1a289f183e7894",
+      "integrity": "sha256:47c8b08751999d00265363e4903c60ceeea494ebfaccd6aceb1a289f183e7894"
+    },
+    "ghcr.io/jsburckhardt/devcontainer-features/fd:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/jsburckhardt/devcontainer-features/fd@sha256:ad1a09751358ab1528fb2d2796170c2279dc80aa69cbdd9826fb9678ed04c30f",
+      "integrity": "sha256:ad1a09751358ab1528fb2d2796170c2279dc80aa69cbdd9826fb9678ed04c30f"
+    },
+    "ghcr.io/jsburckhardt/devcontainer-features/fzf:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/jsburckhardt/devcontainer-features/fzf@sha256:d7502a05c9d9f332425ced59dcd36537774f55e4e5ad7c0ee8b45d7c5a168c4a",
+      "integrity": "sha256:d7502a05c9d9f332425ced59dcd36537774f55e4e5ad7c0ee8b45d7c5a168c4a"
+    },
+    "ghcr.io/jsburckhardt/devcontainer-features/ripgrep:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/jsburckhardt/devcontainer-features/ripgrep@sha256:e24c026e6c06d7d2ccbc802ca0f788d57af6105e929f92270c206dfd8b296669",
+      "integrity": "sha256:e24c026e6c06d7d2ccbc802ca0f788d57af6105e929f92270c206dfd8b296669"
+    },
+    "ghcr.io/jsburckhardt/devcontainer-features/rtk:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/jsburckhardt/devcontainer-features/rtk@sha256:f393df8514c943c260e22e0e89fc224e3ba0ca6eeccbd6c562741cf8d7acfde4",
+      "integrity": "sha256:f393df8514c943c260e22e0e89fc224e3ba0ca6eeccbd6c562741cf8d7acfde4"
+    }
+  }
+}

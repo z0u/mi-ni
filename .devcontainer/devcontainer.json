@@ -1,13 +1,32 @@
 {
-  "build": {
-    "dockerfile": "Dockerfile"
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/refs/heads/main/schemas/devContainer.schema.json",
+  // Use a stock image + features because it uses less storage quota in Codespaces.
+  "image": "mcr.microsoft.com/devcontainers/python:trixie",
+  "features": {
+    "ghcr.io/devcontainers/features/git-lfs:1": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "configureZshAsDefaultShell": true
+    },
+    "ghcr.io/helpers4/devcontainer/shell-history-per-project:1": {},
+    // Node for various dev tools
+    "ghcr.io/devcontainers/features/node:2": {},
+    // uv for project package manamgent
+    "ghcr.io/devcontainers-extra/features/uv:1": {},
+    "ghcr.io/devcontainer-community/devcontainer-features/jonas-tig:1": {},
+    "ghcr.io/devcontainers-extra/features/claude-code:2": {},
+    // Agent-friendly tools
+    "ghcr.io/jsburckhardt/devcontainer-features/fd:1": {},
+    "ghcr.io/jsburckhardt/devcontainer-features/fzf:1": {},
+    "ghcr.io/jsburckhardt/devcontainer-features/rtk:1": {},
+    "ghcr.io/jsburckhardt/devcontainer-features/ripgrep:1": {},
+    "ghcr.io/jsburckhardt/devcontainer-features/bat:1": {}
   },
-  "hostRequirements": {},
-  "features": {},
   "mounts": [
-    // Use a persistent volume for the UV cache; can be shared with other containers
+    // Persist some profile directories. Can't mount the entire home directory because of permissions issues.
+    "source=ssh,target=/home/vscode/ssh,type=volume",
+    // Persistent volume for the UV cache; can be shared with other containers
     "source=uv-cache,target=/home/vscode/.cache/uv,type=volume",
-    // Use a persistent volume for the virtual environment
+    // Persistent volume for the virtual environment
     "source=${localWorkspaceFolderBasename}-venv,target=${containerWorkspaceFolder}/.venv,type=volume",
     // Persist user config across container rebuilds
     "source=${localWorkspaceFolderBasename}-marimo-config,target=/home/vscode/.config/marimo,type=volume",
@@ -29,13 +48,13 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "anthropic.claude-code",
+        // "anthropic.claude-code",  // Provided by claude-code feature
         "astral-sh.ty",
         "bierner.github-markdown-preview",
         "charliermarsh.ruff",
         "esbenp.prettier-vscode",
-        "GitHub.copilot-chat",
-        "GitHub.copilot",
+        // "GitHub.copilot-chat",
+        // "GitHub.copilot",
         "github.vscode-github-actions",
         "marimo-team.vscode-marimo",
         "mechatroner.rainbow-csv",
@@ -43,7 +62,8 @@
         "ms-toolsai.jupyter-renderers",
         "ms-toolsai.jupyter",
         "ms-toolsai.vscode-jupyter-cell-tags",
-        "ms-toolsai.vscode-jupyter-slideshow"
+        "ms-toolsai.vscode-jupyter-slideshow",
+        "tamasfe.even-better-toml"
       ]
     }
   },
