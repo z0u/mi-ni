@@ -4,7 +4,8 @@
         ".venv": true,
         ".vulture-cache": true,
         ".pytest_cache": true,
-        ".ruff_cache": true
+        ".ruff_cache": true,
+        "node_modules": true
     },
     "jupyter.kernels.excludePythonEnvironments": [
         "/bin/python3",

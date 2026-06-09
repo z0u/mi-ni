@@ -28,6 +28,7 @@
     "source=uv-cache,target=/home/vscode/.cache/uv,type=volume",
     // Persistent volume for the virtual environment
     "source=${localWorkspaceFolderBasename}-venv,target=${containerWorkspaceFolder}/.venv,type=volume",
+    "source=${localWorkspaceFolderBasename}-node,target=${containerWorkspaceFolder}/node_modules,type=volume",
     // Persist user config across container rebuilds
     "source=${localWorkspaceFolderBasename}-marimo-config,target=/home/vscode/.config/marimo,type=volume",
     "source=${localWorkspaceFolderBasename}-claude-config,target=/home/vscode/.claude,type=volume"

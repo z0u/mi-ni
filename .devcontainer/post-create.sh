@@ -11,6 +11,7 @@ set -euo pipefail
     # Make the volume mounts writable.
     sudo chown -R "$USER:$USER" ~/
     sudo chown -R "$USER:$USER" .venv
+    sudo chown -R "$USER:$USER" node_modules
 
     # Seed default configs if not already present
     [[ -f ~/.config/marimo/marimo.toml ]] || cp .devcontainer/marimo.toml ~/.config/marimo/marimo.toml
