@@ -7,7 +7,7 @@ from experiment.compute.data_pipelines import load_data
 from experiment.compute.model import save_checkpoint
 from experiment.config import MixedPrecisionConfig, TrainingConfig
 from experiment.data.dataloader import get_dataloader
-from experiment.model.gpt import GPT
+from experiment.model import LanguageModel, build_model
 from experiment.training.metrics import TrainingMetrics
 from experiment.training.module import GPTModule
 from mini.torch.lightning import LightningProgress
@@ -17,7 +17,7 @@ def train_model(
     config: TrainingConfig,
     data_dir: Path,
     checkpoint_every: int | None = None,
-) -> tuple[GPT, list[TrainingMetrics]]:
+) -> tuple[LanguageModel, list[TrainingMetrics]]:
     """Train a model and return it with per-epoch metrics.
 
     Args:
@@ -28,7 +28,7 @@ def train_model(
     data, metadata = load_data(data_dir)
     assert metadata.tokenizer_config.vocab_size <= config.model.vocab_size, 'Vocab size mismatch'
 
-    model = GPT(config.model)
+    model = build_model(config.model)
     train_loader, val_loader = get_dataloader(data, config.data, config.model)
 
     if checkpoint_every is None:
@@ -70,7 +70,7 @@ class _MetricsCallback(L.Callback):
         self,
         checkpoint_every: int,
         config: TrainingConfig,
-        model: GPT,
+        model: LanguageModel,
         data_dir: Path,
         tokens_per_epoch: int,
     ):

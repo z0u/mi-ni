@@ -1,3 +1,5 @@
+from typing import Literal
+
 from ftfy import ExplanationStep
 from pydantic import BaseModel, NonNegativeFloat, NonNegativeInt, PositiveFloat, PositiveInt
 
@@ -5,6 +7,13 @@ from utils.param_types import IntX8, IntX32, IntX64, ZeroToOne
 
 
 class ModelConfig(BaseModel, validate_assignment=True):
+    architecture: Literal['gpt', 'ngpt'] = 'gpt'
+    """Which model family to build: baseline 'gpt' or normalized 'ngpt'."""
+
+    ngpt_variant: Literal['crude', 'full'] = 'crude'
+    """nGPT flavour (ignored unless architecture == 'ngpt'): scalar gains +
+    additive retraction ('crude') or per-channel eigen-LRs + LERP ('full')."""
+
     vocab_size: IntX64
     """Vocabulary size"""
 

@@ -6,21 +6,21 @@ import torch
 import torch.nn as nn
 
 from experiment.config import TrainingConfig
-from experiment.model.gpt import GPT
+from experiment.model import LanguageModel
 from experiment.training.optimizer import configure_optimizer
 from experiment.training.scheduler import configure_scheduler
 
 
 class GPTModule(L.LightningModule):
-    """Wrap a GPT model for training with PyTorch Lightning.
+    """Wrap a language model for training with PyTorch Lightning.
 
     Args:
-        model: The GPT model to train.
+        model: The model to train (baseline GPT or nGPT).
         config: Full training configuration.
         epoch_length: Number of batches per epoch; needed to configure the LR scheduler.
     """
 
-    def __init__(self, model: GPT, config: TrainingConfig, epoch_length: int):
+    def __init__(self, model: LanguageModel, config: TrainingConfig, epoch_length: int):
         super().__init__()
         self.model = model
         self.config = config
@@ -46,6 +46,12 @@ class GPTModule(L.LightningModule):
         loss = self.criterion(logits.view(-1, logits.size(-1)), yb.view(-1))
         self.log('val_loss', loss, prog_bar=True, on_epoch=True, sync_dist=True)
         return loss
+
+    @override
+    def on_train_batch_end(self, *args):
+        # Re-project every weight matrix onto the unit hypersphere (nGPT
+        # constraint). A no-op for the baseline GPT.
+        self.model.normalize_weights()
 
     @override
     def configure_optimizers(self):

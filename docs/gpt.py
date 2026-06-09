@@ -4,14 +4,23 @@ __generated_with = '0.23.3'
 app = marimo.App(width='medium', auto_download=['html'])
 
 with app.setup(hide_code=True):
-    import marimo as mo  # noqa: F401
     import logging
     from functools import partial
 
+    import marimo as mo  # noqa: F401
     import matplotlib.pyplot as plt
 
-    from mini import LocalApparatus, ModalApparatus  # noqa: F401
-    from mini import get_data_dir
+    from experiment.config import (
+        DataConfig,
+        MixedPrecisionConfig,
+        ModelConfig,
+        OptimizerConfig,
+        SchedulerConfig,
+        TokenizerConfig,
+        TrainingConfig,
+    )
+    from experiment.utils import align
+    from mini import LocalApparatus, ModalApparatus, get_data_dir  # noqa: F401
     from mini.logging import SimpleLoggingConfig
     from mini.vis import themed
     from utils.lr_finder.vis import plot_lr_finder
@@ -26,7 +35,7 @@ with app.setup(hide_code=True):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    # Character-level nanoGPT
+    # Character-level GPT
 
     This experiment trains a tiny transformer on character-level data, based on a port
     of [nanoGPT](https://github.com/karpathy/nanoGPT). Most of the code lives in
@@ -35,18 +44,21 @@ def _():
     return
 
 
-@app.cell
-def _():
-    from experiment.config import (
-        DataConfig,
-        MixedPrecisionConfig,
-        ModelConfig,
-        OptimizerConfig,
-        SchedulerConfig,
-        TokenizerConfig,
-        TrainingConfig,
-    )
+@app.cell(hide_code=True)
+def _(app_type, arch, ngpt_variant, run_button):
+    mo.md(f"""
+    {arch} {ngpt_variant if arch.value == 'ngpt' else ''}
 
+    {app_type} {run_button}
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def configuration(arch, ngpt_variant, run_button):
+    mo.stop(not run_button.value)
+
+    _is_ngpt = arch.value == 'ngpt'
     config = TrainingConfig(
         model=ModelConfig(
             vocab_size=64,  # set after loading the dataset
@@ -56,7 +68,9 @@ def _():
             n_head_dim=8,
             n_ff=128,
             n_layer=12,
-            dropout=0.1,
+            dropout=0 if _is_ngpt else 0.1,
+            architecture=arch.value,
+            ngpt_variant=ngpt_variant.value,
         ),
         tokenizer=TokenizerConfig(vocabulary=[]),
         data=DataConfig(
@@ -66,7 +80,7 @@ def _():
             padding_chance=0.1,
         ),
         optimizer=OptimizerConfig(
-            weight_decay=1e-3,
+            weight_decay=0 if _is_ngpt else 1e-3,
             learning_rate=0,  # set by LR finder
             betas=(0.9, 0.95),
         ),
@@ -81,15 +95,9 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(app_type):
-    mo.md(f"""
-    {app_type}
-    """)
-    return
+def apparatus(app_type, run_button):
+    mo.stop(not run_button.value)
 
-
-@app.cell(hide_code=True)
-def _(app_type):
     if app_type.value == 'local':
         app = LocalApparatus('nanogpt')
     elif app_type.value == 'modal':
@@ -103,9 +111,9 @@ def _(app_type):
             .before_each(logging_config.apply)
         )
     else:
-        print(f'Unknown apparatus: {app_type.value}')
-        mo.stop(True, 'Select an apparatus')
-    mo.output.append(mo.md(f'Using **{app}**'))
+        raise ValueError(f'Unknown apparatus {app_type.value}')
+
+    mo.md(f'Using **{app}**')
     return (app,)
 
 
@@ -129,13 +137,13 @@ def _():
     return
 
 
-@app.function
+@app.function(hide_code=True)
 def download_pride_and_prejudice():
     """Download Pride and Prejudice from the Gutenberg HuggingFace dataset."""
-    from experiment.config import DatasetMetadata
-
     import ftfy
     import pandas as pd
+
+    from experiment.config import DatasetMetadata
 
     url = 'https://huggingface.co/api/datasets/larenwell/book-gutenberg-train/parquet/default/train/0.parquet'
     df = pd.read_parquet(url, columns=['text'])
@@ -151,7 +159,7 @@ def download_pride_and_prejudice():
     return text, metadata
 
 
-@app.function
+@app.function(hide_code=True)
 def prepare_data():
     """Download, tokenize, and save training data to the volume."""
     from experiment.compute.data_pipelines import save_data
@@ -166,8 +174,6 @@ def prepare_data():
 
 @app.cell
 async def _(app, config):
-    from experiment.utils import align
-
     input_metadata = await app.arun(prepare_data)
 
     config.tokenizer = input_metadata.tokenizer_config.model_copy()
@@ -188,7 +194,7 @@ def _():
     return
 
 
-@app.function
+@app.function(hide_code=True)
 def find_learning_rate(config):
     """Run a multi-scale LR range test and return (lr, config, history)."""
     import torch
@@ -218,7 +224,7 @@ def find_learning_rate(config):
     return lr_finder_search(model, criterion, optimizer, train_loader, amp_context=amp_context)
 
 
-@app.cell
+@app.cell(hide_code=True)
 async def _(app, config):
     suggested_lr, lr_config, lr_history = await app.arun(find_learning_rate, config)
 
@@ -227,7 +233,7 @@ async def _(app, config):
     return lr_config, lr_history
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(lr_config, lr_history):
     mo.Html(
         themed(plot_lr_finder, alt_text='Learning-rate finder plot')(
@@ -249,7 +255,7 @@ def _():
     return
 
 
-@app.function
+@app.function(hide_code=True)
 def train(config):
     """Run a full training loop. Return per-epoch metrics."""
     from experiment.compute.training import train_model
@@ -265,7 +271,7 @@ async def _(app, config):
     return (training_metrics,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(training_metrics):
     # Plot training curve
     epochs = [m.epoch + 1 for m in training_metrics]
@@ -295,7 +301,7 @@ def _():
     return
 
 
-@app.function
+@app.function(hide_code=True)
 def generate(prompts: list[str], max_new_tokens: int, temperature: float):
     """Load the trained model and generate continuations."""
     from typing import cast
@@ -322,7 +328,7 @@ def generate(prompts: list[str], max_new_tokens: int, temperature: float):
     return tokenizer.decode_each(toks), output
 
 
-@app.cell
+@app.cell(hide_code=True)
 async def _(app):
     prompts = [
         'It is a truth uni',
@@ -354,7 +360,7 @@ def _():
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(continuations, gen_metadata):
     from subline.series import Series
     from subline.subline import Subline
@@ -374,26 +380,6 @@ def _(continuations, gen_metadata):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ## Future research
-
-    ### Temperature as a resource
-
-    The first character of each word tends to have high entropy and high surprisal,
-    with subsequent characters lower. Where the model makes spelling mistakes it
-    often had low entropy but then high surprisal -- suggesting it knows what it
-    wants to write but sampling messes it up.
-
-    An idea: lower the temperature after the first letter of each word. How would
-    that generalise to languages without spaces? Perhaps temperature could be a
-    resource that gets consumed (by picking unlikely tokens) and gradually
-    replenished (by picking likely ones).
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
     ## References
 
     Karpathy, A. (2022). nanoGPT [Computer software]. GitHub.
@@ -404,23 +390,34 @@ def _():
 
     Sanderson, G. (2024b). How might LLMs store facts. 3Blue1Brown.
     https://www.3blue1brown.com/lessons/mlp
-
-    ## Software Licenses
-
-    The code in this notebook is derived from nanoGPT (Karpathy, 2022), which is
-    licensed under the MIT License, Copyright (c) 2022 Andrej Karpathy.
     """)
     return
 
 
 @app.cell(hide_code=True)
-def _():
-    app_type = mo.ui.dropdown(
+def options():
+    app_type = mo.ui.radio(
         label='Apparatus',
         options=['local', 'modal'],
-        value=mo.cli_args().get('app'),
+        value=mo.cli_args().get('app', 'local'),
+        inline=True,
     )
-    return (app_type,)
+    arch = mo.ui.radio(
+        label='Architecture',
+        options=['gpt', 'ngpt'],
+        value=mo.cli_args().get('arch', 'gpt'),
+        inline=True,
+    )
+    ngpt_variant = mo.ui.radio(
+        label='nGPT variant',
+        options=['crude', 'full'],
+        value=mo.cli_args().get('ngpt_variant', 'crude'),
+        inline=True,
+    )
+    run_button = mo.ui.run_button(
+        label='Run',
+    )
+    return app_type, arch, ngpt_variant, run_button
 
 
 if __name__ == '__main__':
