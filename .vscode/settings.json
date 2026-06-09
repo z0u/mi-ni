@@ -16,4 +16,8 @@
         "editor.defaultFormatter": "charliermarsh.ruff"
     },
     "notebook.defaultFormatter": "charliermarsh.ruff",
+    "search.exclude": {
+        ".claude/skills": true,
+        ".codex/skills": true
+    },
 }
