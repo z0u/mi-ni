@@ -82,14 +82,9 @@ class ModalApparatus(Apparatus[ModalVolume]):
     """
     Run functions on Modal.
 
-    Functions can report progress via stdout (using print) or by calling
-    ``emit_progress()``, which emits URN-formatted progress messages. When
-    ``show_progress=True`` and running in a terminal, the executor shows
-    job-level completion in a Rich progress display.
-
     Usage::
 
-        app = ModalApparatus("my-experiment", show_progress=True).w(gpu="T4", timeout=3600)
+        app = ModalApparatus("my-experiment").w(gpu="T4", timeout=3600)
         results = list(app.map(train, configs))
     """
 
@@ -117,29 +112,29 @@ class ModalApparatus(Apparatus[ModalVolume]):
         return f'Modal apparatus "{self.app.name}"'
 
     def clone(self) -> ModalApparatus:
-        new_executor = ModalApparatus(self.app)
-        new_executor.modal_fn_kwargs = self.modal_fn_kwargs.copy()
-        new_executor._before_hooks = self._before_hooks[:]
-        new_executor._volume = self._volume
-        return new_executor
+        new_app = ModalApparatus(self.app)
+        new_app.modal_fn_kwargs = self.modal_fn_kwargs.copy()
+        new_app._before_hooks = self._before_hooks[:]
+        new_app._volume = self._volume
+        return new_app
 
     def w(self, **kwargs: Any) -> ModalApparatus:
         """
-        Return a new executor with additional Modal function kwargs merged in.
+        Return a new apparatus with additional Modal function kwargs merged in.
 
         These kwargs are passed to the ``@app.function()`` decorator when
         mapping, and can be used to specify things like GPU requirements or
         timeouts.
         """
-        new_executor = self.clone()
-        new_executor.modal_fn_kwargs = {**self.modal_fn_kwargs, **kwargs}
-        return new_executor
+        new_app = self.clone()
+        new_app.modal_fn_kwargs = {**self.modal_fn_kwargs, **kwargs}
+        return new_app
 
     @override
     def before_each(self, hook: Callable[[], Any]) -> ModalApparatus:
-        new_executor = self.clone()
-        new_executor._before_hooks = self._before_hooks + [hook]
-        return new_executor
+        new_app = self.clone()
+        new_app._before_hooks = self._before_hooks + [hook]
+        return new_app
 
     @override
     async def amap(

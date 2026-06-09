@@ -122,7 +122,7 @@ class MockModalApp:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures — each test runs against both executors
+# Fixtures — each test runs against both apparatus
 # ---------------------------------------------------------------------------
 
 
@@ -134,10 +134,10 @@ def _make_modal(monkeypatch):
     monkeypatch.setattr('modal.Queue', MockModalQueue)
     monkeypatch.setattr('modal.enable_output', contextlib.nullcontext)
     monkeypatch.setattr('modal.Volume.from_name', lambda name, create_if_missing=False: MockModalVolume())  # noqa
-    executor = ModalApparatus(cast(modal.App, MockModalApp()))
+    app = ModalApparatus(cast(modal.App, MockModalApp()))
     # Provide a mock image to avoid real Modal API calls in tests
-    executor.modal_fn_kwargs['image'] = MockModalImage()
-    return executor
+    app.modal_fn_kwargs['image'] = MockModalImage()
+    return app
 
 
 @pytest.fixture(params=['local', 'modal'], ids=['LocalApparatus', 'ModalApparatus'])
@@ -148,7 +148,7 @@ def apparatus(request, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Parameter-passing tests — both executors must behave identically
+# Parameter-passing tests — both apparatus must behave identically
 # ---------------------------------------------------------------------------
 
 
@@ -288,7 +288,7 @@ def test_local_apparatus_progress_emission():
     assert results == [1, 2]
 
 
-def test_progress_emission_outside_executor():
+def test_progress_emission_outside_apparatus():
     """emit_progress() silently does nothing when not inside a run context."""
     # Should not raise an exception
     emit_progress(0, 10, message='test')
@@ -313,7 +313,7 @@ def test_local_apparatus_exception_propagates():
 
 
 # ---------------------------------------------------------------------------
-# Volume integration tests — both executors must provide get_data_dir()
+# Volume integration tests — both apparatus must provide get_data_dir()
 # ---------------------------------------------------------------------------
 
 

@@ -1,7 +1,7 @@
 """
 Display and aggregate progress messages using Rich.
 
-This module provides a live progress display for executors by collecting
+This module provides a live progress display for apparatus by collecting
 ProgressMessage objects via a queue and rendering them with Rich.
 """
 

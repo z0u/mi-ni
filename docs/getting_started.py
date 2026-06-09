@@ -94,22 +94,22 @@ def _(app_type):
 @app.cell
 async def main(app_type):
     if app_type.value == 'local':
-        executor = LocalApparatus('mi-ni-getting-started', max_workers=3)
+        app = LocalApparatus('mi-ni-getting-started', max_workers=3)
     else:
-        executor = ModalApparatus('mi-ni-getting-started').w(max_containers=3)
+        app = ModalApparatus('mi-ni-getting-started').w(max_containers=3)
 
-    print(f'Using {executor}')
+    print(f'Using {app}')
 
     # Step 1: write shared config to the volume
-    print(await executor.arun(prep))
+    print(await app.arun(prep))
 
     # Step 2: train (reads config, writes per-item results to volume)
-    results = [x async for x in executor.amap(train, [1, 2, 3, 4, 5])]
+    results = [x async for x in app.amap(train, [1, 2, 3, 4, 5])]
     print('Results:', results)
 
     # Step 3: pull outputs back from the volume
     with tempfile.TemporaryDirectory() as tmp:
-        await executor.volume.download('outputs', f'{tmp}/outputs')
+        await app.volume.download('outputs', f'{tmp}/outputs')
         print('\nVolume outputs:')
         for p in sorted(Path(tmp, 'outputs').iterdir()):
             print(f'\n--- {p.name} ---')

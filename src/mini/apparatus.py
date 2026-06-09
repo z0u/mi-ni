@@ -1,19 +1,5 @@
 """
-Executor protocol and progress reporting infrastructure.
-
-Provides shared components for executor implementations:
-- ``Executor`` protocol defining the map interface
-- ``emit_progress()`` for jobs to report progress
-
-Example::
-
-    from mini.progress import emit_progress
-
-    def train(config):
-        for epoch in range(100):
-            ...
-            emit_progress(epoch, 100, message=f"loss={loss:.4f}")
-        return result
+Executor-like protocol that abstracts compute and storage.
 """
 
 from __future__ import annotations
@@ -125,9 +111,9 @@ class Apparatus(ABC, Generic[V]):
 
         ::
 
-            executor.map(fn, [1, 2, 3])                    # fn(1), fn(2), fn(3)
-            executor.map(fn, [1, 2], ['a', 'b'])            # fn(1, 'a'), fn(2, 'b')
-            executor.map(fn, [1, 2], kwargs={'k': 'v'})     # fn(1, k='v'), fn(2, k='v')
+            app.map(fn, [1, 2, 3])                    # fn(1), fn(2), fn(3)
+            app.map(fn, [1, 2], ['a', 'b'])            # fn(1, 'a'), fn(2, 'b')
+            app.map(fn, [1, 2], kwargs={'k': 'v'})     # fn(1, k='v'), fn(2, k='v')
         """
         ...
 
@@ -147,9 +133,9 @@ class Apparatus(ABC, Generic[V]):
 
         ::
 
-            executor.map(fn, [1, 2, 3])                    # fn(1), fn(2), fn(3)
-            executor.map(fn, [1, 2], ['a', 'b'])            # fn(1, 'a'), fn(2, 'b')
-            executor.map(fn, [1, 2], kwargs={'k': 'v'})     # fn(1, k='v'), fn(2, k='v')
+            app.map(fn, [1, 2, 3])                    # fn(1), fn(2), fn(3)
+            app.map(fn, [1, 2], ['a', 'b'])            # fn(1, 'a'), fn(2, 'b')
+            app.map(fn, [1, 2], kwargs={'k': 'v'})     # fn(1, k='v'), fn(2, k='v')
         """
         try:
             asyncio.get_running_loop()
@@ -162,7 +148,7 @@ class Apparatus(ABC, Generic[V]):
     @abstractmethod
     def before_each(self, hook: Callable[[], Any]) -> Apparatus:
         """
-        Return a new executor that runs *hook* before each job.
+        Return a new apparatus that runs *hook* before each job.
 
         This is useful for things like configuring logging or setting random
         seeds on a per-job basis.
@@ -175,7 +161,7 @@ class Apparatus(ABC, Generic[V]):
 
 
 def _map_in_thread(
-    executor: Apparatus,
+    app: Apparatus,
     fn: Callable[..., R],
     *iterables: Iterable[Any],
     kwargs: dict[str, Any] | None,
@@ -186,7 +172,7 @@ def _map_in_thread(
 
     async def collect():
         try:
-            async for result in executor.amap(fn, *iterables, kwargs=kwargs):
+            async for result in app.amap(fn, *iterables, kwargs=kwargs):
                 results_queue.put(('result', result))
             results_queue.put(('done', None))
         except Exception as e:
@@ -208,7 +194,7 @@ def _map_in_thread(
 
 
 def _map_with_new_loop(
-    executor: Apparatus,
+    app: Apparatus,
     fn: Callable[..., R],
     *iterables: Iterable[Any],
     kwargs: dict[str, Any] | None,
@@ -216,7 +202,7 @@ def _map_with_new_loop(
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        gen = executor.amap(fn, *iterables, kwargs=kwargs)
+        gen = app.amap(fn, *iterables, kwargs=kwargs)
         while True:
             try:
                 yield loop.run_until_complete(gen.__anext__())

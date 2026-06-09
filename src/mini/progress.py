@@ -9,7 +9,7 @@ from mini._queues import QueueLike
 from mini.urns import matches_urn, parse_urn, to_urn
 
 # ---------------------------------------------------------------------------
-# Progress message — unified format for all executors
+# Progress message — unified format for all apparatus
 # ---------------------------------------------------------------------------
 
 
@@ -107,7 +107,7 @@ def emit_progress(step: int, total: int, message: str = ''):
     - Trailing edge: Rapid subsequent calls store the latest update and emit after interval
     - Latest arguments: Trailing emission always uses the most recent progress values
 
-    The debounce interval is configured by the executor when setting up the job context.
+    The debounce interval is configured by the apparatus when setting up the job context.
 
     Args:
         step: Current step number
