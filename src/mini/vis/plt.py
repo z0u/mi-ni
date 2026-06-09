@@ -3,13 +3,11 @@ Utilities for working with matplotlib stylesheets.
 """
 
 from contextlib import contextmanager
-from functools import wraps
 from pathlib import Path
-from typing import Callable, Literal, Mapping
+from typing import Literal, Mapping
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 
 
 Stylesheet = Literal['base', 'light', 'dark', 'transparent'] | Mapping[str, str]
@@ -30,13 +28,3 @@ def use_style(*styles: Stylesheet):
             else:
                 plt.style.use(stylesheet_dir / f'{style}.mplstyle')
         yield
-
-
-def autoclose(factory: Callable[..., Figure | None]) -> Callable[..., Figure | None]:
-    @wraps(factory)
-    def _autoclose(*args, **kwargs) -> Figure | None:
-        fig = factory(*args, **kwargs)
-        plt.close(fig)
-        return fig
-
-    return _autoclose

@@ -15,15 +15,6 @@ Don't hesitate to disagree or point out potential issues. The human values techn
 - Prefer brevity.
 - Use single quotes for strings, except for multiline strings.
 
-### Docstrings
-
-Use the imperative for the first line of function docstrings.
-
-```diff
-- """Adds two numbers together"""
-+ """Add two numbers together."""
-```
-
 ### Typing
 
 Use type hints.
@@ -38,6 +29,8 @@ Use `T | None` instead of `Optional[T]`.
 
 When working on a notebook, iterate on both the code (Python) and the prose (Markdown). Aim for a literate programming style in which we tell stories about our experiments. We don't just document the code; the notebook as a whole should display a strong narrative.
 
-## Tools
+## Environment
 
-This project uses `uv` for package management.
+This project uses `uv`, `ruff`, and `ty`.
+
+Also available: `fd`, `fzf`, `rg`, `bat`. We can add more to the dev container if you have other preferred tools.
