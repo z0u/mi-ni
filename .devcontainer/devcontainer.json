@@ -46,6 +46,10 @@
     "PYTHONDONTWRITEBYTECODE": "1",
     "UV_COMPILE_BYTECODE": "1"
   },
+  "remoteEnv": {
+    // Project tool wrappers (marimo, ruff, ty, modal) that run via `uv run`
+    "PATH": "${containerWorkspaceFolder}/bin:${containerEnv:PATH}"
+  },
   "customizations": {
     "vscode": {
       "extensions": [

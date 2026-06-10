@@ -6,8 +6,12 @@ SELF="${BASH_SOURCE[0]}"
 PROJECT_ROOT="$( cd -- "$( dirname -- "$SELF" )" &> /dev/null && pwd )"
 SCRIPT_DIR="$PROJECT_ROOT/scripts"
 
+is_marimo_notebook() {
+    [[ "${1:-}" == *.py && -f "${1:-}" ]] && grep -q 'marimo\.App(' "$1"
+}
+
 case "${1:-all}" in
-    install)
+    i|install)
         shift
         "$SCRIPT_DIR/install.sh" "$@"
         ;;
@@ -27,7 +31,7 @@ case "${1:-all}" in
         shift
         "$SCRIPT_DIR/deadcode.sh" "$@"
         ;;
-    type|types)
+    type|types|typecheck)
         shift
         "$SCRIPT_DIR/typecheck.sh" "$@"
         ;;
@@ -35,12 +39,31 @@ case "${1:-all}" in
         shift
         "$SCRIPT_DIR/test.sh" "$@"
         ;;
-    check)
+    c|check)
         if [[ $# -gt 1 ]]; then
             shift
             "$SCRIPT_DIR/check.sh" "$@"
         else
             "$SCRIPT_DIR/check.sh" --lint --format --typecheck --test
+        fi
+        ;;
+    r|run)
+        shift
+        if is_marimo_notebook "${1:-}"; then
+            notebook="$1"
+            shift
+            out="$( dirname -- "$notebook" )/__marimo__/$( basename -- "$notebook" .py ).html"
+            ( set -x; uv run marimo export html "$notebook" -o "$out" -- "$@" )
+        else
+            ( set -x; uv run "$@" )
+        fi
+        ;;
+    o|edit|open)
+        shift
+        if is_marimo_notebook "${1:-}"; then
+            uv run marimo edit "$@"
+        else
+            "${VISUAL:-${EDITOR:-code}}" "$@"
         fi
         ;;
     build|site)
@@ -52,20 +75,22 @@ case "${1:-all}" in
         shift
         "$SCRIPT_DIR/clean_docs.py" "$@"
         ;;
-    serve)
+    s|serve)
         "$SELF" build
         npx serve -n "$PROJECT_ROOT/_site"
         ;;
     *)
         # Important: heredoc indented with tab characters.
         cat <<-EOF 1>&2
-			Usage: $0 {check|lint|format|types|tests|build|clean|serve}
+			Usage: $0 {check|lint|format|types|tests|run|open|build|clean|serve}
 			  install:           install dependencies (uv sync) and git hooks
 			  check  [...args]:  run all checks in parallel (--lint --format --typecheck --test --fix)
 			  format [...args]:  format code (ruff format)
 			  lint   [...args]:  run linters (ruff check)
 			  types  [...args]:  check types (ty)
 			  tests  [...args]:  run tests (pytest)
+			  run    [...args]:  run & export a Marimo notebook, or run anything else through uv
+			  open   [...args]:  open a Marimo notebook in Marimo, or anything else in \$EDITOR
 			  build  [...args]:  build static site
 			  clean  [...args]:  clean Marimo HTML/session output (apply control chars)
 			  serve:             clean docs and serve at http://localhost:8000
