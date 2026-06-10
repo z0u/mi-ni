@@ -53,7 +53,7 @@ case "${1:-all}" in
             notebook="$1"
             shift
             out="$( dirname -- "$notebook" )/__marimo__/$( basename -- "$notebook" .py ).html"
-            ( set -x; uv run marimo export html "$notebook" -o "$out" -- "$@" )
+            ( set -x; uv run marimo export html -f "$notebook" -o "$out" -- "$@" )
         else
             ( set -x; uv run "$@" )
         fi

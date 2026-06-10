@@ -55,8 +55,8 @@ def _(app_type, arch, ngpt_variant, run_button):
 
 
 @app.cell(hide_code=True)
-def configuration(arch, ngpt_variant, run_button):
-    mo.stop(not run_button.value)
+def configuration(arch, is_headless, ngpt_variant, run_button):
+    mo.stop(not run_button.value and not is_headless)
 
     _is_ngpt = arch.value == 'ngpt'
     config = TrainingConfig(
@@ -95,8 +95,8 @@ def configuration(arch, ngpt_variant, run_button):
 
 
 @app.cell(hide_code=True)
-def apparatus(app_type, run_button):
-    mo.stop(not run_button.value)
+def apparatus(app_type, is_headless, run_button):
+    mo.stop(not run_button.value and not is_headless)
 
     if app_type.value == 'local':
         app = LocalApparatus('nanogpt')
@@ -417,7 +417,8 @@ def options():
     run_button = mo.ui.run_button(
         label='Run',
     )
-    return app_type, arch, ngpt_variant, run_button
+    is_headless = mo.app_meta().request is None
+    return app_type, arch, is_headless, ngpt_variant, run_button
 
 
 if __name__ == '__main__':

@@ -69,7 +69,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def sweep_config(ARCH_CFGS, LRS, run_button):
+def sweep_config(ARCH_CFGS, LRS, is_headless, run_button):
     def _make_config(lr_float, arch_kwargs):
         is_ngpt = arch_kwargs.get('architecture') == 'ngpt'
         return TrainingConfig(
@@ -104,7 +104,7 @@ def sweep_config(ARCH_CFGS, LRS, run_button):
             amp=MixedPrecisionConfig(enabled=False),
         )
 
-    mo.stop(not run_button.value)
+    mo.stop(not run_button.value and not is_headless)
 
     # One (config, arch_label, lr_str) triple per sweep cell.
     sweep = [
@@ -395,7 +395,8 @@ def options():
     run_button = mo.ui.run_button(
         label='Run',
     )
-    return app_type, run_button
+    is_headless = mo.app_meta().request is None
+    return app_type, is_headless, run_button
 
 
 if __name__ == '__main__':

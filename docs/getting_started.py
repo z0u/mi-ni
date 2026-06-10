@@ -84,15 +84,19 @@ def train(x: int) -> int:
 
 
 @app.cell(hide_code=True)
-def _(app_type):
+def _(app_type, run_button):
     mo.md(f"""
-    {app_type}
+    {app_type} {run_button}
     """)
     return
 
 
 @app.cell
-async def main(app_type):
+async def main(app_type, is_headless, run_button):
+    # Gate on the button when a human is driving, but continue automatically
+    # in a headless session.
+    mo.stop(not run_button.value and not is_headless)
+
     if app_type.value == 'local':
         app = LocalApparatus('mi-ni-getting-started', max_workers=3)
     else:
@@ -125,14 +129,19 @@ def _():
     return
 
 
-@app.cell
-def _():
-    app_type = mo.ui.dropdown(
-        label='App type',
+@app.cell(hide_code=True)
+def options():
+    app_type = mo.ui.radio(
+        label='Apparatus',
         options=['local', 'modal'],
         value=mo.cli_args().get('app', 'local'),
+        inline=True,
     )
-    return (app_type,)
+    run_button = mo.ui.run_button(
+        label='Run',
+    )
+    is_headless = mo.app_meta().request is None
+    return app_type, is_headless, run_button
 
 
 if __name__ == '__main__':
