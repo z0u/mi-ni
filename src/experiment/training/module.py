@@ -48,7 +48,7 @@ class GPTModule(L.LightningModule):
         return loss
 
     @override
-    def on_train_batch_end(self, *args):
+    def on_train_batch_end(self, outputs, batch, batch_idx):
         # Re-project every weight matrix onto the unit hypersphere (nGPT
         # constraint). A no-op for the baseline GPT.
         self.model.normalize_weights()

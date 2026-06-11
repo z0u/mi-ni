@@ -134,7 +134,7 @@ def options():
     app_type = mo.ui.radio(
         label='Apparatus',
         options=['local', 'modal'],
-        value=mo.cli_args().get('app', 'local'),
+        value=str(mo.cli_args().get('app', 'local')),
         inline=True,
     )
     run_button = mo.ui.run_button(
