@@ -17,7 +17,6 @@
     // Agent-friendly tools
     "ghcr.io/jsburckhardt/devcontainer-features/fd:1": {},
     "ghcr.io/jsburckhardt/devcontainer-features/fzf:1": {},
-    "ghcr.io/jsburckhardt/devcontainer-features/rtk:1": {},
     "ghcr.io/jsburckhardt/devcontainer-features/ripgrep:1": {},
     "ghcr.io/jsburckhardt/devcontainer-features/bat:1": {}
   },

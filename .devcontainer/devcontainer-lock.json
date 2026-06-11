@@ -54,11 +54,6 @@
       "version": "1.0.0",
       "resolved": "ghcr.io/jsburckhardt/devcontainer-features/ripgrep@sha256:e24c026e6c06d7d2ccbc802ca0f788d57af6105e929f92270c206dfd8b296669",
       "integrity": "sha256:e24c026e6c06d7d2ccbc802ca0f788d57af6105e929f92270c206dfd8b296669"
-    },
-    "ghcr.io/jsburckhardt/devcontainer-features/rtk:1": {
-      "version": "1.0.0",
-      "resolved": "ghcr.io/jsburckhardt/devcontainer-features/rtk@sha256:f393df8514c943c260e22e0e89fc224e3ba0ca6eeccbd6c562741cf8d7acfde4",
-      "integrity": "sha256:f393df8514c943c260e22e0e89fc224e3ba0ca6eeccbd6c562741cf8d7acfde4"
     }
   }
 }
