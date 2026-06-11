@@ -125,10 +125,10 @@ class Subline:
             Element(text_elem, 'tspan', x=mid, text=token)
             pos += width
 
-    def plot(self, tokens: str | list[str], series: list[Series]):
+    def plot(self, tokens: str | Sequence[str], series: list[Series]):
         """Generate and display an SVG visualization of text metrics."""
-        if isinstance(tokens, str):
-            tokens = list(tokens)
+        # A bare string is split into characters; any other sequence is taken as-is.
+        tokens = list(tokens)
 
         # Split tokens into lines and calculate dimensions
         spans = self._get_token_spans(tokens)

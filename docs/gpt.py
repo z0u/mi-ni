@@ -399,19 +399,19 @@ def options():
     app_type = mo.ui.radio(
         label='Apparatus',
         options=['local', 'modal'],
-        value=mo.cli_args().get('app', 'local'),
+        value=str(mo.cli_args().get('app', 'local')),
         inline=True,
     )
     arch = mo.ui.radio(
         label='Architecture',
         options=['gpt', 'ngpt'],
-        value=mo.cli_args().get('arch', 'gpt'),
+        value=str(mo.cli_args().get('arch', 'gpt')),
         inline=True,
     )
     ngpt_variant = mo.ui.radio(
         label='nGPT variant',
         options=['crude', 'full'],
-        value=mo.cli_args().get('ngpt_variant', 'crude'),
+        value=str(mo.cli_args().get('ngpt_variant', 'crude')),
         inline=True,
     )
     run_button = mo.ui.run_button(
