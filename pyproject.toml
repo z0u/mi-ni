@@ -143,10 +143,3 @@ paths = [
     ".vulture-allowlist.py"
 ]
 sort_by_size = true
-
-[tool.pyrefly]
-project-includes = [
-    "**/*.py*",
-    "**/*.ipynb",
-]
-# verbose = true
