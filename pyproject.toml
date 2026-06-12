@@ -112,6 +112,7 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+norecursedirs = ["node_modules", ".venv", "tmp*", "scratch*"]
 
 [tool.vulture]
 exclude = [
