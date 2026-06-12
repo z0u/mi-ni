@@ -115,7 +115,7 @@ Because the hidden state is a unit vector by the time it reaches the head, a raw
 
 ### Keeping the weights on the sphere
 
-Normalizing the _activations_ is only half of nGPT. The weight matrices are constrained too: after every optimizer step we re-normalize each matrix that reads from or writes to the residual stream, so its rows (or columns) are unit vectors. This is enforced in the training loop rather than the model — `GPT.normalize_weights()`, called from `on_train_batch_end` — and it means the matrices act as rotations on the sphere rather than arbitrary linear maps. A pleasant side effect is that weight decay becomes redundant: the norm is already pinned to 1, so there is nothing for decay to shrink.
+Normalizing the _activations_ is only half of nGPT. The weight matrices are constrained too: after every optimizer step we re-normalize each matrix that reads from or writes to the residual stream, so its rows (or columns) are unit vectors. This is enforced in the training loop rather than the forward pass — `model = model.normalize_weights()` after each optimizer step — and it means the matrices act as rotations on the sphere rather than arbitrary linear maps. A pleasant side effect is that weight decay becomes redundant: the norm is already pinned to 1, so there is nothing for decay to shrink.
 
 ### Interpretation of the logits
 

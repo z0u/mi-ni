@@ -1,6 +1,6 @@
 import logging
 
-import torch
+import numpy as np
 from jaxtyping import Int
 
 from experiment.config import CorpusMetadata, DatasetMetadata, TokenizerConfig
@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 
 @validate_call
-def tokenize_data(sources: list[tuple[str, DatasetMetadata]]) -> tuple[Int[torch.Tensor, ' T'], CorpusMetadata]:
+def tokenize_data(sources: list[tuple[str, DatasetMetadata]]) -> tuple[Int[np.ndarray, ' T'], CorpusMetadata]:
     text = ''.join(source[0] for source in sources)
     # Create character-level encoder/decoder specific to this dataset.
     config = TokenizerConfig(vocabulary=sorted(set(text)))
@@ -20,7 +20,7 @@ def tokenize_data(sources: list[tuple[str, DatasetMetadata]]) -> tuple[Int[torch
     # Tokenizer expects a batch
     log.info(f'Tokenizing {len(sources)} sources with {len(text)} characters')
     tokens = tokenizer.encode([text])[0]
-    data = torch.tensor(tokens, dtype=torch.long)
+    data = np.asarray(tokens, dtype=np.int32)
     log.info(f'Tokenized {len(data)} tokens')
 
     metadata = CorpusMetadata(

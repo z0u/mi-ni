@@ -11,7 +11,6 @@ src/mini/
 ├── volume.py     # Base Volume class
 ├── local_*.py    # Apparatus that uses local compute and storage
 ├── modal_*.py    # Apparatus that uses cloud GPU compute and storage
-├── torch/        # PyTorch integration, e.g. progress bars
 ├── temporal/     # Advanced hyperparameter scheduling based on keyframes
 └── vis/          # Visualization helpers
 ```

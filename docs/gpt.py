@@ -12,7 +12,6 @@ with app.setup(hide_code=True):
 
     from experiment.config import (
         DataConfig,
-        MixedPrecisionConfig,
         ModelConfig,
         OptimizerConfig,
         SchedulerConfig,
@@ -75,7 +74,7 @@ def configuration(arch, is_headless, ngpt_variant, run_button):
         tokenizer=TokenizerConfig(vocabulary=[]),
         data=DataConfig(
             batch_size=16,
-            oversample=1,
+            oversample=2,
             train_split=0.8,
             padding_chance=0.1,
         ),
@@ -89,7 +88,6 @@ def configuration(arch, is_headless, ngpt_variant, run_button):
             warmup_epochs=10,
             min_lr_factor=0.01,
         ),
-        amp=MixedPrecisionConfig(enabled=False),
     )
     return (config,)
 
@@ -130,8 +128,8 @@ def _():
     we want to predict each next token.
 
     ```python
-    x = self.data[idx : idx + self.block_size]
-    y = self.data[idx + 1 : idx + self.block_size + 1]
+    x = data[s : s + block_size]
+    y = data[s + 1 : s + block_size + 1]
     ```
     """)
     return
@@ -197,31 +195,33 @@ def _():
 @app.function(hide_code=True)
 def find_learning_rate(config):
     """Run a multi-scale LR range test and return (lr, config, history)."""
-    import torch
+    import jax.random as jr
+    import numpy as np
 
     from experiment.compute.data_pipelines import load_data
-    from experiment.data.dataloader import get_dataloader
+    from experiment.data.batches import sample_batches, split_data
     from experiment.model.gpt import GPT
+    from experiment.training.loop import loss_fn
     from experiment.training.optimizer import configure_optimizer
     from utils.lr_finder.lr_finder import lr_finder_search
-    from utils.torch.mixed_precision import AMPContext
-    from utils.torch.types import get_device
 
     data_dir = get_data_dir()
-    model = GPT(config.model)
-    criterion = torch.nn.CrossEntropyLoss()
-    optimizer = configure_optimizer(model, config.optimizer)
+    model = GPT(config.model, key=jr.key(config.seed))
     data, _ = load_data(data_dir)
+    train_data, _ = split_data(data, config.data.train_split)
+    rng = np.random.default_rng(config.seed)
 
-    if torch.cuda.is_available():
-        data = data.cuda()
-        model = model.cuda()
-        criterion = criterion.cuda()
+    def batches():
+        while True:
+            yield from sample_batches(train_data, config.data, config.model, 100, rng)
 
-    train_loader, _ = get_dataloader(data, config.data, config.model)
-    amp_context = AMPContext(use_amp=config.amp.enabled, device_type=get_device(model), dtype=config.amp.dtype)
-
-    return lr_finder_search(model, criterion, optimizer, train_loader, amp_context=amp_context)
+    return lr_finder_search(
+        model,
+        loss_fn,
+        lambda learning_rate: configure_optimizer(model, config.optimizer, learning_rate),
+        batches(),
+        key=jr.key(config.seed),
+    )
 
 
 @app.cell(hide_code=True)
@@ -306,7 +306,8 @@ def generate(prompts: list[str], max_new_tokens: int, temperature: float):
     """Load the trained model and generate continuations."""
     from typing import cast
 
-    import torch
+    import jax.random as jr
+    import numpy as np
 
     from experiment.compute.model import load_checkpoint
     from experiment.data.tokenizer import CharTokenizer
@@ -314,15 +315,11 @@ def generate(prompts: list[str], max_new_tokens: int, temperature: float):
     data_dir = get_data_dir()
     log.info('Loading model from checkpoint')
     model, cfg, _ = load_checkpoint(data_dir)
-    model.eval()
     tokenizer = CharTokenizer(cfg.tokenizer)
-    context = torch.tensor(tokenizer.encode(prompts, cfg.model.block_size), dtype=torch.long)
-    if torch.cuda.is_available():
-        context = context.cuda()
-        model = model.cuda()
+    context = np.asarray(tokenizer.encode(prompts, cfg.model.block_size), dtype=np.int32)
 
     log.info(f'Generating {max_new_tokens} tokens at temperature {temperature}')
-    output = model.generate(context, max_new_tokens=max_new_tokens, temperature=temperature)
+    output = model.generate(context, max_new_tokens=max_new_tokens, temperature=temperature, key=jr.key(cfg.seed))
 
     toks = cast(list[list[int]], output.tokens.tolist())
     return tokenizer.decode_each(toks), output

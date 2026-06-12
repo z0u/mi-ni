@@ -28,7 +28,7 @@ from mini.modal_queue import ModalQueue
 from mini.modal_volume import ModalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
-from mini.requirements import project_packages, strip_build_tags, uv_freeze
+from mini.requirements import project_packages, uv_freeze
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -65,15 +65,18 @@ def _app_page_url(app: modal.App) -> str | None:
 
 
 def make_image() -> modal.Image:
-    """Helper to create a Modal image with experiment dependencies."""
+    """Helper to create a Modal image with experiment dependencies.
+
+    Includes the `cuda` dependency group (e.g. `jax[cuda12]`), which is excluded
+    from local installs: locally we run CPU-only, while the remote image gets
+    the CUDA plugin and picks up the GPU when one is attached.
+    """
     deps = uv_freeze(all_groups=True, not_groups=['local', 'dev'])
-    # Remove build tags (e.g., +cpu, +cu121) to improve cross-platform compatibility. This allows Torch to use devices available in the Modal environment.
-    generic_deps = strip_build_tags(deps)
     project_deps = project_packages()
     print(f'Creating Modal image with dependencies: Project: {project_deps}')
     return (
         modal.Image.debian_slim()
-        .pip_install(*generic_deps)
+        .pip_install(*deps)
         .add_local_python_source(*project_deps)
     )  # fmt: skip
 

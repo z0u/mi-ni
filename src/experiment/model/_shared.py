@@ -2,136 +2,192 @@
 
 The `gpt` (baseline) and `ngpt` (normalized) modules each tell one architecture's
 story end to end; everything that does *not* vary between them lives here:
-positional rotary encoding, the learnable `Scale`, head reshaping, the sampling
-loop, and the `Generation` containers it produces.
+last-axis `Linear`/`LayerNorm` layers, positional rotary encoding, the learnable
+`Scale`, head reshaping, the sampling loop, and the `Generation` containers it
+produces.
+
+Models here are Equinox modules: pytrees of arrays transformed by JAX. Forward
+passes are pure functions — randomness (dropout, sampling) enters only through
+explicit PRNG keys, and "mutating" weights means building a new model.
 """
 
 import logging
 
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import jax.random as jr
 import numpy as np
-import torch
-import torch.nn as nn
-from jaxtyping import Float, Int
+from jaxtyping import Array, Float, Int, PRNGKeyArray
 from pydantic import BaseModel, NonNegativeFloat, PositiveInt, model_validator
-from torch import Tensor
-from torch.nn import functional as F
-
-from experiment.config import ModelConfig
 
 log = logging.getLogger(__name__)
 
 
-class RotaryEncoding(nn.Module):
+def normalize(x: Array, axis: int = -1, eps: float = 1e-12) -> Array:
+    """Project onto the unit hypersphere along *axis* (like `F.normalize`)."""
+    return x / jnp.maximum(jnp.linalg.norm(x, axis=axis, keepdims=True), eps)
+
+
+def split_keys(key: PRNGKeyArray | None, n: int) -> tuple[PRNGKeyArray | None, ...]:
+    """Split a PRNG key n ways, or pass `None` through (inference: no dropout)."""
+    return (None,) * n if key is None else tuple(jr.split(key, n))
+
+
+class Linear(eqx.Module):
+    """Affine map over the last axis of an input of any rank.
+
+    Unlike `eqx.nn.Linear` (which expects a single unbatched vector), this
+    broadcasts over leading axes, so modules can stay written in the batched
+    (B, T, C) style.
+    """
+
+    weight: Float[Array, 'out in']
+    bias: Float[Array, ' out'] | None
+
+    def __init__(self, in_features: int, out_features: int, *, key: PRNGKeyArray, use_bias: bool = True):
+        wkey, bkey = jr.split(key)
+        lim = in_features**-0.5
+        self.weight = jr.uniform(wkey, (out_features, in_features), minval=-lim, maxval=lim)
+        self.bias = jr.uniform(bkey, (out_features,), minval=-lim, maxval=lim) if use_bias else None
+
+    def __call__(self, x: Float[Array, '... in']) -> Float[Array, '... out']:
+        y = x @ self.weight.T
+        return y if self.bias is None else y + self.bias
+
+
+class LayerNorm(eqx.Module):
+    """Layer normalization over the last axis, broadcasting over the rest."""
+
+    weight: Float[Array, ' dim']
+    bias: Float[Array, ' dim']
+    eps: float = eqx.field(static=True)
+
+    def __init__(self, dim: int, eps: float = 1e-5):
+        self.weight = jnp.ones(dim)
+        self.bias = jnp.zeros(dim)
+        self.eps = eps
+
+    def __call__(self, x: Float[Array, '... dim']) -> Float[Array, '... dim']:
+        mean = x.mean(axis=-1, keepdims=True)
+        var = x.var(axis=-1, keepdims=True)
+        return (x - mean) * jax.lax.rsqrt(var + self.eps) * self.weight + self.bias
+
+
+class RotaryEncoding(eqx.Module):
     """Rotary positional encoding (RoPE), applied per head during attention.
 
     Passed into the forward pass rather than owned by the attention module, so a
-    single instance can be shared across all layers.
+    single instance can be shared across all layers. Holds no arrays — the
+    sin/cos tables are derived from the sequence length at call time (and
+    constant-folded under jit), so there are no buffers for the optimizer to
+    mistake for parameters.
     """
 
-    sin: Tensor
-    cos: Tensor
+    n_head_dim: int = eqx.field(static=True)
+    base: float = eqx.field(static=True)
 
-    def __init__(self, n_head_dim: int, block_size: int, base: float = 10_000):
-        super().__init__()
-        inv_freq = 1.0 / (base ** (torch.arange(0, n_head_dim, 2).float() / n_head_dim))
-        positions = torch.arange(block_size)
-        enc = torch.cat((f := positions.outer(inv_freq), f), dim=-1)  # (block_size, n_head_dim)
-        self.register_buffer('sin', torch.sin(enc)[None, None])  # (1, 1, block_size, n_head_dim)
-        self.register_buffer('cos', torch.cos(enc)[None, None])
+    def __init__(self, n_head_dim: int, base: float = 10_000):
+        self.n_head_dim = n_head_dim
+        self.base = base
 
-    def forward(self, q: Tensor, k: Tensor):
+    def __call__(self, q: Float[Array, 'B H T D'], k: Float[Array, 'B H T D']):
         T = q.shape[-2]
-        sin, cos = self.sin[:, :, :T], self.cos[:, :, :T]
+        inv_freq = 1.0 / (self.base ** (jnp.arange(0, self.n_head_dim, 2) / self.n_head_dim))
+        enc = jnp.concatenate((f := jnp.outer(jnp.arange(T), inv_freq), f), axis=-1)  # (T, n_head_dim)
+        sin, cos = jnp.sin(enc), jnp.cos(enc)
         q = q * cos + self._rotate_half(q) * sin
         k = k * cos + self._rotate_half(k) * sin
         return q, k
 
-    def _rotate_half(self, x: Tensor):
-        x1, x2 = x.chunk(2, dim=-1)
-        return torch.cat((-x2, x1), dim=-1)
+    def _rotate_half(self, x: Array):
+        x1, x2 = jnp.split(x, 2, axis=-1)
+        return jnp.concatenate((-x2, x1), axis=-1)
 
 
-class Scale(nn.Module):
+class Scale(eqx.Module):
     """Learnable scalar (n=1) or per-channel (n=d) gain with nGPT's reparametrization.
 
     Store the parameter at `scale`; the effective value is `param * (init / scale)`,
     so Adam's step dynamics are decoupled from the value's magnitude.
     """
 
-    def __init__(self, n: int, init: float, scale: float):
-        super().__init__()
-        self.forward_scale = init / scale
-        self.weight = nn.Parameter(torch.full((n,), scale))
+    weight: Float[Array, ' n']
+    forward_scale: float = eqx.field(static=True)
 
-    def forward(self) -> Tensor:
+    def __init__(self, n: int, init: float, scale: float):
+        self.forward_scale = init / scale
+        self.weight = jnp.full((n,), scale)
+
+    def __call__(self) -> Array:
         return self.weight * self.forward_scale
 
 
-def split_heads(x: Float[Tensor, 'B T C'], n_head: int) -> Float[Tensor, 'B H T D']:
+def split_heads(x: Float[Array, 'B T C'], n_head: int) -> Float[Array, 'B H T D']:
     """Reshape (B, T, n_head * n_head_dim) into (B, n_head, T, n_head_dim)."""
     B, T, C = x.shape
-    return x.view(B, T, n_head, C // n_head).transpose(1, 2)
+    return x.reshape(B, T, n_head, C // n_head).swapaxes(1, 2)
 
 
-def merge_heads(x: Float[Tensor, 'B H T D']) -> Float[Tensor, 'B T C']:
+def merge_heads(x: Float[Array, 'B H T D']) -> Float[Array, 'B T C']:
     """Reshape (B, n_head, T, n_head_dim) back into (B, T, n_head * n_head_dim)."""
     B, n_head, T, d = x.shape
-    return x.transpose(1, 2).contiguous().view(B, T, n_head * d)
+    return x.swapaxes(1, 2).reshape(B, T, n_head * d)
 
 
-class LanguageModel(nn.Module):
-    """Base for the model variants: holds the config and the sampling machinery.
+class LanguageModel(eqx.Module):
+    """Base for the model variants: holds the key dimensions and the sampling machinery.
 
-    Subclasses build `self.transformer`/`self.lm_head` and implement `forward`.
-    `normalize_weights` is a no-op here and overridden by variants that enforce
-    the unit-hypersphere weight constraint.
+    Subclasses build `self.transformer` and implement `__call__` mapping token
+    indices (B, T) to logits (B, T, vocab). `normalize_weights` returns the model
+    unchanged here and is overridden by variants that enforce the
+    unit-hypersphere weight constraint.
     """
 
-    def __init__(self, config: ModelConfig):
-        super().__init__()
-        self.config = config = config.model_copy()
-        self.block_size = config.block_size
+    block_size: int = eqx.field(static=True)
+    vocab_size: int = eqx.field(static=True)
 
-    @torch.no_grad()
-    def normalize_weights(self):
-        """Re-project weights onto the unit hypersphere; no-op unless overridden."""
+    def __call__(self, idx: Int[Array, 'B T'], *, key: PRNGKeyArray | None = None) -> Float[Array, 'B T V']:
+        raise NotImplementedError
+
+    def normalize_weights(self) -> 'LanguageModel':
+        """Re-project weights onto the unit hypersphere; identity unless overridden."""
+        return self
 
     def get_num_params(self) -> int:
         """Calculate the number of parameters in the model."""
-        return sum(p.numel() for p in self.parameters())
+        return sum(x.size for x in jax.tree.leaves(eqx.filter(self, eqx.is_array)))
 
-    @torch.no_grad()
     def generate(
         self,
-        tok_idx: Int[Tensor, 'B T'],
+        tok_idx: Int[Array, 'B T'] | Int[np.ndarray, 'B T'],
         max_new_tokens: PositiveInt,
         temperature: NonNegativeFloat = 1.0,
         pad_token_id: int = 0,
+        *,
+        key: PRNGKeyArray,
     ) -> 'Generation':
-        # Align all metric arrays to input length + max_new_tokens.
-        B, T = tok_idx.shape
-        device = tok_idx.device
-        entropies = torch.full((B, T + max_new_tokens), float('nan'), device=device)
-        surprisals = torch.full((B, T + max_new_tokens), float('nan'), device=device)
+        model = eqx.nn.inference_mode(self)
+        forward = eqx.filter_jit(model.__call__)
 
-        # Create padding mask (1 for real tokens, 0 for padding)
-        padding_mask = (tok_idx != pad_token_id).bool()
+        # Align all metric arrays to input length + max_new_tokens.
+        seq = np.asarray(tok_idx)
+        B, T = seq.shape
+        entropies = np.full((B, T + max_new_tokens), np.nan)
+        surprisals = np.full((B, T + max_new_tokens), np.nan)
+
+        # Padding mask (True for real tokens, False for padding)
+        padding_mask = seq != pad_token_id
 
         # Calculate metrics for the prompt (except first token)
-        if tok_idx.size(1) > 1:
-            logits = self.forward(tok_idx)
-            targets = tok_idx[:, 1:]  # shifted right
+        if T > 1:
+            logits = forward(jnp.asarray(seq))
+            log_probs = jax.nn.log_softmax(logits[:, :-1], axis=-1)
+            probs = jnp.exp(log_probs)
+            prompt_entropy = np.asarray(-jnp.sum(probs * log_probs, axis=-1))
 
-            # Compute metrics without temperature scaling
-            raw_probs = F.softmax(logits[:, :-1], dim=-1)
-            prompt_entropy = -torch.sum(raw_probs * torch.log(raw_probs + 1e-10), dim=-1)
-
-            losses = F.cross_entropy(
-                logits[:, :-1].reshape(-1, logits.size(-1)),
-                targets.reshape(-1),
-                reduction='none',
-                ignore_index=pad_token_id,
-            ).view(B, -1)
+            targets = jnp.asarray(seq[:, 1:])
+            losses = np.asarray(-jnp.take_along_axis(log_probs, targets[..., None], axis=-1)[..., 0])
 
             # Only store metrics for non-padding tokens
             prompt_mask = padding_mask[:, 1:T]
@@ -139,44 +195,38 @@ class LanguageModel(nn.Module):
             entropies[:, 1:T][prompt_mask] = prompt_entropy[prompt_mask]
 
         # Generate tokens and track metrics
-        curr_len = tok_idx.size(1)
+        curr_len = T
         for _ in range(max_new_tokens):
             # Get context within block size
-            inputs = tok_idx[:, -self.block_size :]
-            logits = self.forward(inputs)
-
-            # Get next token logits
+            inputs = jnp.asarray(seq[:, -self.block_size :])
+            logits = forward(inputs)
             next_token_logits = logits[:, -1]
 
             # Compute raw metrics (before temperature scaling)
-            raw_probs = F.softmax(next_token_logits, dim=-1)
-            batch_entropy = -torch.sum(raw_probs * torch.log(raw_probs + 1e-10), dim=-1)
-            entropies[:, curr_len] = batch_entropy
+            log_probs = jax.nn.log_softmax(next_token_logits, axis=-1)
+            probs = jnp.exp(log_probs)
+            entropies[:, curr_len] = np.asarray(-jnp.sum(probs * log_probs, axis=-1))
 
-            # Apply temperature for sampling
-            sampling_probs = F.softmax(next_token_logits / temperature, dim=-1)
+            # Sample next token (temperature applies to sampling only)
+            key, sample_key = jr.split(key)
+            idx_next = jr.categorical(sample_key, next_token_logits / temperature, axis=-1)
 
-            # Sample next token
-            idx_next = torch.multinomial(sampling_probs, num_samples=1)
-
-            # Calculate surprisal for the generated token (using raw logits for consistency)
-            if curr_len > 0:
-                token_loss = F.cross_entropy(next_token_logits, idx_next.view(-1), reduction='none')
-                surprisals[:, curr_len] = token_loss
+            # Surprisal of the generated token (using raw logits for consistency)
+            surprisals[:, curr_len] = np.asarray(-jnp.take_along_axis(log_probs, idx_next[:, None], axis=-1)[:, 0])
 
             # Append to sequence and increment position
-            tok_idx = torch.cat([tok_idx, idx_next], dim=1)
+            seq = np.concatenate([seq, np.asarray(idx_next)[:, None]], axis=1)
             curr_len += 1
 
         # Calculate surprise-surprise metric; NaNs propagate through.
-        surprise_surprise = (surprisals - entropies) / torch.log(torch.tensor(self.config.vocab_size, device=device))
+        surprise_surprise = (surprisals - entropies) / np.log(self.vocab_size)
 
         return Generation(
-            tokens=tok_idx.numpy(force=True),
-            vocab_size=self.config.vocab_size,
-            surprisal=surprisals.numpy(force=True),
-            entropy=entropies.numpy(force=True),
-            surprise_surprise=surprise_surprise.numpy(force=True),
+            tokens=seq,
+            vocab_size=self.vocab_size,
+            surprisal=surprisals,
+            entropy=entropies,
+            surprise_surprise=surprise_surprise,
         )
 
 

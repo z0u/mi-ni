@@ -15,7 +15,7 @@ mi-ni is a template repository and library for doing AI research. Features:
 <details><summary>More cool features</summary>
 
 - [Dev container][dc] for a consistent environment, both locally and in [Codespaces][codespaces]
-- ML stack ([PyTorch, Pandas, etc.](pyproject.toml))
+- ML stack ([JAX, Equinox, Pandas, etc.](pyproject.toml))
 - Modern package management with [uv]
 - Pre-configured for good engineering practices: tests, linting, type-checking (optional!)
 </details>
