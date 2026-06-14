@@ -25,9 +25,11 @@ Use `T | None` instead of `Optional[T]`.
 + foo: int | None = None
 ```
 
-## Notebooks
+## Notebooks and Markdown
 
 When working on a notebook, iterate on both the code (Python) and the prose (Markdown). Aim for a literate programming style in which we tell stories about our experiments. We don't just document the code; the notebook as a whole should display a strong narrative.
+
+In Markdown, place `<!-- prettier-ignore -->` above tables: the formatter adds excessive whitespace that consumes tokens.
 
 ## Environment
 
