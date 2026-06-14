@@ -14,7 +14,7 @@ Compute abstraction pattern:
 
 ```py
 # app = LocalApparatus('my-experiment')
-app = ModalApparatus('my-experiment')
+app = ModalApparatus('my-experiment').w(gpu='L4')
 metrics = app.map(train, sweep_configs)
 app.volume.download(...)
 ```
