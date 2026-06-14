@@ -29,7 +29,6 @@ from experiment.model._shared import (
     merge_heads,
     normalize,
     split_heads,
-    split_keys,
 )
 
 log = logging.getLogger(__name__)
@@ -48,7 +47,6 @@ class CausalSelfAttention(eqx.Module):
 
     qkv: Linear
     proj: Linear
-    dropout: eqx.nn.Dropout
     s_qk: Scale
 
     def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
@@ -60,7 +58,6 @@ class CausalSelfAttention(eqx.Module):
         qkv_key, proj_key = jr.split(key)
         self.qkv = Linear(config.n_embd, 2 * self.n_kq_tot + self.n_v_tot, key=qkv_key, use_bias=False)
         self.proj = Linear(self.n_v_tot, config.n_embd, key=proj_key, use_bias=False)
-        self.dropout = eqx.nn.Dropout(config.dropout)
 
         # Per-head q/k are unit-normalized, so their dot product is a cosine in
         # [−1, 1] and needs sharpening back up before softmax.
@@ -74,7 +71,7 @@ class CausalSelfAttention(eqx.Module):
             self.s_qk = Scale(1, init=config.n_head_dim**0.5, scale=config.n_embd**-0.5)
             self.qk_scale = 1.0
 
-    def __call__(self, x: Float[Array, 'B T C'], enc: RotaryEncoding, *, key: PRNGKeyArray | None = None):
+    def __call__(self, x: Float[Array, 'B T C'], enc: RotaryEncoding):
         _B, T, _C = x.shape
         q, k, v = jnp.split(self.qkv(x), [self.n_kq_tot, 2 * self.n_kq_tot], axis=-1)
         q = split_heads(q, self.n_head)
@@ -93,12 +90,11 @@ class CausalSelfAttention(eqx.Module):
 
         att = (q @ k.swapaxes(-2, -1)) * (self.qk_scale if self.full else self.s_qk())
         att = jnp.where(jnp.tril(jnp.ones((T, T), bool)), att, -jnp.inf)
-        att_key, out_key = split_keys(key, 2)
-        att = self.dropout(jax.nn.softmax(att, axis=-1), key=att_key)
+        att = jax.nn.softmax(att, axis=-1)
         y = att @ v
 
         y = merge_heads(y)
-        return self.dropout(self.proj(y), key=out_key)
+        return self.proj(y)
 
 
 class MLP(eqx.Module):
@@ -106,7 +102,6 @@ class MLP(eqx.Module):
 
     fc: Linear
     proj: Linear
-    dropout: eqx.nn.Dropout
     s_u: Scale
 
     def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
@@ -114,16 +109,15 @@ class MLP(eqx.Module):
         fc_key, proj_key = jr.split(key)
         self.fc = Linear(config.n_embd, config.n_ff, key=fc_key, use_bias=False)
         self.proj = Linear(config.n_ff, config.n_embd, key=proj_key, use_bias=False)
-        self.dropout = eqx.nn.Dropout(config.dropout)
         # With unit-norm input and unit-norm weights the pre-activations would be
         # ~1/√d — far too small, leaving GELU near-linear. Scale the up-projection
         # by a √n_embd baseline (times learnable s_u) so GELU sees O(1) inputs.
         self.s_u = Scale(config.n_ff if _is_full(config) else 1, init=1.0, scale=1.0)
         self.su_base = config.n_embd**0.5
 
-    def __call__(self, h, *, key: PRNGKeyArray | None = None):
+    def __call__(self, h):
         u = self.fc(h) * (self.s_u() * self.su_base)
-        return self.dropout(self.proj(jax.nn.gelu(u, approximate=False)), key=key)
+        return self.proj(jax.nn.gelu(u, approximate=False))
 
 
 class Block(eqx.Module):
@@ -146,19 +140,18 @@ class Block(eqx.Module):
         self.alpha_a = Scale(n, init=0.05, scale=scale)
         self.alpha_m = Scale(n, init=0.05, scale=scale)
 
-    def __call__(self, h, enc: RotaryEncoding, *, key: PRNGKeyArray | None = None):
+    def __call__(self, h, enc: RotaryEncoding):
         # h is on the unit hypersphere; each sub-module consumes it directly.
-        attn_key, mlp_key = split_keys(key, 2)
         if self.full:
             # Normalized LERP toward the sub-module's output: h + α(ĥ* − h).
-            h_a = normalize(self.attn(h, enc, key=attn_key))
+            h_a = normalize(self.attn(h, enc))
             h = normalize(h + self.alpha_a() * (h_a - h))
-            h_m = normalize(self.mlp(h, key=mlp_key))
+            h_m = normalize(self.mlp(h))
             h = normalize(h + self.alpha_m() * (h_m - h))
         else:
             # Gated additive retraction: small step toward the output, re-project.
-            h = normalize(h + self.alpha_a() * self.attn(h, enc, key=attn_key))
-            h = normalize(h + self.alpha_m() * self.mlp(h, key=mlp_key))
+            h = normalize(h + self.alpha_a() * self.attn(h, enc))
+            h = normalize(h + self.alpha_m() * self.mlp(h))
         return h
 
 
@@ -183,6 +176,10 @@ class NGPT(LanguageModel):
 
     def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
         log.info('Initializing nGPT (%s) model with config: %s', config.ngpt_variant, config)
+        # nGPT is deliberately dropout-free: the unit-hypersphere constraint is the
+        # regularizer, and threading PRNG keys for dropout complicates the forward.
+        if config.dropout:
+            raise ValueError(f'nGPT does not support dropout; set dropout=0 (got {config.dropout})')
         self.block_size = config.block_size
         self.vocab_size = config.vocab_size
         self.transformer = Transformer(config, key=key)
@@ -203,11 +200,9 @@ class NGPT(LanguageModel):
         # Gradient-checkpoint each block: the backward pass recomputes
         # activations instead of storing every layer's O(T²) attention maps.
         enc = self.transformer.rotary_enc
-        run_block = eqx.filter_checkpoint(lambda block, h, block_key: block(h, enc, key=block_key))
-        for block, block_key in zip(
-            self.transformer.blocks, split_keys(key, len(self.transformer.blocks)), strict=True
-        ):
-            x = run_block(block, x, block_key)
+        run_block = eqx.filter_checkpoint(lambda block, h: block(h, enc))
+        for block in self.transformer.blocks:
+            x = run_block(block, x)
 
         # Hidden state is already normalized, so just project (tied LM head) and
         # apply the learnable logit temperature.

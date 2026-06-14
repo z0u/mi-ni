@@ -38,7 +38,7 @@ def data_dir(tmp_path):
     return tmp_path
 
 
-def make_training_config(**model_overrides) -> TrainingConfig:
+def make_training_config(dropout: float = 0.1, **model_overrides) -> TrainingConfig:
     return TrainingConfig(
         model=ModelConfig(
             vocab_size=64,
@@ -48,7 +48,7 @@ def make_training_config(**model_overrides) -> TrainingConfig:
             n_head_dim=8,
             n_ff=32,
             n_layer=1,
-            dropout=0.1,
+            dropout=dropout,
             **model_overrides,
         ),
         tokenizer=TokenizerConfig(vocabulary=VOCAB),
@@ -61,7 +61,8 @@ def make_training_config(**model_overrides) -> TrainingConfig:
 @pytest.mark.parametrize('arch', ['gpt', 'ngpt'])
 def test_train_model_end_to_end(data_dir, arch):
     """Training produces per-epoch metrics and a checkpoint equivalent to the returned model."""
-    config = make_training_config(architecture=arch)
+    # nGPT is dropout-free (the unit-hypersphere constraint regularizes instead).
+    config = make_training_config(architecture=arch, dropout=0 if arch == 'ngpt' else 0.1)
     model, metrics = train_model(config, data_dir)
 
     assert [m.epoch for m in metrics] == [0, 1]

@@ -197,10 +197,18 @@ class LanguageModel(eqx.Module):
         # Generate tokens and track metrics
         curr_len = T
         for _ in range(max_new_tokens):
-            # Get context within block size
-            inputs = jnp.asarray(seq[:, -self.block_size :])
-            logits = forward(inputs)
-            next_token_logits = logits[:, -1]
+            # Feed a fixed (B, block_size) window so the jitted forward compiles
+            # once. Right-pad the (≤ block_size) context to full width: causal
+            # masking makes the trailing pad positions inert, and we read logits
+            # at the last real position. Without padding, the growing context
+            # length would retrigger a recompile every step until it fills the block.
+            window = seq[:, -self.block_size :]
+            context_len = window.shape[1]
+            if context_len < self.block_size:
+                pad = np.full((B, self.block_size - context_len), pad_token_id, dtype=window.dtype)
+                window = np.concatenate([window, pad], axis=1)
+            logits = forward(jnp.asarray(window))
+            next_token_logits = logits[:, context_len - 1]
 
             # Compute raw metrics (before temperature scaling)
             log_probs = jax.nn.log_softmax(next_token_logits, axis=-1)
