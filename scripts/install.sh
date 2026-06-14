@@ -28,7 +28,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-( set -x; uv sync --all-groups < /dev/null )
+# The cuda group is for remote (Modal) execution; locally we use CPU jax.
+( set -x; uv sync --all-groups --no-group cuda < /dev/null )
 
 ( set -x; npm install )
 

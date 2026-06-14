@@ -11,7 +11,6 @@ with app.setup(hide_code=True):
 
     from experiment.config import (
         DataConfig,
-        MixedPrecisionConfig,
         ModelConfig,
         OptimizerConfig,
         SchedulerConfig,
@@ -87,7 +86,7 @@ def sweep_config(ARCH_CFGS, LRS, is_headless, run_button):
             tokenizer=TokenizerConfig(vocabulary=[]),
             data=DataConfig(
                 batch_size=16,
-                oversample=1,
+                oversample=2,
                 train_split=0.8,
                 padding_chance=0.1,
             ),
@@ -101,7 +100,6 @@ def sweep_config(ARCH_CFGS, LRS, is_headless, run_button):
                 warmup_epochs=10,
                 min_lr_factor=0.01,
             ),
-            amp=MixedPrecisionConfig(enabled=False),
         )
 
     mo.stop(not run_button.value and not is_headless)

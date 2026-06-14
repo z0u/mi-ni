@@ -59,22 +59,6 @@ def uv_freeze(
     return selected_deps
 
 
-def strip_build_tags(requirements: list[str]) -> list[str]:
-    """
-    Remove build tags from requirement strings.
-
-    Strips local version identifiers like +cpu or +cu121 for cross-platform
-    compatibility, since different environments may have different builds available.
-
-    Args:
-        requirements: List of requirement strings (e.g., ['torch==2.10.0+cpu']).
-
-    Returns:
-        List of requirement strings with build tags removed.
-    """
-    return [req.split('+')[0] if '+' in req else req for req in requirements]
-
-
 def parse_uv_tree_output(output: str, ignore_first: bool) -> list[str]:
     """Parse the output of 'uv tree' command to extract package specifications."""
     requirements: set[str] = set()
@@ -83,21 +67,24 @@ def parse_uv_tree_output(output: str, ignore_first: bool) -> list[str]:
     if ignore_first:
         lines = lines[1:]
 
-    # Regular expression to extract package name and version
-    # This matches lines like "package v1.2.3" with or without tree characters
+    # Regular expression to extract package name, optional extras, and version.
+    # Matches lines like "package v1.2.3" and "package[extra] v1.2.3", with or
+    # without tree characters.
     # https://packaging.python.org/en/latest/specifications/name-normalization/#name-format
     name_pattern = r'([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])'
-    pattern = name_pattern + r' v([^\s]+)'
+    extras_pattern = r'(\[[A-Z0-9._,-]+\])?'
+    pattern = name_pattern + extras_pattern + r' v([^\s]+)'
 
     for line in lines:
         match = re.search(pattern, line, re.IGNORECASE)
         if match:
             pkg_name = match.group(1)
-            version = match.group(2)
+            extras = match.group(2) or ''
+            version = match.group(3)
             # Strip local version identifier (e.g., +cpu, +cu121) for cross-platform compatibility
             # Modal and other environments may not have the same local builds available
             version = version.split('+')[0]
-            requirements.add(f'{pkg_name}=={version}')
+            requirements.add(f'{pkg_name}{extras}=={version}')
 
     return sorted(requirements)
 

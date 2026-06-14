@@ -13,16 +13,23 @@ machinery is carried only for the ablation, not shipped as the default.
 """
 
 import logging
-from typing import cast
 
-import torch
-import torch.nn as nn
-from jaxtyping import Float, Int
-from torch import Tensor
-from torch.nn import functional as F
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import jax.random as jr
+from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from experiment.config import ModelConfig
-from experiment.model._shared import LanguageModel, RotaryEncoding, Scale, merge_heads, split_heads
+from experiment.model._shared import (
+    LanguageModel,
+    Linear,
+    RotaryEncoding,
+    Scale,
+    merge_heads,
+    normalize,
+    split_heads,
+)
 
 log = logging.getLogger(__name__)
 
@@ -31,35 +38,42 @@ def _is_full(config: ModelConfig) -> bool:
     return config.ngpt_variant == 'full'
 
 
-class CausalSelfAttention(nn.Module):
-    def __init__(self, config: ModelConfig):
-        super().__init__()
+class CausalSelfAttention(eqx.Module):
+    n_head: int = eqx.field(static=True)
+    n_kq_tot: int = eqx.field(static=True)
+    n_v_tot: int = eqx.field(static=True)
+    full: bool = eqx.field(static=True)
+    qk_scale: float = eqx.field(static=True)
+
+    qkv: Linear
+    proj: Linear
+    s_qk: Scale
+
+    def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
         self.n_head = config.n_head
-        self.n_kq = config.n_head_dim
-        self.n_v = config.n_head_dim
-        self.n_kq_tot = self.n_head * self.n_kq
-        self.n_v_tot = self.n_head * self.n_v
+        self.n_kq_tot = config.n_head * config.n_head_dim
+        self.n_v_tot = config.n_head * config.n_head_dim
 
         # Bias-free: biases would push activations off the unit hypersphere.
-        self.qkv = nn.Linear(config.n_embd, 2 * self.n_kq_tot + self.n_v_tot, bias=False)
-        self.proj = nn.Linear(self.n_v_tot, config.n_embd, bias=False)
-        self.dropout = nn.Dropout(config.dropout)
+        qkv_key, proj_key = jr.split(key)
+        self.qkv = Linear(config.n_embd, 2 * self.n_kq_tot + self.n_v_tot, key=qkv_key, use_bias=False)
+        self.proj = Linear(self.n_v_tot, config.n_embd, key=proj_key, use_bias=False)
 
         # Per-head q/k are unit-normalized, so their dot product is a cosine in
         # [−1, 1] and needs sharpening back up before softmax.
         self.full = _is_full(config)
         if self.full:
             # Per-dim gain on q and k, then a fixed √d_k score scale.
-            self.s_qk = Scale(self.n_kq, init=1.0, scale=config.n_embd**-0.5)
-            self.qk_scale = self.n_kq**0.5
+            self.s_qk = Scale(config.n_head_dim, init=1.0, scale=config.n_embd**-0.5)
+            self.qk_scale = config.n_head_dim**0.5
         else:
             # A single learnable scalar temperature, initialized to √d_k.
-            self.s_qk = Scale(1, init=self.n_kq**0.5, scale=config.n_embd**-0.5)
+            self.s_qk = Scale(1, init=config.n_head_dim**0.5, scale=config.n_embd**-0.5)
             self.qk_scale = 1.0
 
-    def forward(self, x: Float[Tensor, 'B T C'], enc: RotaryEncoding):
-        B, T, _C = x.shape
-        q, k, v = self.qkv(x).split([self.n_kq_tot, self.n_kq_tot, self.n_v_tot], dim=-1)
+    def __call__(self, x: Float[Array, 'B T C'], enc: RotaryEncoding):
+        _B, T, _C = x.shape
+        q, k, v = jnp.split(self.qkv(x), [self.n_kq_tot, 2 * self.n_kq_tot], axis=-1)
         q = split_heads(q, self.n_head)
         k = split_heads(k, self.n_head)
         v = split_heads(v, self.n_head)
@@ -68,44 +82,56 @@ class CausalSelfAttention(nn.Module):
 
         # Normalize q and k onto the unit hypersphere (per head). RoPE is a
         # rotation, so it commutes with normalization.
-        q = F.normalize(q, dim=-1)
-        k = F.normalize(k, dim=-1)
+        q = normalize(q)
+        k = normalize(k)
         if self.full:
             q = q * self.s_qk()
             k = k * self.s_qk()
 
-        att = (q @ k.transpose(-2, -1)) * (self.qk_scale if self.full else self.s_qk())
-        att = att.masked_fill(att.new_ones(T, T).tril() == 0, float('-inf'))
-        att = self.dropout(F.softmax(att, dim=-1))
+        att = (q @ k.swapaxes(-2, -1)) * (self.qk_scale if self.full else self.s_qk())
+        att = jnp.where(jnp.tril(jnp.ones((T, T), bool)), att, -jnp.inf)
+        att = jax.nn.softmax(att, axis=-1)
         y = att @ v
 
         y = merge_heads(y)
-        return self.dropout(self.proj(y))
+        return self.proj(y)
 
 
-class MLP(nn.Module):
-    def __init__(self, config: ModelConfig):
-        super().__init__()
+class MLP(eqx.Module):
+    su_base: float = eqx.field(static=True)
+
+    fc: Linear
+    proj: Linear
+    s_u: Scale
+
+    def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
         # Bias-free to keep activations on the unit hypersphere.
-        self.fc = nn.Linear(config.n_embd, config.n_ff, bias=False)
-        self.proj = nn.Linear(config.n_ff, config.n_embd, bias=False)
-        self.dropout = nn.Dropout(config.dropout)
+        fc_key, proj_key = jr.split(key)
+        self.fc = Linear(config.n_embd, config.n_ff, key=fc_key, use_bias=False)
+        self.proj = Linear(config.n_ff, config.n_embd, key=proj_key, use_bias=False)
         # With unit-norm input and unit-norm weights the pre-activations would be
         # ~1/√d — far too small, leaving GELU near-linear. Scale the up-projection
         # by a √n_embd baseline (times learnable s_u) so GELU sees O(1) inputs.
         self.s_u = Scale(config.n_ff if _is_full(config) else 1, init=1.0, scale=1.0)
         self.su_base = config.n_embd**0.5
 
-    def forward(self, h):
+    def __call__(self, h):
         u = self.fc(h) * (self.s_u() * self.su_base)
-        return self.dropout(self.proj(F.gelu(u)))
+        return self.proj(jax.nn.gelu(u, approximate=False))
 
 
-class Block(nn.Module):
-    def __init__(self, config: ModelConfig):
-        super().__init__()
-        self.attn = CausalSelfAttention(config)
-        self.mlp = MLP(config)
+class Block(eqx.Module):
+    full: bool = eqx.field(static=True)
+
+    attn: CausalSelfAttention
+    mlp: MLP
+    alpha_a: Scale
+    alpha_m: Scale
+
+    def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
+        attn_key, mlp_key = jr.split(key)
+        self.attn = CausalSelfAttention(config, key=attn_key)
+        self.mlp = MLP(config, key=mlp_key)
         self.full = _is_full(config)
         # Residual gates: 'full' uses per-channel eigen learning rates, 'crude' a
         # single scalar step size per sub-module (ReZero/LayerScale-style).
@@ -114,77 +140,104 @@ class Block(nn.Module):
         self.alpha_a = Scale(n, init=0.05, scale=scale)
         self.alpha_m = Scale(n, init=0.05, scale=scale)
 
-    def forward(self, h, enc: RotaryEncoding):
+    def __call__(self, h, enc: RotaryEncoding):
         # h is on the unit hypersphere; each sub-module consumes it directly.
         if self.full:
             # Normalized LERP toward the sub-module's output: h + α(ĥ* − h).
-            h_a = F.normalize(self.attn(h, enc), dim=-1)
-            h = F.normalize(h + self.alpha_a() * (h_a - h), dim=-1)
-            h_m = F.normalize(self.mlp(h), dim=-1)
-            h = F.normalize(h + self.alpha_m() * (h_m - h), dim=-1)
+            h_a = normalize(self.attn(h, enc))
+            h = normalize(h + self.alpha_a() * (h_a - h))
+            h_m = normalize(self.mlp(h))
+            h = normalize(h + self.alpha_m() * (h_m - h))
         else:
             # Gated additive retraction: small step toward the output, re-project.
-            h = F.normalize(h + self.alpha_a() * self.attn(h, enc), dim=-1)
-            h = F.normalize(h + self.alpha_m() * self.mlp(h), dim=-1)
+            h = normalize(h + self.alpha_a() * self.attn(h, enc))
+            h = normalize(h + self.alpha_m() * self.mlp(h))
         return h
 
 
-class Transformer(nn.Module):
-    def __init__(self, config: ModelConfig):
-        super().__init__()
-        self.wte = nn.Embedding(config.vocab_size, config.n_embd)
-        self.blocks = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
-        self.rotary_enc = RotaryEncoding(config.n_head_dim, block_size=config.block_size)
+class Transformer(eqx.Module):
+    wte: Float[Array, 'V C']
+    blocks: tuple[Block, ...]
+    rotary_enc: RotaryEncoding
+
+    def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
+        wte_key, *block_keys = jr.split(key, config.n_layer + 1)
+        # Initialized like the (tied) LM head it doubles as; immediately
+        # re-projected onto the sphere by `normalize_weights` below.
+        lim = config.n_embd**-0.5
+        self.wte = jr.uniform(wte_key, (config.vocab_size, config.n_embd), minval=-lim, maxval=lim)
+        self.blocks = tuple(Block(config, key=k) for k in block_keys)
+        self.rotary_enc = RotaryEncoding(config.n_head_dim)
 
 
 class NGPT(LanguageModel):
-    def __init__(self, config: ModelConfig):
-        super().__init__(config)
-        config = self.config
+    transformer: Transformer
+    s_z: Scale
 
+    def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
         log.info('Initializing nGPT (%s) model with config: %s', config.ngpt_variant, config)
-        self.transformer = Transformer(config)
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        # tie weights between embedding and LM head
-        self.transformer.wte.weight = self.lm_head.weight
+        # nGPT is deliberately dropout-free: the unit-hypersphere constraint is the
+        # regularizer, and threading PRNG keys for dropout complicates the forward.
+        if config.dropout:
+            raise ValueError(f'nGPT does not support dropout; set dropout=0 (got {config.dropout})')
+        self.block_size = config.block_size
+        self.vocab_size = config.vocab_size
+        self.transformer = Transformer(config, key=key)
         # Learnable scalar logit temperature (the hidden state is unit-norm, so
         # raw logits would be cosines in [−1, 1]).
         self.s_z = Scale(1, init=1.0, scale=config.n_embd**-0.5)
 
         # Start every matrix on the unit hypersphere.
-        self.normalize_weights()
+        normalized = self.normalize_weights()
+        self.transformer = normalized.transformer
 
         log.info('number of parameters: %.2fM', self.get_num_params() / 1e6)
 
-    def forward(self, idx: Int[Tensor, 'B T']):
+    def __call__(self, idx: Int[Array, 'B T'], *, key: PRNGKeyArray | None = None):
         # Token embeddings, projected onto the unit hypersphere.
-        x: Float[Tensor, 'B T C'] = F.normalize(self.transformer.wte(idx), dim=-1)
+        x: Float[Array, 'B T C'] = normalize(self.transformer.wte[idx])
 
+        # Gradient-checkpoint each block: the backward pass recomputes
+        # activations instead of storing every layer's O(T²) attention maps.
         enc = self.transformer.rotary_enc
+        run_block = eqx.filter_checkpoint(lambda block, h: block(h, enc))
         for block in self.transformer.blocks:
-            x = block(x, enc)
+            x = run_block(block, x)
 
-        # Hidden state is already normalized, so just project and apply the
-        # learnable logit temperature.
-        return self.lm_head(x) * self.s_z()
+        # Hidden state is already normalized, so just project (tied LM head) and
+        # apply the learnable logit temperature.
+        return (x @ self.transformer.wte.T) * self.s_z()
 
-    @torch.no_grad()
-    def normalize_weights(self):
+    def normalize_weights(self) -> 'NGPT':
         """Project every hidden-dim matrix back onto the unit hypersphere.
 
-        Call after each optimizer step to enforce nGPT's weight constraint.
-        Matrices that read from the residual stream are normalized over their
-        input axis (dim=1); matrices that write to it, over their output axis
-        (dim=0). `lm_head` shares its tensor with `wte`, so it is covered once.
+        Apply after each optimizer step to enforce nGPT's weight constraint:
+        `model = model.normalize_weights()`. Matrices that read from the
+        residual stream are normalized over their input axis (axis=1); matrices
+        that write to it, over their output axis (axis=0). The LM head shares
+        the embedding array, so it is covered once.
         """
-        self.transformer.wte.weight.copy_(F.normalize(self.transformer.wte.weight, dim=1))
-        for block in cast(list[Block], self.transformer.blocks):
-            block.attn.qkv.weight.copy_(F.normalize(block.attn.qkv.weight, dim=1))
-            block.attn.proj.weight.copy_(F.normalize(block.attn.proj.weight, dim=0))
-            block.mlp.fc.weight.copy_(F.normalize(block.mlp.fc.weight, dim=1))
-            block.mlp.proj.weight.copy_(F.normalize(block.mlp.proj.weight, dim=0))
 
-    @torch.no_grad()
+        def where(m: NGPT):
+            return (
+                [m.transformer.wte]
+                + [b.attn.qkv.weight for b in m.transformer.blocks]
+                + [b.attn.proj.weight for b in m.transformer.blocks]
+                + [b.mlp.fc.weight for b in m.transformer.blocks]
+                + [b.mlp.proj.weight for b in m.transformer.blocks]
+            )  # fmt: skip
+
+        def replacements(m: NGPT):
+            return (
+                [normalize(m.transformer.wte, axis=1)]
+                + [normalize(b.attn.qkv.weight, axis=1) for b in m.transformer.blocks]
+                + [normalize(b.attn.proj.weight, axis=0) for b in m.transformer.blocks]
+                + [normalize(b.mlp.fc.weight, axis=1) for b in m.transformer.blocks]
+                + [normalize(b.mlp.proj.weight, axis=0) for b in m.transformer.blocks]
+            )  # fmt: skip
+
+        return eqx.tree_at(where, self, replacements(self))
+
     def scale_report(self) -> dict[str, list[float] | float]:
         """Read back the learned scalar gates and temperatures, per layer.
 
@@ -192,11 +245,11 @@ class NGPT(LanguageModel):
         see exactly what training settled on — e.g. whether the residual gates α
         land near 1/n_layer. (With 'full' these are per-channel means.)
         """
-        blocks = cast(list[Block], self.transformer.blocks)
+        blocks = self.transformer.blocks
         return {
-            'alpha_a': [b.alpha_a().mean().item() for b in blocks],
-            'alpha_m': [b.alpha_m().mean().item() for b in blocks],
-            's_qk': [b.attn.s_qk().mean().item() for b in blocks],
-            's_u': [b.mlp.s_u().mean().item() for b in blocks],
-            's_z': self.s_z().item(),
+            'alpha_a': [float(jnp.mean(b.alpha_a())) for b in blocks],
+            'alpha_m': [float(jnp.mean(b.alpha_m())) for b in blocks],
+            's_qk': [float(jnp.mean(b.attn.s_qk())) for b in blocks],
+            's_u': [float(jnp.mean(b.mlp.s_u())) for b in blocks],
+            's_z': float(jnp.mean(self.s_z())),
         }

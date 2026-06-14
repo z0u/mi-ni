@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
 
-import torch
+import equinox as eqx
+import jax.random as jr
 
 from experiment.config import TrainingConfig
 from experiment.model import LanguageModel, build_model
@@ -15,27 +17,34 @@ def save_checkpoint(
     metrics: TrainingMetrics | None,
     data_dir: Path,
 ) -> None:
-    """Save a model checkpoint to the given directory."""
-    model_path = data_dir / 'model' / 'checkpoint.pt'
+    """Save a model checkpoint to the given directory.
+
+    The file is a JSON header line (config and metrics) followed by the
+    serialized model arrays.
+    """
+    model_path = data_dir / 'model' / 'checkpoint.eqx'
     model_path.parent.mkdir(parents=True, exist_ok=True)
-    checkpoint = {
-        'model': model.state_dict(),
+    header = {
         'config': config.model_dump(mode='json'),
         'metrics': metrics.model_dump(mode='json') if metrics else None,
     }
-    torch.save(checkpoint, model_path)
+    with open(model_path, 'wb') as f:
+        f.write((json.dumps(header) + '\n').encode())
+        eqx.tree_serialise_leaves(f, model)
 
 
 @validate_call
 def load_checkpoint(data_dir: Path) -> tuple[LanguageModel, TrainingConfig, TrainingMetrics | None]:
     """Load a model checkpoint from the given directory."""
-    model_path = data_dir / 'model' / 'checkpoint.pt'
-    checkpoint = torch.load(model_path, map_location='cpu')
-    config = TrainingConfig.model_validate(checkpoint['config'])
-    model = build_model(config.model)
-    model.load_state_dict(checkpoint['model'])
+    model_path = data_dir / 'model' / 'checkpoint.eqx'
+    with open(model_path, 'rb') as f:
+        header = json.loads(f.readline().decode())
+        config = TrainingConfig.model_validate(header['config'])
+        # Build a skeleton with the right structure, then fill in the saved arrays.
+        model = build_model(config.model, key=jr.key(0))
+        model = eqx.tree_deserialise_leaves(f, model)
 
-    metrics = checkpoint.get('metrics', None)
+    metrics = header.get('metrics', None)
     metrics = TrainingMetrics.model_validate(metrics) if metrics else None
 
     return model, config, metrics
