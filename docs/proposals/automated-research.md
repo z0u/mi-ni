@@ -370,6 +370,42 @@ This is the part of the design that pushes hardest on the `Apparatus`
 abstraction, alongside the progress-stream tap and per-job stop signal, so the
 spawn/poll interface is worth designing deliberately.
 
+### Teleporting an experiment
+
+Claude Code can _teleport_ a session between a local IDE and the web. This is the
+same "the driver disappears, a fresh one picks up" problem as a sleeping
+controller, with a surface change instead of a sleep — so the same design carries
+it, and teleport is a good test of whether we got that design right. Teleport
+moves two things: the conversation and the git branch. It requires a clean
+working tree (uncommitted changes are stashed), and the web side runs in a fresh
+container that clones the repo. So the rule is simple: anything not committed to
+the branch, or not in a remote store reconnectable by ID, does not survive the
+hop. That excludes the `.mini/` local volume (gitignored scratch), the venv, the
+running controller process and its in-memory state, and secrets.
+
+Most of what's needed is already here: the registry as git-friendly JSON on the
+branch travels automatically, spawned trials reconnect by `FunctionCall` ID,
+checkpoints live on the Modal volume, and a stateless controller resumes from the
+registry. Four teleport-specific requirements remain:
+
+- **Commit registry and trial records to the branch as the run progresses**, not
+  just at the end, so live state crosses with the session rather than being
+  stranded in `.mini/`.
+- **Teleportable means Modal, not Local.** A `LocalApparatus` run keeps its data
+  in gitignored `.mini/`, so it won't survive the hop; teleportable runs use the
+  Modal apparatus (named/deployed app, spawn, remote volume). This is a stated
+  limitation, not a bug to fix.
+- **A SessionStart hook prepares the fresh web container**: run `./go install`,
+  authenticate Modal and WandB from the environment's secrets, rehydrate the
+  registry from JSON, and reconnect to the running app and `FunctionCall`s.
+- **Configure the web environment**: Modal/WandB credentials as secrets, and a
+  network policy that permits those endpoints.
+
+One limitation to design around: because teleport needs a clean tree, only
+committed state resumes cleanly — in-flight _code_ edits get stashed at the
+boundary. That's fine because trials run against a recorded SHA anyway, but it
+means teleporting mid-experiment wants the experiment's code already committed.
+
 ## Roadmap
 
 Each phase is independently useful and leaves the repo in a shippable state.
