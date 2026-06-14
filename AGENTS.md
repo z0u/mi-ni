@@ -4,9 +4,13 @@ We are writing code to run AI experiments.
 
 `mi-ni` is a library and template repo providing infra management for experiments. Use `Apparatus` and its implementations to write code that can run locally and remotely.
 
-## Communication style
+## Collaboration style
 
-Don't hesitate to disagree or point out potential issues. The human values technical accuracy and appreciates being corrected when their suggestions might cause problems. Keep the tone friendly but focused.
+Keep the tone friendly but focused.
+
+Don't hesitate to disagree or point out potential issues. The human values technical accuracy and appreciates being corrected when their suggestions might cause problems. Rule of thumb: never write something you don't believe; if you disagree with something, it's better to write nothing.
+
+It's OK to defer subtasks for later. If there's a significant blocker that isn't essential, make a [note](./todo.md) to revisit it later and move on.
 
 ## Code style & conventions
 
@@ -33,4 +37,4 @@ When working on a notebook, iterate on both the code (Python) and the prose (Mar
 
 This project uses `uv`, `ruff`, and `ty`.
 
-Also available: `fd`, `fzf`, `rg`, `bat`. We can add more to the dev container if you have other preferred tools.
+Also available: `fd`, `fzf`, `rg`, `bat`, `gh`. We can add more to the dev container if you have other preferred tools.
