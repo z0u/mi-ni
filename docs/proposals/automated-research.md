@@ -31,12 +31,6 @@ and error recovery built into the loop. [Agent Laboratory][agentlab] covers a
 similar arc (literature → experiments → report) but keeps explicit human
 checkpoints.
 
-> With parallel workers exploring a tree, how would we avoid commit contention?
-> mi-ni has been designed for very small teams of researchers; so far the
-> assumption has been that the researcher would focus on one or two experiments,
-> which would have their own notebooks, and the notebook output (and logs in
-> WandB) would record the results.
-
 **Code-space search agents.** [AIDE][aide] (Weco) frames ML engineering as
 search over a tree of _code_: each script is a node, LLM-generated patches are
 its children, and metric feedback prunes and steers the search. The recurring
@@ -45,16 +39,12 @@ trio is a generator (propose), an evaluator (run and measure), and a selector
 on the agent benchmarks — OpenAI's [MLE-bench][mlebench] (Kaggle tasks) and
 METR's RE-bench (open-ended research with human baselines).
 
-> Patch-based experiments is an interesting idea! I've been wondering how to
-> handle code changes, when various experiments may want to change the code in
-> various possibly-conflicting ways.
-
 **The tracking and orchestration layer underneath.** Outside the agent
 literature, the mature tools — Weights & Biases, MLflow, Hydra for config,
 Optuna and Ray Tune for search — exist precisely to make runs reproducible and
 comparable. A recurring critique is that their provenance is _shallow_: they log
 hyperparameters and metrics but not enough of the surrounding system to reliably
-reproduce or reason about a result. That gap matters more, when the consumer is
+reproduce or reason about a result. That gap matters more when the consumer is
 an agent.
 
 Three lessons stand out for us:
@@ -83,36 +73,29 @@ agent systems above tend to reinvent badly.
 | Turn results into a narrative | `mini.vis` + Marimo notebooks, published to Pages |
 | An agent to drive it | Claude Code config, skills, and an event-driven "babysit" harness |
 
-> Regarding Progress: it works well for interactive notebooks and monitoring on
-> the CLI. I think it could be further improved for agents: rather than having
-> to parse the console output (Rich progress bars), it would be nice to have a
-> state that the model could monitor. It might even be nice if it could query
-> certain parts of it: task progress (step), metrics, etc. Currently, the
-> progress messages are sent over a Queue, but for current state it might be
-> better to use a distributed Dict? Plus some scripts to query it, and monitor
-> it (e.g. notify on some particular state change).
->
-> Or instead of a Dict, should we lean on WandB for this? And speaking of which,
-> we'll need skills and APIs for the agents to read job state from WandB and
-> Modal. Currently, such IDs and URLs are visible in a running notebook, but
-> scrubbed from the snapshots in `__marimo__/`.
+Two decisions about how agents use this substrate shape everything below.
 
-> We need to decide whether agents should primarily run experiments:
->
-> - Within notebooks
-> - As scripts/commands (using notebooks only for reporting and analysis)
+**Agents run experiments as scripts; notebooks are for reporting.** A headless
+script is parametrizable, observable, and survives being killed and restarted —
+all properties an agent needs and a notebook lacks. Notebooks remain the place
+where results become a narrative for humans. This also sidesteps a real problem:
+the run IDs and URLs an agent needs (WandB, Modal) are visible in a live
+notebook but scrubbed from the `__marimo__/` snapshots, so they can't be the
+durable record. The trial record is.
 
-> Oh and tangential TODOs:
->
-> - [ ] Modal functions can be preempted, so experiments that run for more than 5
->       minutes need to checkpoint regularly (frequency TBD) and support restarts.
-> - [ ] We currently rely on a local controlling process. That needs to live
->       somewhere, and so does the agent harness. mi-ni is set up for dev containers
->       and Codespaces — but the former may suspend if the user closes their laptop,
->       and the latter may stop due to inactivity.
->
-> These don't need resolution now, but we should keep them in mind when
-> designing the research automation process.
+**The progress stream stays the transport; current state lives in the registry.**
+The `Queue` is the right primitive for streaming and rate-limiting, but an agent
+wants to _query_ state (latest step, metrics, status), not parse a Rich progress
+bar. So the supervisor folds the stream into the trial record, which becomes the
+queryable live state — no separate distributed dict. Metrics time series are
+WandB's job; mi-ni reads from it rather than reimplementing it (see below).
+
+Two infrastructure constraints to keep in mind throughout, even though neither
+needs solving now: Modal preempts long functions, so any trial over a few
+minutes must checkpoint and resume (Phase 1); and the controlling process needs
+a durable home — a dev container suspends with the laptop, a Codespace stops on
+inactivity — which argues for a controller that holds no state of its own and
+can resume from the registry (see "Where the controller lives").
 
 What's missing is the connective tissue. An experiment today is a function
 defined ad hoc in a notebook; its config, code version, metrics, and artifacts
@@ -134,7 +117,7 @@ experiments an identity and a memory.
 
 ## Proposed architecture
 
-Four layers; The lower two are infrastructure; the upper two are automation.
+Four layers. The lower two are infrastructure; the upper two, automation.
 
 ### 1. The experiment record (the missing object)
 
@@ -153,19 +136,28 @@ people and agents.
 [^sec]: With secrets redacted.
 
 This is similar to MLflow's experiment/run split, but with provenance treated as
-mandatory and the store backed by the `Volume` we already have, rather than a
-separate service. A `Registry` provides the query surface — `list`, `filter`,
+mandatory. A `Registry` provides the query surface — `list`, `filter`,
 `compare`, `best` — that search strategies and analysis both depend on.
 
-> On Modal, should we have a function that mounts the volume and provides query
-> functionality? It could use sqlite for atomicity. This makes me think we
-> should not use the same volume (because it may be misconfigured), and instead
-> have a dedicated LocalRegistry, ModalRegistry, etc, backed by whatever makes
-> sense in the compute environment. Perhaps the remote ones should automatically
-> sync to local, so the registry can be checked in with the experiments? But it
-> would need to be git-friendly (so maybe stored as JSON but rehydrated to
-> sqlite during execution). Although, again I wonder: is this already a feature
-> of WandB?
+The storage design follows the `Apparatus`/`Volume` pattern: a `Registry`
+abstraction with `Local` and `Modal` implementations, each backed by whatever
+suits its environment, and deliberately _not_ the same volume that holds
+experiment data (too easy to misconfigure into corruption). The canonical store
+is git-friendly JSON — one file per experiment and trial, checked in alongside
+the code so history travels with the repo — rehydrated into sqlite for fast
+querying during a run. JSON is the source of truth; sqlite is a disposable
+index. On Modal, a function mounts the registry backend and serves queries;
+remote state syncs back to local so the checked-in record stays authoritative.
+
+This is intentionally complementary to WandB, not a replacement. WandB is the
+metrics and observability plane — live curves, time series, the dashboard a
+human watches. The registry is the control plane — what was run, under which
+SHA, with what budget, and where the artifacts are. The registry stores the
+WandB and Modal IDs so an agent can follow them; reading metrics back is a thin
+skill over the WandB and Modal APIs (Phase 0). A single writer keeps this
+honest: trial records are written by the supervisor, never by the trials
+themselves, which avoids both sqlite write contention and the fan-in flood that
+would come from many workers writing at once.
 
 ### 2. Supervised execution (babysitting)
 
@@ -174,44 +166,71 @@ control. Because progress already carries `run_id`/`job_id` and step counts, the
 supervisor can watch for the failure modes agents actually hit: a crash (retry,
 or hand the traceback to the agent for a debugging patch — the AIDE/Sakana
 auto-debug move), a stall (no progress for N seconds), or divergence (a metric
-heading the wrong way → early-stop and reclaim the budget). It enforces the
-`Experiment` budget and writes everything back to the trial record.
+heading the wrong way → early-stop and reclaim the budget). It also handles
+Modal preemption: because trials checkpoint to the `Volume`, a preempted or
+restarted trial resumes from its last checkpoint rather than from zero. The
+supervisor writes everything back to the trial record.
 
-> On budget: yes we do need to track this as we run experiments. Note that there
-> are other mechanisms too, e.g. Modal's `timeout` (wall clock) parameter.
+Budget enforcement is layered. The `Experiment` budget (max trials, spend) is
+the coarse ceiling the supervisor watches; per-trial wall-clock is delegated to
+Modal's `timeout` parameter, which kills a runaway trial at the source rather
+than waiting for the supervisor to notice.
 
 This is asynchronous and event-driven, mirroring the harness's existing "babysit
 a PR" pattern: the agent launches trials and yields, and is woken by progress
 events rather than blocking or polling. Long runs don't monopolize the agent.
-
-> When designing the monitoring scripts/processes, just be mindful of bandwidth:
-> 100 remote functions writing to a Queue will flood it. Progress handles this
-> by rate-limiting to 1/n per t. If the new infrastructure writes to a volume or
-> shared dict or messages a monitor process on the same backend, the
-> requirements may differ.
+Fan-in is the thing to watch — a hundred workers writing to one queue will flood
+it. The progress stream already rate-limits to one message per worker per
+interval; the supervisor is the single consumer and batches its writes to the
+registry, so the back end never sees a hundred concurrent writers.
 
 ### 3. The iteration loop (design and decide)
 
-A `Strategy` interface proposes the next trial(s) from the experiment's history:
+There are two nested loops here, and keeping them distinct is the key design
+decision. The **inner loop** searches a _fixed_ experiment — same code, varying
+configuration. The **outer loop** is the researcher's: changing the code,
+defining new experiments, interpreting results, deciding what to ask next. An
+LLM agent operates the outer loop; the inner loop is cheap, deterministic, and
+needs no LLM at all.
+
+The inner loop is a `Strategy` — a config proposer over a fixed experiment:
 
 ```
 Strategy.propose(experiment, history) -> list[Trial configs]
 Strategy.should_stop(experiment, history) -> bool
 ```
 
-Ship a few concrete strategies so the loop is useful before any LLM is
-involved — grid/random over the space, an Optuna-backed Bayesian optimizer, and
-the tree search the agent systems favor (expand the most promising trial,
-mutate its config). The `temporal` dopesheet is the natural representation for a
-proposed schedule. The LLM-driven strategy is then just one implementation:
-the agent reads the history through the `Registry` and proposes the next config
-in natural-language-justified terms — but it competes on equal footing with the
-cheap deterministic strategies, which keeps it honest.
+Ship a few concrete strategies — grid/random over the space, an Optuna-backed
+Bayesian optimizer, and a config-space tree search (expand the most promising
+trial, mutate its config). The `temporal` dopesheet is the natural
+representation for a proposed schedule. None of these touch code; they only move
+within the parameter space the experiment declares.
 
-> How would an LLM implementation of Strategy look? How to call a subagent? This
-> is one part I'm unsure about. Up to this point I was thinking the whole
-> process would be overseen by a human or LLM: they would launch a mini-sweep,
-> inspect results, and iterate. So one level above the Strategy.
+The outer loop is not another `Strategy` — it's the agent harness itself
+(Claude Code, or a subagent it spawns) doing what a researcher does: reading the
+registry, editing code, defining an experiment, launching a sweep (which may
+delegate to a `Strategy`), reading the report, and iterating. This is why
+agent-written _code_ variation lives here and not in the inner loop, and it's
+the right altitude for the human checkpoint: a person reviews an experiment's
+design and its report, not every config the inner loop proposes. The point of
+automating this loop is to let the researcher delegate and multitask, not to
+replace their judgement about what is worth trying.
+
+### Config-space vs code-space variation
+
+The two loops also resolve how to vary code without contention — the thing the
+tree-search systems handle by mutating a shared working tree. We don't. Two
+kinds of variation, kept separate:
+
+- **Config-space** variation is the inner loop: one immutable code version (a
+  git SHA), many configs, run in parallel via `amap`. No code changes, so no
+  conflict — this is the common case and the default.
+- **Code-space** variation is the outer loop: the agent proposes a code change
+  as a branch or worktree over a base SHA, never by editing the shared tree
+  in place. Each trial records the SHA (and diff) it ran under, so conflicting
+  variants coexist as branches and a human merges the winner. This fits mi-ni's
+  small-team, one-or-two-experiments-per-researcher model rather than fighting
+  it.
 
 ### 4. Analysis and reporting
 
@@ -225,13 +244,30 @@ discipline the project already values for notebooks becomes the audit trail.
 ### How it fits together
 
 ```
-            ┌─────────── Strategy.propose ◄──── Registry (history) ───┐
-            ▼                                                         │
-    Experiment ──► Trial configs ──► Supervisor(amap) ──► progress ───┤
-            ▲                              │                          │
-            │                         Trial records ──► Analysis ─────┘
-            └──────────────── human checkpoint / budget ──────────────┘
+  OUTER LOOP (agent / researcher)
+  edit code · define experiment · read report · decide next ── human checkpoint
+        │                                              ▲
+        ▼                                              │
+  ┌─ Experiment ──────────────────────────────── Analysis ─┐   ← report (Marimo)
+  │     │                                            ▲      │
+  │     ▼     INNER LOOP (Strategy)                  │      │
+  │  Strategy.propose ──► Trial configs ──► Supervisor(amap)│
+  │     ▲                                       │           │
+  │     └────────── Registry (history) ◄── Trial records ◄──┘
+  └─────────────────────────────────────────────── budget ─┘
 ```
+
+### Where the controller lives
+
+Both loops need a process to drive them, and that process can't assume a human's
+laptop stays awake. Because the registry is the source of truth and the
+supervisor batches its state there, the controller can hold nothing of its own —
+any controller can resume an experiment from the registry. That makes the
+deployment question answerable rather than blocking: run the controller wherever
+is durable (a Modal app or scheduled function is the obvious candidate, since
+the compute already lives there), and treat the dev container or Codespace as a
+place to launch and inspect, not the thing the loop depends on staying alive.
+This needs design work, but nothing in the architecture above forecloses it.
 
 ## Roadmap
 
@@ -243,8 +279,9 @@ launch. Retrofit one existing notebook (`gpt_sweep.py`) to record its sweep.
 _Outcome: you can ask "what did we run and what happened" after the fact._
 
 **Phase 1 — Make a run observable.** Add the supervisor over `amap`: crash
-retry, stall detection, metric-based early stopping, budget enforcement, all
-flowing into trial records via the existing progress stream.
+retry, stall detection, metric-based early stopping, budget enforcement, and
+checkpoint/resume so trials survive Modal preemption — all flowing into trial
+records via the existing progress stream.
 _Outcome: long sweeps babysit themselves and stop wasting compute._
 
 **Phase 2 — Close the loop without an LLM.** Add the `Strategy` interface with
@@ -252,11 +289,12 @@ grid/random and Optuna backends, plus an auto-generated comparison report.
 _Outcome: define an experiment, get a tuned result and a written summary — the
 classic HPO loop, but on mi-ni's substrate and fully recorded._
 
-**Phase 3 — Put the agent in the loop.** Add the LLM `Strategy` and the
-agent-facing tools/skills to design an experiment, launch it, respond to
-supervisor events, and write the report's rationale. The agent drives the same
-API as Phase 2; the deterministic strategies become its baselines and
-fallbacks.
+**Phase 3 — Put the agent in the outer loop.** Give the agent harness the
+tools and skills to do what a researcher does: read the registry, edit code,
+define an experiment, launch a sweep (delegating the inner search to a Phase 2
+`Strategy`), respond to supervisor events, and write the report's rationale.
+The agent doesn't replace the strategies — it _uses_ them, and authors the code
+they search over.
 _Outcome: an agent runs an iterative experiment end to end, with a human
 approving the design and reviewing the report._
 
@@ -271,16 +309,20 @@ _Outcome: trustworthy enough to leave running, with evidence it adds value._
 - **Legibility tax.** Mandatory provenance adds friction to quick experiments.
   Mitigation: sensible auto-capture so the common path stays a one-liner, with
   detail recorded automatically rather than by hand.
-- **The selector is the hard part.** Phases 0–2 are tractable engineering;
-  Phase 3's value rests entirely on whether the LLM strategy proposes _better_
-  experiments than random or Bayesian search.
-  > Yep that's fine: this automation work is mostly to allow the human to
-  > multitask/delegate/move faster. That's why I think it's more accurate to
-  > think of the LLM as one level above the Strategy: it's running experiments
-  > e2e (including writing the code). The Strategies don't do that.
+- **The value is throughput, not a better optimizer.** The deterministic
+  strategies will out-search an LLM at pure hyperparameter tuning, and that's
+  fine — they're the inner loop. The agent earns its keep at the outer loop, by
+  running experiments end to end (including writing the code) so the researcher
+  can delegate and multitask. Phases 0–2 are tractable engineering; the open
+  question is whether the agent's _end-to-end_ throughput is good enough to
+  trust, which is what the Phase 4 eval harness measures.
 - **Cost of autonomy.** An agent that launches GPU jobs can burn money fast.
   Budgets are in the `Experiment` object from Phase 0 for exactly this reason;
   hard guardrails land in Phase 4 before anything runs unattended.
+- **The controller has no home yet.** The "where the controller lives" question
+  is real and unsolved. The architecture keeps it answerable by holding all
+  state in the registry, but a durable, restartable controller still needs to be
+  designed before anything runs unattended.
 
 [sakana]: https://github.com/SakanaAI/AI-Scientist-v2
 [agentlab]: https://agentlaboratory.github.io/
