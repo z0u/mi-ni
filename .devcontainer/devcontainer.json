@@ -14,6 +14,7 @@
     "ghcr.io/devcontainers-extra/features/uv:1": {},
     "ghcr.io/devcontainer-community/devcontainer-features/jonas-tig:1": {},
     "ghcr.io/devcontainers-extra/features/claude-code:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
     // Agent-friendly tools
     "ghcr.io/jsburckhardt/devcontainer-features/fd:1": {},
     "ghcr.io/jsburckhardt/devcontainer-features/fzf:1": {},
