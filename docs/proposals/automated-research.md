@@ -356,6 +356,20 @@ not the streamed return value (which Modal retains only for about a week before
 capability the `ModalApparatus` needs for unattended runs; the attached `.map()`
 path stays the right choice while the controller is awake.
 
+Prototype this as a separate Modal apparatus so iterating on it doesn't
+destabilize the working `.map()` path — but the long-term goal is a single
+`ModalApparatus` with detach-and-resume as a core capability, not a second class
+to maintain. The convergence is clean if we get the interface right: resume
+doesn't fit `amap`'s shape (a single generator that runs to completion), because
+it's spawn → persist handles → poll across controller wakes. So make
+spawn-and-poll the _base_ capability and let `amap` become a thin
+run-to-completion wrapper over it. Folding the prototype back in is then
+additive — new methods on the one apparatus — rather than a fork to reconcile,
+and `LocalApparatus` stays uniform (local "spawn" is just a pollable future).
+This is the part of the design that pushes hardest on the `Apparatus`
+abstraction, alongside the progress-stream tap and per-job stop signal, so the
+spawn/poll interface is worth designing deliberately.
+
 ## Roadmap
 
 Each phase is independently useful and leaves the repo in a shippable state.
