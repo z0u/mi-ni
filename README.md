@@ -6,9 +6,20 @@ mi-ni is a template repository and library for doing AI research. Features:
 
 - **Local Python notebooks** with Marimo, with outputs stored in Git LFS and published to GitHub Pages
 - **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
-- **Agentic coding config** for Claude Code and GH Copilot
+- **Agentic coding config** for Claude Code
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni/tree/v2)
+
+Compute abstraction pattern:
+
+```py
+# app = LocalApparatus('my-experiment')
+app = ModalApparatus('my-experiment')
+metrics = app.map(train, sweep_configs)
+app.volume.download(...)
+```
+
+[See the _Getting started_ notebook for details](./docs/getting_started.py).
 
 &nbsp;
 
@@ -24,12 +35,10 @@ mi-ni is a template repository and library for doing AI research. Features:
 
 ## Getting started
 
-First, [open in GitHub Codespaces](https://codespaces.new/z0u/mi-ni). Then:
-
 ```bash
 ./go install  # CPU deps for local venv
 ./go auth     # Authenticate with Modal for remote compute
-uv run marimo edit docs/getting_started.py  # Open the notebook in your browser
+./go open docs/getting_started.py  # Open the notebook in your browser
 ```
 
 For a more complete example, have a look at the [nanoGPT notebook](./docs/nanogpt.py).
