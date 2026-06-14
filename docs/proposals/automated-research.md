@@ -133,31 +133,42 @@ people and agents.
   existing progress stream), final results, and pointers to artifacts on the
   `Volume`.
 
-[^sec]: With secrets redacted.
+[^sec]: Environment capture is an allowlist, not a dump: record package
+    versions, the git SHA, and relevant config — never raw environment variables,
+    so API keys and tokens can't leak into a record that gets checked in.
 
 This is similar to MLflow's experiment/run split, but with provenance treated as
 mandatory. A `Registry` provides the query surface — `list`, `filter`,
 `compare`, `best` — that search strategies and analysis both depend on.
 
-The storage design follows the `Apparatus`/`Volume` pattern: a `Registry`
-abstraction with `Local` and `Modal` implementations, each backed by whatever
-suits its environment, and deliberately _not_ the same volume that holds
-experiment data (too easy to misconfigure into corruption). The canonical store
-is git-friendly JSON — one file per experiment and trial, checked in alongside
-the code so history travels with the repo — rehydrated into sqlite for fast
-querying during a run. JSON is the source of truth; sqlite is a disposable
-index. On Modal, a function mounts the registry backend and serves queries;
-remote state syncs back to local so the checked-in record stays authoritative.
+The store is scoped to a single experiment: it holds that experiment's trials
+(including prior ones), not the whole portfolio. Cross-experiment comparison is
+an outer-loop, human concern; keeping each registry experiment-scoped keeps it
+bounded and lets it live in the experiment's own directory.
 
-This is intentionally complementary to WandB, not a replacement. WandB is the
-metrics and observability plane — live curves, time series, the dashboard a
-human watches. The registry is the control plane — what was run, under which
-SHA, with what budget, and where the artifacts are. The registry stores the
-WandB and Modal IDs so an agent can follow them; reading metrics back is a thin
-skill over the WandB and Modal APIs (Phase 0). A single writer keeps this
-honest: trial records are written by the supervisor, never by the trials
-themselves, which avoids both sqlite write contention and the fan-in flood that
-would come from many workers writing at once.
+The simplest backing store that fits is **one JSON file per trial** on a volume.
+Because each worker owns its own file, there's no shared writer and no
+contention — workers can write straight to the volume, so the progress queue is
+needed only for _live_ streaming, not for the durable record. It's git-friendly
+and needs no database. The weaknesses are cross-trial queries and atomic
+multi-file updates, but at small-team scale (tens to hundreds of trials) globbing
+and parsing is fine. Two alternatives for reference: sqlite gives indexed
+queries and transactions but isn't git-friendly and serialises writes, so it's
+better as a _derived index_ than a source of truth; and Modal's Dict/Queue
+(Redis-backed, so writes are cheap) make a good _ephemeral live-state cache_
+during a run, but not a durable record. Recommendation: JSON files as the truth,
+optionally a Dict for live state, sqlite only if query volume ever demands it.
+
+Whatever the backend, the `Registry` follows the `Apparatus`/`Volume` pattern —
+`Local` and `Modal` implementations — and is deliberately _not_ the same volume
+that holds experiment data, which is too easy to misconfigure into corruption.
+Remote state syncs back to local so the checked-in record stays authoritative.
+
+This is complementary to WandB, not a replacement. WandB is the metrics and
+observability plane — live curves, the dashboard a human watches. The registry
+is the control plane: what was run, under which SHA, with what budget, where the
+artifacts are, and the WandB/Modal IDs so an agent can follow them. Reading
+metrics back is a thin skill over those APIs (Phase 0).
 
 ### 2. Supervised execution (babysitting)
 
@@ -172,17 +183,68 @@ restarted trial resumes from its last checkpoint rather than from zero. The
 supervisor writes everything back to the trial record.
 
 Budget enforcement is layered. The `Experiment` budget (max trials, spend) is
-the coarse ceiling the supervisor watches; per-trial wall-clock is delegated to
-Modal's `timeout` parameter, which kills a runaway trial at the source rather
-than waiting for the supervisor to notice.
+the coarse ceiling the supervisor watches; per-trial wall-clock belongs lower
+down, as an `Apparatus` attribute (e.g. `app.w(timeout=...)`) that each backend
+applies as it can — Modal's `timeout`, a signal-based kill locally — so a
+runaway trial dies at the source rather than waiting for the supervisor.
 
 This is asynchronous and event-driven, mirroring the harness's existing "babysit
 a PR" pattern: the agent launches trials and yields, and is woken by progress
 events rather than blocking or polling. Long runs don't monopolize the agent.
 Fan-in is the thing to watch — a hundred workers writing to one queue will flood
 it. The progress stream already rate-limits to one message per worker per
-interval; the supervisor is the single consumer and batches its writes to the
-registry, so the back end never sees a hundred concurrent writers.
+interval, and durable trial records go to per-trial files (above), so no single
+mechanism sees a hundred concurrent writers.
+
+Concretely, the supervisor wraps `amap` and reads two channels. `amap` yields
+_final_ results; the progress stream carries _liveness and metrics_. Both are
+needed: `amap` yields in input order, so one hung trial would block later
+results — the supervisor relies on the progress stream, not `amap`, to notice
+trouble. Early-stop is cooperative, because neither a thread-pool thread nor a
+Modal call is portably killable mid-run: the trial polls a stop flag and exits
+at the next checkpoint. The one new capability the apparatus must expose is a tap
+on the progress stream (today it's consumed internally by the Rich display) plus
+that per-job stop signal — both small, additive changes.
+
+```python
+async def supervise(app, experiment, strategy):
+    history = experiment.registry                    # experiment-scoped store
+    while not strategy.should_stop(experiment, history):
+        configs = experiment.budget.admit(           # trim to what's affordable
+            strategy.propose(experiment, history))
+        if not configs:
+            break
+        async for trial in run_batch(app, experiment, configs):
+            history.put(trial)                       # (or the worker wrote its own file)
+
+async def run_batch(app, experiment, configs):
+    live = {c.id: TrialState(c) for c in configs}    # in-memory control-plane
+
+    async def monitor():
+        async for msg in app.progress_stream():      # ProgressMessage(run_id, job_id, step, …)
+            s = live[msg.job_id]
+            s.observe(msg)                           # heartbeat + metric point
+            if s.stalled() or s.diverging():
+                s.stop.set()                         # cooperative: the trial polls this
+
+    mon = asyncio.create_task(monitor())
+    try:
+        async for result in app.amap(run_trial, configs, kwargs={'exp': experiment}):
+            yield Trial.finalize(live[result.id], result)
+    finally:
+        mon.cancel()
+
+def run_trial(config, *, exp):
+    state = load_checkpoint(exp, config)             # resume after preemption
+    for step in range(state.step, config.steps):
+        ...                                          # train one step
+        emit_progress(step, config.steps, metrics)   # -> progress stream
+        if step % CKPT == 0:
+            save_checkpoint(exp, config, step)       # survive preemption
+        if should_stop():                            # cooperative early-stop
+            break
+    return Result(id=config.id, ...)
+```
 
 ### 3. The iteration loop (design and decide)
 
@@ -259,15 +321,25 @@ discipline the project already values for notebooks becomes the audit trail.
 
 ### Where the controller lives
 
-Both loops need a process to drive them, and that process can't assume a human's
-laptop stays awake. Because the registry is the source of truth and the
-supervisor batches its state there, the controller can hold nothing of its own —
-any controller can resume an experiment from the registry. That makes the
-deployment question answerable rather than blocking: run the controller wherever
-is durable (a Modal app or scheduled function is the obvious candidate, since
-the compute already lives there), and treat the dev container or Codespace as a
-place to launch and inspect, not the thing the loop depends on staying alive.
-This needs design work, but nothing in the architecture above forecloses it.
+Both loops need a process to drive them, but it needn't be a bespoke always-on
+service — and Modal is the wrong place for it, since we want compute to stay
+ephemeral (heavy work runs remotely on demand, everything else on a laptop).
+Instead, make the controller cheap to lose. Because the registry is the source
+of truth and trials checkpoint, the controller holds no state of its own: it
+proposes the next batch, launches it, and any later invocation resumes from the
+registry. The loop is poll-and-resume, not blocking.
+
+That relaxes the requirement to "the launching environment is _somewhat_
+reliably available," which several setups satisfy: a workstation kept awake, a
+rented cloud VM, or a Claude Code web session that wakes periodically — its
+scheduled check-in / event-wake mechanism is exactly this shape, the same one
+that babysits PRs. The convenient options have limits worth naming: a web or
+desktop session idles out in minutes and can be killed mid-wait, and a
+Codespace's idle timeout is configurable only up to four hours and can be capped
+by org policy — so neither is a dependable always-on host, but both are fine as a
+periodic driver of a resumable loop. The one case that genuinely wants durable
+compute — trials that each run for days — is served by a _temporary_ deployment
+for that experiment, not a standing one.
 
 ## Roadmap
 
@@ -319,10 +391,11 @@ _Outcome: trustworthy enough to leave running, with evidence it adds value._
 - **Cost of autonomy.** An agent that launches GPU jobs can burn money fast.
   Budgets are in the `Experiment` object from Phase 0 for exactly this reason;
   hard guardrails land in Phase 4 before anything runs unattended.
-- **The controller has no home yet.** The "where the controller lives" question
-  is real and unsolved. The architecture keeps it answerable by holding all
-  state in the registry, but a durable, restartable controller still needs to be
-  designed before anything runs unattended.
+- **The controller still needs a driver.** Holding all state in the registry
+  makes the loop resumable, so it tolerates a flaky controller — but something
+  must still wake periodically to advance it. The poll-and-resume design assumes
+  a "somewhat reliably available" launcher; making that robust, with a sensible
+  wake cadence, is design work that isn't done.
 
 [sakana]: https://github.com/SakanaAI/AI-Scientist-v2
 [agentlab]: https://agentlaboratory.github.io/
