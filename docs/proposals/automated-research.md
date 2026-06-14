@@ -341,6 +341,21 @@ periodic driver of a resumable loop. The one case that genuinely wants durable
 compute — trials that each run for days — is served by a _temporary_ deployment
 for that experiment, not a standing one.
 
+This only works if remote trials survive the controller sleeping, and Modal's
+defaults don't give that for free. mi-ni today runs trials through an _ephemeral_
+app (`app.run()`) and a client-driven `.map()`: when the laptop sleeps, Modal
+detects the dropped client, stops the ephemeral app, and cancels its functions —
+the work is lost and there's nothing to reconnect to. The resumable path is
+`spawn()` on a deployed (or `detach`ed) function, which keeps running
+independently of the client; the controller persists the returned `FunctionCall`
+IDs in the registry and reconnects on wake via `FunctionCall.from_id`. The live
+progress queue is sacrificial — it dies with the connection — but that's fine,
+because the durable result is the trial's own file and checkpoint on the volume,
+not the streamed return value (which Modal retains only for about a week before
+`OutputExpiredError`). So a spawn/detached execution mode is a concrete new
+capability the `ModalApparatus` needs for unattended runs; the attached `.map()`
+path stays the right choice while the controller is awake.
+
 ## Roadmap
 
 Each phase is independently useful and leaves the repo in a shippable state.
