@@ -19,12 +19,12 @@ Characteristics:
 
 Anti-patterns:
 
-- ~~Americanisms~~. Avoid American idioms, even when using American spelling. Especially avoid baseball metaphors.
-- ~~Business jargon and bombast~~. Avoid buzzwords and corporate-speak.
+- ~~Business jargon and bombast~~. Avoid buzzwords, corporate-speak, and military and baseball metaphors.
 - ~~All the lists~~. Mostly use paragraphs, but use lists sparingly when they are the clearest way to present the information.
-- ~~Heavy-handed transitions~~. Avoid "Furthermore", "In conclusion", etc. Just continue the thought.
+- ~~Heavy-handed transitions~~. Avoid "Furthermore", "In conclusion", "The honest answer is", etc. Just continue the thought.
 - ~~Excessive use of em dashes~~. Prefer other punctuation.
 - ~~Excessive use of bold and italic text~~. List items should not be bolded. 1-2 callouts (bold) per page or section; italics only for references & borrowed words, or when it's truly unobvious which phrase should be emphasized (usually the reader can infer without it).
+- ~~Contrastive conclusions~~. "is a feature, not a confound", etc. Instead of `A, ~A`, just say `A`.
 
 ### Concision and clarity
 
