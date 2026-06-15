@@ -1,0 +1,86 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = '>=3.11'
+# ///
+"""Per-block word counts for documents marked up with R: / /R blocks.
+
+Blocks are delimited by an open token `R:<name>` and a close token `/R`,
+wrapped in any comment syntax. These all open a block named "intro":
+
+    <!--R:intro-->   (HTML / Markdown)
+    # R:intro        (Python / shell / YAML)
+    // R:intro       (C / JS / Rust)
+    % R:intro        (TeX)
+    /* R:intro */    (C / CSS)
+
+and the matching close is `/R` in the same comment style (`<!--/R-->`,
+`# /R`, `// /R`, ...). Text outside any block is not counted.
+
+Usage: block-wc FILE [FILE ...]
+Counts are sorted descending so the verbose blocks surface first.
+"""
+
+import re
+import sys
+
+OPEN = re.compile(r'R:\s*(.*?)\s*(?:--+>|\*/)?\s*$')
+CLOSE = re.compile(r'(?:^|[^\w/])/R\b')
+
+
+def parse_blocks(path: str, lines: list[str]) -> tuple[list[tuple[str, int, int]], list[str]]:
+    blocks: list[tuple[str, int, int]] = []  # name, words, start line
+    warnings: list[str] = []
+    name: str | None = None
+    words = start = 0
+
+    for n, line in enumerate(lines, 1):
+        if CLOSE.search(line):
+            if name is None:
+                warnings.append(f'{path}:{n}: close /R with no open block')
+            else:
+                blocks.append((name, words, start))
+                name = None
+        elif (m := OPEN.search(line)) and 'R:' in line:
+            if name is not None:
+                warnings.append(f'{path}:{start}: block {name!r} never closed before new open at line {n}')
+                blocks.append((name, words, start))
+            name, words, start = m.group(1) or '(unnamed)', 0, n
+        elif name is not None:
+            words += len(line.split())
+
+    if name is not None:
+        warnings.append(f'{path}:{start}: block {name!r} never closed (EOF)')
+        blocks.append((name, words, start))
+
+    return blocks, warnings
+
+
+def count_file(path: str) -> int:
+    with open(path) as f:
+        blocks, warnings = parse_blocks(path, f.readlines())
+
+    width = max((len(b[0]) for b in blocks), default=0)
+    for bname, bwords, bstart in sorted(blocks, key=lambda b: -b[1]):
+        print(f'{bwords:6d}  {bname:<{width}}  (line {bstart})')
+
+    total = sum(b[1] for b in blocks)
+    if len(sys.argv) > 2:
+        print(f'{total:6d}  = {path} total\n')
+    for w in warnings:
+        print(w, file=sys.stderr)
+    return total
+
+
+def main() -> int:
+    paths = sys.argv[1:]
+    if not paths:
+        print(__doc__)
+        return 2
+    grand = sum(count_file(p) for p in paths)
+    if len(paths) > 1:
+        print(f'{grand:6d}  = grand total')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
