@@ -7,8 +7,8 @@ multi-step orchestration: `mini.runs` (control plane, `Run`, discovery),
 (`mini._worker`, `mini._taskworker`), and the `python -m mini` CLI
 (`run`/`launch`/`status`/…) — exercised by `experiments/{toy,pipeline}.py` and
 `tests/mini/test_{runs,orchestration}.py`. The Modal backend (detached
-`spawn_map` + `modal.Dict` control plane / task spawning) is still to do.
-Original local-only proof-of-concept: [`agentic_poc.py`](./agentic_poc.py)._
+`spawn*map`+`modal.Dict` control plane / task spawning) is still to do.
+Original local-only proof-of-concept: [`agentic_poc.py`](./agentic_poc.py).*
 
 The goal: an agent (Claude Code on the web) takes an experiment description,
 writes the code, launches runs, monitors them, fixes problems, and reports
@@ -23,6 +23,7 @@ cheap, stateless-from-the-agent's-view call against durable state.
 all scoped to `async with self.app.run()` (see `modal_apparatus.py:185`). When
 that process ends, almost everything ends with it:
 
+<!-- prettier-ignore -->
 | Concern | Today | Survives process death? |
 | --- | --- | --- |
 | Remote work | `modal_fn.map.aio(...)` inside `app.run()` | **No** — app torn down on exit |
@@ -32,7 +33,7 @@ that process ends, almost everything ends with it:
 | Artifacts | written to the named Volume, committed at job end | **Yes** |
 
 Only the Volume is durable. So the agent-shaped change is not really "detach
-Modal" — that keeps the *work* alive but leaves it a black box. The 80% is
+Modal" — that keeps the _work_ alive but leaves it a black box. The 80% is
 **externalizing progress, results, and errors to durable storage and making them
 pollable**. Detaching is the other 20%.
 
@@ -43,7 +44,7 @@ different access patterns, rather than one `RunStore`.
 
 - **Control plane** — small, hot, last-writer-wins: per-job state, step/total,
   heartbeat, latest metrics, the `FunctionCall` ids, a run index. On Modal this
-  is a **named `modal.Dict`** (Redis-backed, read/written from the *client* with
+  is a **named `modal.Dict`** (Redis-backed, read/written from the _client_ with
   no remote function and no `commit`/`reload`). Locally it's a JSON file/dir.
 - **I/O plane** — large, cold, append-mostly: datasets, weights, big result
   objects, full logs/tracebacks. This is the existing **Volume**.
@@ -67,10 +68,10 @@ Concretely:
 - **A `ControlPlane`, addressed by experiment _name_.** Backends: `modal.Dict`
   (Modal) / a local dir. Holds a run index + per-job records. Because it's keyed
   by the stable experiment name — not an ephemeral run id — a fresh process can
-  *discover* runs it never launched (see Discovery, below).
+  _discover_ runs it never launched (see Discovery, below).
 - **Retire the queue from the detached path.** A queue is push-based and
-  *accumulates*: abandon a run for days and a named queue is full or gone.
-  Progress is last-writer-wins — you want the *current* step, not every
+  _accumulates_: abandon a run for days and a named queue is full or gone.
+  Progress is last-writer-wins — you want the _current_ step, not every
   intermediate — so detached comms are state writes to the control plane, which
   can't fill. `emit_progress`/`QueueLike` are already sink-agnostic (the PoC
   swaps in a `FileStatusSink` with zero changes to experiment code), so this is a
@@ -92,7 +93,7 @@ Concretely:
 - **Detached Modal execution (verified against Modal 1.5 source).** Swap
   `fn.map.aio()` for `fn.spawn_map` under `app.run(detach=True)`. Confirmed:
   `detach=True` sets `APP_STATE_DETACHED` and the app keeps running after the
-  client disconnects (`runner.py`); `spawn` needs no *deployed* function (its only
+  client disconnects (`runner.py`); `spawn` needs no _deployed_ function (its only
   guard is "no web endpoints"); `spawn_map` returns **one** `FunctionCall` for the
   whole sweep, and `FunctionCall.from_id(fc_id).get(index=i, timeout=0)`
   reconnects and polls a single job from a fresh process with **no app context**.
@@ -114,7 +115,7 @@ Concretely:
 
 Not "scripts instead of notebooks" — **demote the notebook from execution engine
 to report.** Two reasons the reactive notebook can't be the execution surface:
-its training cell *blocks* holding results in memory, and later cells consume
+its training cell _blocks_ holding results in memory, and later cells consume
 that memory. That is a long-lived-session model by construction.
 
 Split each experiment into:
@@ -124,7 +125,7 @@ Split each experiment into:
   remote workers and the agent both import it. The heavy lifting already lives in
   `experiment/`; what must move out of notebook cells is the **orchestration**
   (the sweep definition and the `amap` call).
-- **Report — the notebook (or generated Markdown/PNG).** Reads *durable results*
+- **Report — the notebook (or generated Markdown/PNG).** Reads _durable results_
   from the planes and renders. This also fixes a current annoyance: reopening
   `gpt_sweep.py` re-runs the whole sweep to see its plots; reading persisted
   results means the report renders standalone.
@@ -218,13 +219,13 @@ detached, because `g` may not even be defined when `f` launches, and the process
 holding `ys` is gone before `g` runs.
 
 - **Steps need not share a Modal App.** They already don't: each `amap` opens its
-  own ephemeral `app.run()` today. `f` and `g` share only the App *name*.
+  own ephemeral `app.run()` today. `f` and `g` share only the App _name_.
 - **The App stops being the composition boundary; the I/O plane becomes it.** A
   detached step's return value can't be handed to the next step in memory — so
   `f` writes `ys` to the Volume (+ a summary to the control plane), and a later,
   separately-submitted `g` reads `ys` from the Volume. No shared App, no
   co-definition, no deploy.
-- Deploy wouldn't help here anyway: a deployed app needs `f` *and* `g`
+- Deploy wouldn't help here anyway: a deployed app needs `f` _and_ `g`
   co-defined at deploy time, which contradicts "`g` defined after `f`'s results."
   Detached-ephemeral + Volume is strictly simpler for the incremental flow.
 
@@ -263,24 +264,24 @@ instant memo hit. prep executed exactly once.
 
 Design points (as implemented in `mini.memo` / `mini.orchestration`):
 
-- **The key is a dependency-aware *source* fingerprint, not cloudpickle.**
+- **The key is a dependency-aware _source_ fingerprint, not cloudpickle.**
   Tempting to hash `cloudpickle.dumps(fn)` (it captures by-value deps), but
   measured fact: **its bytes differ across processes**, so it would miss the
   cache on every wake (each wake is a fresh process). Instead `mini.memo`
-  fingerprints `inspect.getsource(fn)` *plus the source of the project
-  functions/classes it references, transitively* — deterministic, and it
+  fingerprints `inspect.getsource(fn)` _plus the source of the project
+  functions/classes it references, transitively_ — deterministic, and it
   captures changes in your own helpers (which a bare `getsource(fn)` would miss).
   Site-packages and the mini framework are excluded, so library churn doesn't
   bust the cache. `version=` is an explicit override. Pure input-keying was
   rejected: it returns the stale buggy result after a fix — the opposite of what
   the loop needs.
 - **Results live in the I/O plane; the memo record holds state/metrics only.**
-- **The orchestration body re-runs every wake**, so code *between* `ctx` calls
+- **The orchestration body re-runs every wake**, so code _between_ `ctx` calls
   must be cheap and deterministic (deriving configs, not training). Heavy or
   non-deterministic work belongs inside a task, with its seed folded into the
   inputs so the memo is honest.
 - **Suspension:** `ctx.run` raises `Pending` the moment a result isn't ready;
-  `ctx.map` launches *all* missing tasks first, then suspends (so a sweep
+  `ctx.map` launches _all_ missing tasks first, then suspends (so a sweep
   parallelises). Independent single steps serialise across wakes — use `map` for
   fan-out.
 - **CLI:** `python -m mini run experiment.py` = one tick of `main` (advance +
@@ -288,8 +289,8 @@ Design points (as implemented in `mini.memo` / `mini.orchestration`):
   runs only the new key); `mini launch` remains for the one-shot run/job model.
 
 **Guidance for the agent skill (to write later):** the memo key is
-`fingerprint(fn) + inputs`, so *cache hits are maximised by passing each task the
-minimal subset of config it actually uses*. A `train` keyed on the entire
+`fingerprint(fn) + inputs`, so _cache hits are maximised by passing each task the
+minimal subset of config it actually uses_. A `train` keyed on the entire
 experiment config re-runs whenever any unrelated field changes; keyed on
 `(lr, vocab_size)` it only re-runs when those change. The skill should teach:
 pass narrow inputs; keep `main` cheap/deterministic; fold RNG seeds into inputs;
