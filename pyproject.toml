@@ -5,6 +5,7 @@ description = "AI experiments"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "cloudpickle>=3.1.2",
     "datasets>=3.0.0",  # Hugging Face Datasets
     "equinox>=0.13",  # neural networks as JAX pytrees
     "ftfy>=6.3.1",  # text cleaning for NLP tasks

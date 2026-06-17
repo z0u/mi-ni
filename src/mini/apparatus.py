@@ -8,9 +8,12 @@ import asyncio
 import threading
 from abc import ABC, abstractmethod
 from functools import wraps
-from typing import Any, AsyncGenerator, Callable, Generic, Iterable, Iterator, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Generic, Iterable, Iterator, ParamSpec, TypeVar
 
 from mini.volume import Volume
+
+if TYPE_CHECKING:
+    from mini.runs import Run
 
 P = ParamSpec('P')
 R = TypeVar('R')
@@ -158,6 +161,22 @@ class Apparatus(ABC, Generic[V]):
             arguments. Its return value is ignored.
         """
         ...
+
+    # -- Detached lifecycle ---------------------------------------------------
+    # Unlike ``map``/``amap`` (launch + monitor + collect in one blocking call),
+    # these split the lifecycle so it can span short-lived processes: ``submit``
+    # launches detached and returns a durable handle; ``reopen`` reconstructs it
+    # elsewhere. See notes/agentic-experiments.md.
+
+    def submit(self, fn: Callable[..., R], *iterables: Iterable[Any], kwargs: dict[str, Any] | None = None) -> Run:
+        """Launch *fn* over the iterables detached; return a durable `Run`."""
+        raise NotImplementedError(
+            f'{type(self).__name__} does not support detached submit yet. See notes/agentic-experiments.md.'
+        )
+
+    def reopen(self, run_id: str) -> Run:
+        """Reconstruct a `Run` handle from a previous submit, in a fresh process."""
+        raise NotImplementedError(f'{type(self).__name__} does not support reopen yet.')
 
 
 def _map_in_thread(

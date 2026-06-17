@@ -1,6 +1,11 @@
 # Autonomous experiments: what mi-ni would need
 
-_Exploration, not a committed plan. Companion proof-of-concept: [`agentic_poc.py`](./agentic_poc.py)._
+_Design + status. The **local backend is implemented**: `mini.runs` (control
+plane, `Run`, discovery), `mini.experiment`, `mini._worker` (detached runner),
+`LocalApparatus.submit`/`reopen`, and the `python -m mini` CLI — exercised by
+`experiments/toy.py` and `tests/mini/test_runs.py`. The Modal backend (detached
+`spawn_map` + `modal.Dict` control plane) is still to do. Original local-only
+proof-of-concept: [`agentic_poc.py`](./agentic_poc.py)._
 
 The goal: an agent (Claude Code on the web) takes an experiment description,
 writes the code, launches runs, monitors them, fixes problems, and reports

@@ -22,6 +22,7 @@ class ProgressMessage:
     step: int
     total: int
     message: str = ''
+    metrics: dict[str, float] = field(default_factory=dict)
 
     def __str__(self) -> str:
         return self.to_urn()
@@ -60,6 +61,8 @@ class JobContext:
     job_id: str
     queue: QueueLike[ProgressMessage] | None = None
     emission_interval: float = 0.1
+    metrics: dict[str, float] = field(default_factory=dict)
+    _last: tuple[int, int, str] = field(default=(0, 0, ''), init=False, repr=False)
     _emitter: Debouncer = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -119,5 +122,30 @@ def emit_progress(step: int, total: int, message: str = ''):
         # Silently ignore if not in a job context
         return
 
-    progress = ProgressMessage(run_id=ctx.run_id, job_id=ctx.job_id, step=step, total=total, message=message)
+    ctx._last = (step, total, message)
+    progress = ProgressMessage(
+        run_id=ctx.run_id, job_id=ctx.job_id, step=step, total=total, message=message, metrics=dict(ctx.metrics)
+    )
     ctx._emitter(progress)
+
+
+def emit_metrics(**scalars: float) -> None:
+    """
+    Report the latest scalar metrics for the current job (e.g. ``loss``, ``lr``).
+
+    Like ``emit_progress``, this is a no-op outside a job context. Metrics are
+    merged (last-writer-wins) and travel with progress updates, so a watching
+    agent or human can see a run's numbers — and step in if they go awry —
+    without waiting for it to finish.
+    """
+    ctx = _job_context.get()
+    if ctx is None:
+        return
+
+    ctx.metrics.update(scalars)
+    step, total, message = ctx._last
+    ctx._emitter(
+        ProgressMessage(
+            run_id=ctx.run_id, job_id=ctx.job_id, step=step, total=total, message=message, metrics=dict(ctx.metrics)
+        )
+    )
