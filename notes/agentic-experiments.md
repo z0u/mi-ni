@@ -1,11 +1,14 @@
 # Autonomous experiments: what mi-ni would need
 
-_Design + status. The **local backend is implemented**: `mini.runs` (control
-plane, `Run`, discovery), `mini.experiment`, `mini._worker` (detached runner),
-`LocalApparatus.submit`/`reopen`, and the `python -m mini` CLI — exercised by
-`experiments/toy.py` and `tests/mini/test_runs.py`. The Modal backend (detached
-`spawn_map` + `modal.Dict` control plane) is still to do. Original local-only
-proof-of-concept: [`agentic_poc.py`](./agentic_poc.py)._
+_Design + status. The **local backend is implemented**, including memoized
+multi-step orchestration: `mini.runs` (control plane, `Run`, discovery),
+`mini.memo` (content-addressed fingerprint + store), `mini.orchestration`
+(`Ctx`/`Pending`/`tick`), `mini.experiment`, the detached workers
+(`mini._worker`, `mini._taskworker`), and the `python -m mini` CLI
+(`run`/`launch`/`status`/…) — exercised by `experiments/{toy,pipeline}.py` and
+`tests/mini/test_{runs,orchestration}.py`. The Modal backend (detached
+`spawn_map` + `modal.Dict` control plane / task spawning) is still to do.
+Original local-only proof-of-concept: [`agentic_poc.py`](./agentic_poc.py)._
 
 The goal: an agent (Claude Code on the web) takes an experiment description,
 writes the code, launches runs, monitors them, fixes problems, and reports
@@ -258,27 +261,39 @@ all three jobs; an injected transient crash in one job healed on a later wake
 (re-run relaunched only it — attempt counts were 1/2/1); a final re-run was an
 instant memo hit. prep executed exactly once.
 
-Design points worth stating:
+Design points (as implemented in `mini.memo` / `mini.orchestration`):
 
-- **Key on the function *version*, not just inputs.** The PoC hashes
-  `inspect.getsource(fn) + inputs`, so fixing a bug invalidates that step and
-  re-runs it. Pure input-keying would return the stale buggy result — the
-  opposite of what the "fix and re-run" loop needs. (Caveat: a source hash isn't
-  transitive — editing a *helper* the task calls won't invalidate it. Escape
-  hatches: an explicit `version=`, or hashing the cloudpickle.)
-- **Results live in the I/O plane; the memo holds a pointer.** Big artifacts
-  don't go in the control plane.
+- **The key is a dependency-aware *source* fingerprint, not cloudpickle.**
+  Tempting to hash `cloudpickle.dumps(fn)` (it captures by-value deps), but
+  measured fact: **its bytes differ across processes**, so it would miss the
+  cache on every wake (each wake is a fresh process). Instead `mini.memo`
+  fingerprints `inspect.getsource(fn)` *plus the source of the project
+  functions/classes it references, transitively* — deterministic, and it
+  captures changes in your own helpers (which a bare `getsource(fn)` would miss).
+  Site-packages and the mini framework are excluded, so library churn doesn't
+  bust the cache. `version=` is an explicit override. Pure input-keying was
+  rejected: it returns the stale buggy result after a fix — the opposite of what
+  the loop needs.
+- **Results live in the I/O plane; the memo record holds state/metrics only.**
 - **The orchestration body re-runs every wake**, so code *between* `ctx` calls
   must be cheap and deterministic (deriving configs, not training). Heavy or
   non-deterministic work belongs inside a task, with its seed folded into the
   inputs so the memo is honest.
-- **Suspension:** simplest is `ctx.run` raising `Pending` the moment a result
-  isn't ready. To launch independent branches before suspending (max
-  parallelism), `ctx.map` launches all missing jobs first, then suspends — the
-  PoC does this.
-- **CLI shift:** `python -m mini run experiment.py` = one tick of `main`
-  (launch-ready + report); `status` shows the memo graph; incremental sweeps fall
-  out for free (adding a config runs only the new key).
+- **Suspension:** `ctx.run` raises `Pending` the moment a result isn't ready;
+  `ctx.map` launches *all* missing tasks first, then suspends (so a sweep
+  parallelises). Independent single steps serialise across wakes — use `map` for
+  fan-out.
+- **CLI:** `python -m mini run experiment.py` = one tick of `main` (advance +
+  report the memo graph); incremental sweeps fall out for free (adding a config
+  runs only the new key); `mini launch` remains for the one-shot run/job model.
+
+**Guidance for the agent skill (to write later):** the memo key is
+`fingerprint(fn) + inputs`, so *cache hits are maximised by passing each task the
+minimal subset of config it actually uses*. A `train` keyed on the entire
+experiment config re-runs whenever any unrelated field changes; keyed on
+`(lr, vocab_size)` it only re-runs when those change. The skill should teach:
+pass narrow inputs; keep `main` cheap/deterministic; fold RNG seeds into inputs;
+bump `version=` (or just edit the function) to force a re-run.
 
 ## What the PoCs validated (local compute only)
 

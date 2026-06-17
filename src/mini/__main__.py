@@ -20,6 +20,8 @@ import argparse
 import time
 
 from mini.experiment import load_experiment
+from mini.memo import MemoStore
+from mini.orchestration import tick
 from mini.runs import DATA_ROOT, RunState, Run, latest_run, open_experiment, open_run
 
 _GLYPH = {
@@ -109,16 +111,49 @@ def cmd_cancel(args: argparse.Namespace) -> None:
     print(f'cancelled {args.ref}')
 
 
+def cmd_run(args: argparse.Namespace) -> None:
+    """One wake of a (possibly multi-step) orchestration: advance + report."""
+    exp = load_experiment(args.path)
+    done, payload = tick(exp)
+    store = MemoStore(exp.data_dir())
+    print(f'{exp.name}:')
+    for rec in store.records():
+        state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
+        line = f'  {_GLYPH.get(state, "?")} {rec.get("fn", "task"):14} {rec["key"]:26} {state}'
+        if rec.get('metrics'):
+            line += f'  {_fmt_metrics(rec["metrics"])}'
+        if rec.get('error'):
+            line += f'  !! {rec["error"]}'
+        print(line)
+    if done:
+        print(f'✓ complete: {payload}')
+    else:
+        print(f'… suspended — {payload} (re-run to advance)')
+
+
+def cmd_tasklog(args: argparse.Namespace) -> None:
+    print(MemoStore(DATA_ROOT / args.experiment).error(args.key))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog='mini', description='Drive detached mi-ni experiments.')
     sub = parser.add_subparsers(dest='command', required=True)
 
-    p = sub.add_parser('launch', help='import an experiment file and launch it detached')
+    p = sub.add_parser('run', help='advance a (multi-step) memoized orchestration by one wake')
+    p.add_argument('path')
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser('launch', help='launch a single sweep detached (one-shot run/job model)')
     p.add_argument('path')
     p.set_defaults(func=cmd_launch)
 
     p = sub.add_parser('ls', help='list experiments and their runs')
     p.set_defaults(func=cmd_ls)
+
+    p = sub.add_parser('tasklog', help='print a memoized task traceback')
+    p.add_argument('experiment')
+    p.add_argument('key')
+    p.set_defaults(func=cmd_tasklog)
 
     for name, help_text in [('status', 'show per-job state + metrics'), ('results', 'gather results')]:
         p = sub.add_parser(name, help=help_text)
