@@ -4,8 +4,10 @@
 #
 # The web base image ships older tooling than this project assumes. This hook
 # brings it in line — the web-runtime analogue of .devcontainer/post-create.sh.
-# Safe to run repeatedly; the container state is cached after it completes, so
-# subsequent sessions skip the slow paths.
+# Runs asynchronously (see the {"async": true} line below): the session starts
+# immediately while setup proceeds in the background. Safe to run repeatedly;
+# the container state is cached after it completes, so subsequent sessions skip
+# the slow paths.
 #
 set -euo pipefail
 
@@ -14,6 +16,11 @@ set -euo pipefail
 if [[ "${CLAUDE_CODE_REMOTE:-}" != 'true' ]]; then
     exit 0
 fi
+
+# Run setup in the background so the session starts immediately. The agent may
+# briefly race ahead of the venv sync, but `uv run` syncs on demand anyway, so
+# the worst case is the first command re-doing work this hook is also doing.
+echo '{"async": true, "asyncTimeout": 600000}'
 
 cd "${CLAUDE_PROJECT_DIR:-.}"
 
