@@ -225,10 +225,64 @@ holding `ys` is gone before `g` runs.
   co-defined at deploy time, which contradicts "`g` defined after `f`'s results."
   Detached-ephemeral + Volume is strictly simpler for the incremental flow.
 
-## What the PoC validated (local compute only)
+## 5. Multi-step experiments: memoized orchestration
 
-`agentic_poc.py` splits the lifecycle into `launch` / `poll` / `gather` CLI
-invocations. Observed:
+Section 4's "write to the Volume, read it in the next step" is correct but
+manual. The `gpt_sweep.py` shape — one `prepare_data` step whose output feeds a
+training sweep — wants that hand-off to be automatic. The single-map
+`Experiment(name, fn, configs)` can't express it (the configs depend on prep's
+return value). Validated alternative (see [`multistep_poc.py`](./multistep_poc.py)):
+
+**The experiment is an orchestration function, `main(ctx)` — a plain-Python DAG —
+and every `ctx.run`/`ctx.map` is content-addressed (memoized).** Each call:
+cached → return the stored result; in flight → suspend; absent/failed → launch a
+detached worker, then suspend. The driver re-runs `main` every wake; completed
+steps are memo hits, so only the un-run / failed pieces execute. **Crash-recovery
+== re-run the whole thing**, exactly as proposed.
+
+```py
+def main(ctx):
+    meta = ctx.run(prepare_data)                       # single step
+    configs = derive_configs(meta)                     # ordinary Python (cheap, deterministic)
+    return ctx.map(train_one, configs)                 # sweep that depends on prep
+```
+
+This subsumes the current model: a plain sweep is just `main = lambda ctx:
+ctx.map(train, configs)`. It reuses everything already built — the control plane,
+the detached worker, `Run` — with two additions: a `Ctx` that memoizes, and a
+content key that replaces the random run id.
+
+The PoC ran the gpt_sweep shape across 10 wakes: prep launched and the wake
+suspended until it finished (touching `meta` suspends); the sweep then launched
+all three jobs; an injected transient crash in one job healed on a later wake
+(re-run relaunched only it — attempt counts were 1/2/1); a final re-run was an
+instant memo hit. prep executed exactly once.
+
+Design points worth stating:
+
+- **Key on the function *version*, not just inputs.** The PoC hashes
+  `inspect.getsource(fn) + inputs`, so fixing a bug invalidates that step and
+  re-runs it. Pure input-keying would return the stale buggy result — the
+  opposite of what the "fix and re-run" loop needs. (Caveat: a source hash isn't
+  transitive — editing a *helper* the task calls won't invalidate it. Escape
+  hatches: an explicit `version=`, or hashing the cloudpickle.)
+- **Results live in the I/O plane; the memo holds a pointer.** Big artifacts
+  don't go in the control plane.
+- **The orchestration body re-runs every wake**, so code *between* `ctx` calls
+  must be cheap and deterministic (deriving configs, not training). Heavy or
+  non-deterministic work belongs inside a task, with its seed folded into the
+  inputs so the memo is honest.
+- **Suspension:** simplest is `ctx.run` raising `Pending` the moment a result
+  isn't ready. To launch independent branches before suspending (max
+  parallelism), `ctx.map` launches all missing jobs first, then suspends — the
+  PoC does this.
+- **CLI shift:** `python -m mini run experiment.py` = one tick of `main`
+  (launch-ready + report); `status` shows the memo graph; incremental sweeps fall
+  out for free (adding a config runs only the new key).
+
+## What the PoCs validated (local compute only)
+
+`agentic_poc.py` — the single-sweep lifecycle as `launch` / `poll` / `gather`:
 
 - Launcher spawned detached workers and exited; **7 separate poll processes**
   read live, advancing progress with the launcher long dead.
@@ -237,6 +291,10 @@ invocations. Observed:
 - A real eventual-consistency wrinkle: a poll read a job as `RUNNING` while
   `gather` a moment later found its result. Lesson baked into the API above:
   `status`/`gather` always read durable truth, never trust the last poll.
+
+`multistep_poc.py` — the memoized multi-step model (section 5): a prep→sweep DAG
+resumed across wakes, prep memoized to a single execution, and a crashed job
+healed by re-run without re-running its siblings.
 
 ## Deferred / open
 
