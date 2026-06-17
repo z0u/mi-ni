@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 import traceback
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 from mini.progress import ProgressMessage, emit_progress, progress_context
