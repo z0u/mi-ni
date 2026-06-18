@@ -90,10 +90,10 @@ class LocalApparatus(Apparatus[LocalVolume]):
         return Run(run_id, LocalControlPlane(data_dir / '.control'), data_dir)
 
     @override
-    def spawn_task(self, store: MemoStore, key: str, call: tuple[Callable, tuple, list]) -> None:
-        fn, args, hooks = call
-        store.write_call(key, fn, args, hooks)  # stage to disk for the subprocess worker
-        spawn_taskworker(store.data_dir, key)
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
+        for key, fn, args, hooks in batch:
+            store.write_call(key, fn, args, hooks)  # stage to disk for the subprocess worker
+            spawn_taskworker(store.data_dir, key)
 
     @override
     async def amap(

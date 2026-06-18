@@ -45,24 +45,28 @@ class Ctx:
         self.launched: list[str] = []
         self.pending: list[str] = []
 
-    def _ensure(
-        self, fn: Callable, args: tuple, version: str | None, on: Apparatus | None
-    ) -> tuple[str, RunState | None]:
-        app = on or self.apparatus
+    def _classify(
+        self, fn: Callable, args: tuple, version: str | None, app: Apparatus
+    ) -> tuple[str, RunState | None, tuple[str, Callable, tuple, list] | None]:
+        """Resolve a call's key/state and, if it needs launching, mark it RUNNING
+        and return its batch entry — *without* spawning. The caller batches the
+        spawn so a ``map`` fans out in one ``spawn_tasks`` call.
+        """
         key = fingerprint(fn, args, version)
         state = self.store.state(key)
+        to_launch: tuple[str, Callable, tuple, list] | None = None
         if state in (None, RunState.FAILED):
-            # Mark RUNNING, then let the apparatus decide *where* the call runs.
-            # This is the seam that makes per-step ``on=`` route compute (local
-            # subprocess vs Modal), not just hooks.
             self.store.mark_running(fn, key)
-            app.spawn_task(self.store, key, (fn, args, getattr(app, '_before_hooks', [])))
+            to_launch = (key, fn, args, getattr(app, '_before_hooks', []))
             self.launched.append(key)
             state = RunState.RUNNING
-        return key, state
+        return key, state, to_launch
 
     def run(self, fn: Callable, *args: Any, version: str | None = None, on: Apparatus | None = None) -> Any:
-        key, state = self._ensure(fn, args, version, on)
+        app = on or self.apparatus
+        key, state, to_launch = self._classify(fn, args, version, app)
+        if to_launch is not None:
+            app.spawn_tasks(self.store, [to_launch])
         if state == RunState.DONE:
             return self.store.result(key)
         self.pending.append(key)
@@ -71,14 +75,20 @@ class Ctx:
     def map(
         self, fn: Callable, items: Sequence[Any], version: str | None = None, on: Apparatus | None = None
     ) -> list[Any]:
+        app = on or self.apparatus
         results: list[Any] = []
+        batch: list[tuple[str, Callable, tuple, list]] = []
         for raw in items:
             args = raw if isinstance(raw, tuple) else (raw,)
-            key, state = self._ensure(fn, args, version, on)
+            key, state, to_launch = self._classify(fn, args, version, app)
+            if to_launch is not None:
+                batch.append(to_launch)
             if state == RunState.DONE:
                 results.append(self.store.result(key))
             else:
                 self.pending.append(key)
+        if batch:  # one spawn for the whole fan-out
+            app.spawn_tasks(self.store, batch)
         if self.pending:
             raise Pending(f'{len(self.pending)} task(s) in flight')
         return results

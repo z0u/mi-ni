@@ -156,21 +156,21 @@ def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
 
 
 def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
-    """``ctx`` launches each task through ``apparatus.spawn_task`` — the seam the
-    Modal backend implements. Proven by routing a step to an apparatus that runs
-    tasks *synchronously in-process* instead of spawning a subprocess: if Ctx
-    bypassed the seam, the task would never run and the drive would time out."""
+    """``ctx`` launches tasks through ``apparatus.spawn_tasks`` — the seam the
+    Modal backend implements — and batches a map's fan-out into one call. Proven
+    by routing to an apparatus that runs tasks *synchronously in-process* instead
+    of spawning: if Ctx bypassed the seam, the drive would time out."""
     from mini._taskworker import run_task
     from mini.local_apparatus import LocalApparatus
 
-    spawned: list[str] = []
+    batches: list[int] = []
 
     class InlineApparatus(LocalApparatus):
-        def spawn_task(self, store, key, call):
-            spawned.append(key)
-            fn, args, hooks = call
-            store.write_call(key, fn, args, hooks)
-            run_task(store.data_dir, key)  # run now, in-process — no subprocess
+        def spawn_tasks(self, store, batch):
+            batches.append(len(batch))  # record fan-out width
+            for key, fn, args, hooks in batch:
+                store.write_call(key, fn, args, hooks)
+                run_task(store.data_dir, key)  # run now, in-process — no subprocess
 
     def task(x):
         return x * 3
@@ -178,7 +178,7 @@ def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
     app = InlineApparatus('inline', data_dir=tmp_path / 'inline')
     exp = Experiment(name='inline', main=lambda ctx: ctx.map(task, [(2,), (5,)]))
     assert _drive(exp, app) == [6, 15]
-    assert len(spawned) == 2  # both tasks went through the apparatus seam
+    assert batches == [2]  # both tasks launched in a single batched spawn
 
 
 def test_fingerprint_is_deterministic_and_input_sensitive():

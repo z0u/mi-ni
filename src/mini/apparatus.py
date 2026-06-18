@@ -193,22 +193,25 @@ class Apparatus(ABC, Generic[V]):
 
         return MemoStore(self.volume.path)
 
-    def spawn_task(self, store: MemoStore, key: str, call: tuple[Callable, tuple, list]) -> None:
-        """Spawn a detached worker for one memoized task, on *this* apparatus.
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
+        """Spawn detached workers for a *batch* of memoized tasks, on this apparatus.
 
         The seam that lets the memoized orchestration (``mini.orchestration.Ctx``)
-        decide *where* a step runs. ``Ctx`` first marks the record RUNNING
-        (``MemoStore.mark_running``), then calls this with the *call* —
-        ``(fn, args, hooks)`` — to launch a worker that runs it and persists its
-        result/state under *key*, surviving the tick that launched it.
+        decide *where* steps run. ``Ctx`` marks each record RUNNING
+        (``MemoStore.mark_running``), then hands the batch — each entry
+        ``(key, fn, args, hooks)`` — to this method, which launches workers that
+        run the calls and persist their results/state under each *key*, surviving
+        the tick that launched them.
 
-        How the call reaches the worker is backend-specific: the local backend
-        stages it to disk for a subprocess; the Modal backend passes it straight
-        to ``spawn``. This is what makes per-step ``on=`` route *compute*, not
-        just hooks.
+        Batching is what lets a ``ctx.map`` fan out efficiently: the local backend
+        spawns one subprocess per task, while Modal issues a single ``spawn_map``
+        rather than one detached ``app.run`` per task. ``ctx.run`` passes a
+        one-element batch. How the call reaches the worker is backend-specific
+        (staged to disk vs handed to ``spawn``); either way per-step ``on=`` routes
+        *compute*, not just hooks.
         """
         raise NotImplementedError(
-            f'{type(self).__name__} does not support detached spawn_task yet. See notes/agentic-experiments.md.'
+            f'{type(self).__name__} does not support detached spawn_tasks yet. See notes/agentic-experiments.md.'
         )
 
 

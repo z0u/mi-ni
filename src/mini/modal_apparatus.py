@@ -242,12 +242,18 @@ class ModalApparatus(Apparatus[ModalVolume]):
     def _memo_worker(self) -> modal.Function:
         """Register (once) and return the generic remote worker for memo tasks.
 
-        One stable function serves every task; each ``spawn`` carries its own
+        One stable function serves every task; each spawned call carries its own
         cloudpickled call. The Volume is mounted so the worker writes results to
         the same path the client reads back from.
+
+        The ``max_containers=1`` default (sensible for the blocking ``amap``)
+        would serialise a detached sweep through one container, so it's dropped
+        here — a fanned-out ``ctx.map`` should parallelise. Pass an explicit
+        ``.w(max_containers=N)`` to cap concurrency.
         """
         if self._memo_fn is None:
-            fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k != 'startup_timeout'}
+            drop = {'startup_timeout', 'max_containers'}
+            fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k not in drop}
             if isinstance(self._volume, ModalVolume):
                 fn_kwargs['volumes'] = {
                     **fn_kwargs.get('volumes', {}),
@@ -257,18 +263,27 @@ class ModalApparatus(Apparatus[ModalVolume]):
         return self._memo_fn
 
     @override
-    def spawn_task(self, store: MemoStore, key: str, call: tuple[Callable, tuple, list]) -> None:
-        fn, args, hooks = call
-        blob = cloudpickle.dumps((fn, args, hooks))
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
         worker = self._memo_worker()
-        volume_name = self.app.name
-        mount_point = str(self.volume.path)
-        # Detached: the spawned call outlives this `app.run` block (and this
-        # process), so a later wake can poll/gather it. Persist the FunctionCall
-        # id for liveness cross-checks.
+        blobs = [cloudpickle.dumps((fn, args, hooks)) for _, fn, args, hooks in batch]
+        keys = [key for key, *_ in batch]
+        # One detached spawn_map for the whole batch, rather than an app.run per
+        # task. The workers outlive this block (and this process); a later wake
+        # polls their state from the Dict. NB on Modal 1.3.x spawn_map returns
+        # None (no FunctionCall to poll), so liveness rests on Dict heartbeats.
         with self.app.run(detach=True):
-            fc = worker.spawn(blob, key, self._dict_name, volume_name, mount_point)
-        store.update(key, fc_id=fc.object_id, heartbeat_at=time.time())
+            worker.spawn_map(
+                blobs,
+                keys,
+                kwargs={
+                    'dict_name': self._dict_name,
+                    'volume_name': self.app.name,
+                    'mount_point': str(self.volume.path),
+                },
+            )
+        now = time.time()
+        for key in keys:
+            store.update(key, heartbeat_at=now)
 
     @override
     async def amap(
