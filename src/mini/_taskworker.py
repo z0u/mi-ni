@@ -13,7 +13,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import cloudpickle
 
@@ -52,24 +52,50 @@ class _MemoSink:
         return True
 
 
-def run_task(data_dir: Path, key: str) -> None:
-    store = MemoStore(data_dir)
-    fn, args, hooks = store.read_call(key)
+def execute_task(
+    store: MemoStore,
+    key: str,
+    fn: Any,
+    args: tuple,
+    hooks: list,
+    commit: Callable[[], None] | None = None,
+) -> None:
+    """Run one memoized call and persist its result/state — backend-agnostic.
+
+    Shared by the local subprocess worker and the Modal remote worker: only how
+    the call *arrives* (staged on disk vs passed to ``spawn``) and where state
+    lands (``RecordStore``) differ; the run/persist core is identical.
+
+    *commit* is called after the result/error is written to the I/O plane and
+    *before* the record flips to DONE/FAILED — so a poller never sees a settled
+    state whose artifact hasn't been committed yet (the Modal Volume needs this).
+    """
     result_dir = store.result_dir(key)
     result_dir.mkdir(parents=True, exist_ok=True)
     sink = _MemoSink(store, key)
     store.update(key, state=RunState.RUNNING, heartbeat_at=time.time())
     try:
-        with data_dir_context(data_dir), progress_context(key, key, queue=sink, emission_interval=0.2):
+        with data_dir_context(store.data_dir), progress_context(key, key, queue=sink, emission_interval=0.2):
             for hook in reversed(hooks):
                 hook()
             result = fn(*args)
         (result_dir / 'result.pkl').write_bytes(cloudpickle.dumps(result))
+        if commit is not None:
+            commit()
         store.update(key, state=RunState.DONE, heartbeat_at=time.time())
     except Exception:
         tb = traceback.format_exc()
         (result_dir / 'error.txt').write_text(tb)
+        if commit is not None:
+            commit()
         store.update(key, state=RunState.FAILED, error=tb.strip().splitlines()[-1], heartbeat_at=time.time())
+
+
+def run_task(data_dir: Path, key: str) -> None:
+    """Local subprocess entry: read the staged call from disk and run it."""
+    store = MemoStore(data_dir)
+    fn, args, hooks = store.read_call(key)
+    execute_task(store, key, fn, args, hooks)
 
 
 def main() -> None:

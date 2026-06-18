@@ -14,16 +14,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager, nullcontext
 from functools import wraps
 from itertools import count
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Iterable, TypeVar, override
 
+import cloudpickle
 import modal
 
 from mini._queues import QueueLike
 from mini.apparatus import Apparatus
+from mini.memo import MemoStore, RecordStore
 from mini.modal_queue import ModalQueue
 from mini.modal_volume import ModalVolume
 from mini.progress import ProgressMessage, progress_context
@@ -36,7 +39,7 @@ log = logging.getLogger(__name__)
 T = TypeVar('T')
 R = TypeVar('R')
 
-__all__ = ['ModalApparatus']
+__all__ = ['ModalApparatus', 'ModalRecordStore', 'ModalMemoStore']
 
 STARTUP_TIMEOUT_SECONDS = 120
 
@@ -81,6 +84,91 @@ def make_image() -> modal.Image:
     )  # fmt: skip
 
 
+# ---------------------------------------------------------------------------
+# Memoized-orchestration backend (control plane = modal.Dict, I/O plane = Volume)
+# ---------------------------------------------------------------------------
+
+
+class ModalRecordStore(RecordStore):
+    """``RecordStore`` backed by a named ``modal.Dict``.
+
+    The Dict is readable/writable from the client with no remote function and no
+    commit (Redis-backed), so polling never spins up compute. The same named
+    Dict is opened by the remote worker to write back state/metrics. Records are
+    tiny and last-writer-wins, so a Dict value per key is the natural fit.
+    """
+
+    def __init__(self, d: Any):
+        # *d* is a ``modal.Dict`` (or any get/keys/__setitem__ mapping — a plain
+        # dict for tests). Injected rather than opened here so the store is
+        # testable without the network; use ``from_name`` for the real thing.
+        self._d = d
+
+    @classmethod
+    def from_name(cls, name: str) -> ModalRecordStore:
+        return cls(modal.Dict.from_name(name, create_if_missing=True))
+
+    def read(self, key: str) -> dict[str, Any] | None:
+        return self._d.get(key)
+
+    def write(self, key: str, record: dict[str, Any]) -> None:
+        self._d[key] = record
+
+    def merge(self, key: str, fields: dict[str, Any]) -> None:
+        cur = self._d.get(key) or {}
+        cur.update(fields)
+        self._d[key] = cur
+
+    def keys(self) -> list[str]:
+        return list(self._d.keys())
+
+
+class ModalMemoStore(MemoStore):
+    """A ``MemoStore`` whose records live in a ``modal.Dict`` and whose results
+    are read back from the Modal Volume (the remote worker writes them there and
+    commits). Only the I/O-plane *reads* differ from the local store — the remote
+    worker, with the Volume mounted, writes through a plain ``MemoStore``.
+    """
+
+    def __init__(self, volume: ModalVolume, records: RecordStore):
+        super().__init__(volume.path, records=records)
+        self._volume = volume
+
+    def _read_volume_bytes(self, rel: str) -> bytes:
+        # Client-side reads already reflect the worker's committed writes;
+        # ``reload()`` is only valid inside a running function, not here.
+        return b''.join(self._volume._modal_volume.read_file(rel))
+
+    def result(self, key: str) -> Any:
+        return cloudpickle.loads(self._read_volume_bytes(f'_memo/{key}/result.pkl'))
+
+    def error(self, key: str) -> str:
+        try:
+            return self._read_volume_bytes(f'_memo/{key}/error.txt').decode()
+        except FileNotFoundError, modal.exception.NotFoundError:
+            return '(no logs)'
+
+
+def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, mount_point: str) -> None:
+    """Remote entry: run one memoized call on Modal and persist its result/state.
+
+    Mirrors the local subprocess worker (``mini._taskworker``) but reads the call
+    from the ``spawn`` argument (not disk), writes records to the ``modal.Dict``,
+    and commits the Volume before flipping the record to a settled state.
+    """
+    import cloudpickle as _cp
+    import modal as _modal
+
+    from mini._taskworker import execute_task
+    from mini.memo import MemoStore
+    from mini.modal_apparatus import ModalRecordStore
+
+    fn, args, hooks = _cp.loads(blob)
+    store = MemoStore(Path(mount_point), records=ModalRecordStore.from_name(dict_name))
+    volume = _modal.Volume.from_name(volume_name)
+    execute_task(store, key, fn, args, hooks, commit=volume.commit)
+
+
 class ModalApparatus(Apparatus[ModalVolume]):
     """
     Run functions on Modal.
@@ -110,6 +198,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         }
         self._before_hooks: list[Callable[[], Any]] = []
         self._volume: ModalVolume | None = ModalVolume(name)
+        self._memo_fn: modal.Function | None = None
 
     def __str__(self) -> str:
         return f'Modal apparatus "{self.app.name}"'
@@ -120,6 +209,11 @@ class ModalApparatus(Apparatus[ModalVolume]):
         new_app._before_hooks = self._before_hooks[:]
         new_app._volume = self._volume
         return new_app
+
+    @property
+    def _dict_name(self) -> str:
+        """Name of the control-plane ``modal.Dict`` for this experiment."""
+        return f'mini-cp-{self.app.name}'
 
     def w(self, **kwargs: Any) -> ModalApparatus:
         """
@@ -138,6 +232,43 @@ class ModalApparatus(Apparatus[ModalVolume]):
         new_app = self.clone()
         new_app._before_hooks = self._before_hooks + [hook]
         return new_app
+
+    # -- Memoized orchestration (detached) ------------------------------------
+
+    @override
+    def memo_store(self) -> MemoStore:
+        return ModalMemoStore(self.volume, ModalRecordStore.from_name(self._dict_name))
+
+    def _memo_worker(self) -> modal.Function:
+        """Register (once) and return the generic remote worker for memo tasks.
+
+        One stable function serves every task; each ``spawn`` carries its own
+        cloudpickled call. The Volume is mounted so the worker writes results to
+        the same path the client reads back from.
+        """
+        if self._memo_fn is None:
+            fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k != 'startup_timeout'}
+            if isinstance(self._volume, ModalVolume):
+                fn_kwargs['volumes'] = {
+                    **fn_kwargs.get('volumes', {}),
+                    str(self._volume.path): self._volume._modal_volume,
+                }
+            self._memo_fn = self.app.function(serialized=True, **fn_kwargs)(_modal_task_entry)
+        return self._memo_fn
+
+    @override
+    def spawn_task(self, store: MemoStore, key: str, call: tuple[Callable, tuple, list]) -> None:
+        fn, args, hooks = call
+        blob = cloudpickle.dumps((fn, args, hooks))
+        worker = self._memo_worker()
+        volume_name = self.app.name
+        mount_point = str(self.volume.path)
+        # Detached: the spawned call outlives this `app.run` block (and this
+        # process), so a later wake can poll/gather it. Persist the FunctionCall
+        # id for liveness cross-checks.
+        with self.app.run(detach=True):
+            fc = worker.spawn(blob, key, self._dict_name, volume_name, mount_point)
+        store.update(key, fc_id=fc.object_id, heartbeat_at=time.time())
 
     @override
     async def amap(

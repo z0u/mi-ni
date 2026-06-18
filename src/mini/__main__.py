@@ -44,7 +44,11 @@ def _build_apparatus(name: str, args: argparse.Namespace) -> Apparatus:
     backend = getattr(args, 'app', 'local')
     if backend == 'local':
         return LocalApparatus(name, max_workers=getattr(args, 'workers', 1))
-    raise SystemExit(f'--app {backend!r} not supported yet (only "local")')
+    if backend == 'modal':
+        from mini.modal_apparatus import ModalApparatus
+
+        return ModalApparatus(name)
+    raise SystemExit(f'--app {backend!r} not supported (use "local" or "modal")')
 
 
 def _resolve(ref: str) -> Run:
@@ -131,7 +135,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     exp = load_experiment(args.path)
     apparatus = _build_apparatus(exp.name, args)
     done, payload = tick(exp, apparatus)
-    store = MemoStore(apparatus.volume.path)
+    store = apparatus.memo_store()
     print(f'{exp.name}:')
     for rec in store.records():
         state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
@@ -156,7 +160,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest='command', required=True)
 
     def _add_compute_flags(p: argparse.ArgumentParser) -> None:
-        p.add_argument('--app', default='local', help='compute backend (only "local" so far)')
+        p.add_argument('--app', default='local', help='compute backend: "local" or "modal"')
         p.add_argument('--workers', type=int, default=1, help='local worker threads / job concurrency')
 
     p = sub.add_parser('run', help='advance a (multi-step) memoized orchestration by one wake')

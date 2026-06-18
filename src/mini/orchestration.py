@@ -92,7 +92,7 @@ def tick(experiment: Experiment, apparatus: Apparatus) -> tuple[bool, Any]:
     override the apparatus per call via ``ctx.run(..., on=)`` / ``ctx.map(...,
     on=)``.
     """
-    store = MemoStore(apparatus.volume.path)
+    store = apparatus.memo_store()
     ctx = Ctx(store, apparatus)
     try:
         result = experiment.orchestration()(ctx)

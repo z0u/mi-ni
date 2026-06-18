@@ -328,3 +328,24 @@ def test_get_data_dir_available_in_mapped_function(apparatus):
     results = list(apparatus.map(fn, [1, 2]))
     assert len(results) == 2
     assert all(isinstance(r, Path) for r in results)
+
+
+# ---------------------------------------------------------------------------
+# ModalRecordStore — the memo control plane on a modal.Dict. A plain dict
+# satisfies the same get/keys/__setitem__ surface, so we test the contract
+# without the network.
+# ---------------------------------------------------------------------------
+
+
+def test_modal_record_store_contract():
+    from mini.modal_apparatus import ModalRecordStore
+
+    store = ModalRecordStore({})
+    assert store.read('k') is None
+    store.write('k', {'key': 'k', 'state': 'running'})
+    assert store.read('k') == {'key': 'k', 'state': 'running'}
+    store.merge('k', {'step': 3})  # merge preserves existing fields
+    assert store.read('k') == {'key': 'k', 'state': 'running', 'step': 3}
+    store.write('k', {'key': 'k', 'state': 'running'})  # write resets wholesale
+    assert store.read('k') == {'key': 'k', 'state': 'running'}
+    assert store.keys() == ['k']

@@ -179,6 +179,20 @@ class Apparatus(ABC, Generic[V]):
         """Reconstruct a `Run` handle from a previous submit, in a fresh process."""
         raise NotImplementedError(f'{type(self).__name__} does not support reopen yet.')
 
+    def memo_store(self) -> MemoStore:
+        """Return the `MemoStore` for the memoized orchestration on this backend.
+
+        The store binds the two planes the backend uses: a ``RecordStore`` for
+        small/hot state, and the Volume for results. The default is fully local
+        (JSON records + local files under the Volume path); Modal overrides this
+        to put records in a ``modal.Dict`` and read results back from the Volume.
+        Constructing it here (rather than ``MemoStore(volume.path)`` at call
+        sites) is what lets ``tick`` stay backend-agnostic.
+        """
+        from mini.memo import MemoStore
+
+        return MemoStore(self.volume.path)
+
     def spawn_task(self, store: MemoStore, key: str, call: tuple[Callable, tuple, list]) -> None:
         """Spawn a detached worker for one memoized task, on *this* apparatus.
 
