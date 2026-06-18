@@ -57,11 +57,12 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 
 - **Keep `tick` (drive) distinct from polling (read).** `tick` re-runs `main` and
   *launches* missing/retryable work — it has side effects. A status/monitor check
-  must use the read-only path (`state` / `records`), never re-`tick`, so "is it
-  done yet?" can't accidentally relaunch work. Worth stating explicitly in the
-  skill so an agent doesn't poll by re-ticking. The `--watch` driver
-  (`mini.monitor.drive_and_watch`) honours this: it `tick`s only to advance to the
-  next stage, then polls `store.records()` read-only between ticks.
+  must not re-`tick`, so "is it done yet?" can't accidentally relaunch work. Worth
+  stating explicitly in the skill so an agent doesn't poll by re-ticking. The
+  `--watch` driver (`mini.monitor.drive_and_watch`) honours this: it `tick`s only
+  to advance to the next stage, then polls `store.records()` between ticks. The one
+  sanctioned write on the poll path is `reap_dead` (settles a vanished worker to
+  terminal `FAILED`); it never *launches*, so the no-relaunch invariant holds.
 
 - **Cheap polling for large sweeps.** Cache settled (`DONE`/`FAILED`/`CANCELLED`)
   records client-side — they're immutable — and poll only the unsettled subset.
@@ -110,10 +111,11 @@ experiment:
 
 **Still to do:**
 - ~~**Wire compute through the memoized path.**~~ **Done.** `MemoStore` no longer
-  spawns: it `stage`s the call durably and the apparatus spawns via the
-  `Apparatus.spawn_task(store, key, call)` seam (`LocalApparatus` → subprocess;
-  `ModalApparatus` → detached Modal spawn). `on=` now routes *compute*, not just
-  hooks. Records went behind a `RecordStore` (local JSON / `modal.Dict`).
+  spawns: it stages each call durably (`write_call`) and the apparatus launches a
+  whole batch via the `Apparatus.spawn_tasks(store, batch)` seam (`LocalApparatus`
+  → subprocess per task; `ModalApparatus` → detached Modal spawn). `on=` now routes
+  *compute*, not just hooks. Records went behind a `RecordStore` (local JSON /
+  `modal.Dict`).
 - **Role labels for file-based experiments.** `on=apparatus` only works from a
   notebook (which holds apparatus handles); a file experiment loaded by the CLI
   has none. Plan: abstract *role* labels (`ctx.map(..., role='gpu')`) that the
@@ -146,8 +148,9 @@ orchestration detached on Modal, verified live on Modal 1.3.3:
 - Control plane = named `modal.Dict` (`ModalRecordStore`, client-readable with no
   remote function). I/O plane = the Volume; the remote worker (`_modal_task_entry`,
   reusing the backend-agnostic `execute_task`) commits results before settling
-  state. `ModalApparatus.spawn_task` spawns one detached call per task under
-  `app.run(detach=True)` and persists the `FunctionCall` id.
+  state. `ModalApparatus.spawn_tasks` opens one detached `app.run(detach=True)` for
+  the whole batch and `spawn()`s each task within it, persisting each task's
+  `FunctionCall` id (see "spawn_map batching" below).
 
 **Monitoring validated live (2026-06-18).** End-to-end on Modal from this env:
 `run --app modal` (detached launch + `fc_id`), `status`/`results --app modal`
