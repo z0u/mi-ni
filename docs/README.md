@@ -29,6 +29,17 @@ docs/
 ├── README.md                This file (excluded from build)
 ├── index.md                 Built as _site/index.html
 ├── getting_started.py       Marimo notebook (source, excluded from build)
-└── __marimo__/              Marimo output
-    └── getting_started.html Built as _site/getting_started.html
+├── __marimo__/              Marimo output
+│   └── getting_started.html Built as _site/getting_started.html
+└── pipeline/                A heavier experiment, split into definition + report
+    ├── experiment.py        Importable main(ctx) DAG — not a notebook, so the build ignores it
+    ├── report.py            Marimo notebook that reads durable results
+    └── __marimo__/
+        └── report.html      Built as _site/pipeline/report.html
 ```
+
+Heavier or multi-step experiments live in a subdirectory as an importable
+`experiment.py` (the definition, driven by the `mini` CLI) plus a `report.py`
+notebook (reads durable results and publishes). A plain `.py` that isn't a Marimo
+notebook is ignored by the build, so the definition module never lands on the
+site. See the `experiments` skill.

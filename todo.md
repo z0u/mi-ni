@@ -1,7 +1,6 @@
 # TODO
 
-Deferred design/work items. See [the proposal](./docs/proposals/automated-research.md)
-and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
+Deferred design/work items. See [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 
 ## Memoized orchestration
 

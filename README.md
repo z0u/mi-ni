@@ -10,16 +10,36 @@ mi-ni is a template repository and library for doing AI research. Features:
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni)
 
-Compute abstraction pattern:
+There are two ways to compute, sharing one storage abstraction.
+
+**Interactive** — map a function over a sweep, right in a notebook. Swap the apparatus to change _where_ it runs; the code stays the same:
 
 ```py
-# app = LocalApparatus('my-experiment')
+# app = LocalApparatus('my-experiment', max_workers=4)
 app = ModalApparatus('my-experiment').w(gpu='L4')
-metrics = app.map(train, sweep_configs)
-app.volume.download(...)
+metrics = list(app.map(train, sweep_configs))
+app.volume.download('outputs', 'local/outputs')
 ```
 
-[See the _Getting started_ notebook for details](./docs/getting_started.py).
+[Getting started notebook →](./docs/getting_started.py)
+
+**Detached & memoized** — for sweeps, multi-step pipelines, and long runs. Define the experiment as an importable `main(ctx)` DAG; drive and monitor it from the CLI across separate processes. Work is launched detached, and its results, progress, and errors are written to durable storage — so you can close your laptop and check back later, and so can an agent:
+
+```py
+# docs/pipeline/experiment.py
+def main(ctx):
+    meta = ctx.run(prepare_data)                  # one step
+    return ctx.map(train, derive_configs(meta))   # a sweep that depends on it
+
+experiment = Experiment(name='pipeline', main=main)
+```
+
+```bash
+bin/mini run docs/pipeline/experiment.py --watch   # drive to completion, live bar
+bin/mini status pipeline                            # poll later, from any process
+```
+
+[Pipeline example →](./docs/pipeline/report.py)
 
 &nbsp;
 
@@ -41,7 +61,19 @@ app.volume.download(...)
 ./go open docs/getting_started.py  # Open the notebook in your browser
 ```
 
-For a more complete example, have a look at the [nanoGPT notebook](./docs/nanogpt.py).
+For a more complete example, have a look at the [nanoGPT notebook](./docs/gpt.py).
+
+&nbsp;
+
+## Running experiments with an assistant
+
+This template is set up for agentic coding (Claude Code and friends). The detached, memoized flow externalizes a run's state, results, and errors to durable storage and is driven by a stateless CLI — so an assistant can run a whole experiment for you, even across the runtime limits of a web session, by working in _wakes_: launch, stop; later check, fix, repeat.
+
+Ask for something like:
+
+> Write an experiment under `docs/<name>/` that compares X and Y, run it on Modal, watch for failures, and summarise the results in the report notebook.
+
+The assistant has skills that teach it the conventions — `mi-ni` for the library and `experiments` for this flow: define `main(ctx)`, drive with `mini run`, poll with `mini status` (never by re-running), read tracebacks with `mini logs`, and recover with `mini retry`.
 
 If you encounter network issues, ensure the following domains are accessible from your environment (e.g. [in Claude Code](https://code.claude.com/docs/en/claude-code-on-the-web#network-access)):
 
