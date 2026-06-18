@@ -5,22 +5,52 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 
 ## Memoized orchestration
 
+- **Settled vs. retryable failure (don't busy-loop, don't hide).** Today
+  `_classify` treats `FAILED` like "never run" and relaunches it every `tick`, so
+  a deterministically-failing task busy-loops (and wedges its `map` — see
+  `allow_partial` below). Fix: make `FAILED` *terminal/settled*, matching the
+  `Run`/job path (`SETTLED`, explicit `Run.retry()`); `tick` auto-launches only
+  un-run / retryable tasks. Re-running a `FAILED` task takes intent: bump
+  `version=`, edit the fn (new key), or an explicit retry lever.
+
+  We deliberately do **not** classify transient (preemption / OOM / network
+  timeout) vs. fatal in code — it's context-dependent and a wrong guess either
+  masks a bug or wastes money. The *agent* is the classifier; our job is to (a)
+  never busy-loop and (b) surface what it needs to decide:
+  - default: a task that throws → `FAILED`, with the traceback on the I/O plane
+    and `last_error` / `attempts` / `errored_at` on the record. Visible, not
+    swallowed.
+  - opt-in bounded auto-retry per step (`max_attempts=N`, exponential backoff via
+    a persisted `next_attempt_at`) for steps the author *knows* are flaky.
+    Bounded + backed-off so it can't hammer; on exhaustion → `FAILED`.
+  - `mark_running` rewrites the record wholesale, so it must carry `attempts`
+    forward (today it'd clobber the counter).
+  Document (skill + README + test) and unify with `Run.retry()` semantics.
+
 - **`allow_partial=` for `ctx.map`.** Today `map` raises `Pending` if *any* item
-  isn't `DONE`, and a deterministically-failing item relaunches every tick → it
-  blocks the whole map forever. We want a way to proceed on partial results.
-  Subtlety to design around: downstream code often `zip`s configs with results,
-  so we can't just drop missing items (it'd misalign). Options: return positional
-  sentinels (`None`/a `Missing` marker) for un-`DONE` items, or return a
-  config-keyed mapping instead of a positional list. Decide and document
+  isn't `DONE`. Once failures settle (see above), a `FAILED` item no longer
+  relaunches but still blocks the map — we want a way to proceed on partial
+  results. Subtlety to design around: downstream code often `zip`s configs with
+  results, so we can't just drop missing items (it'd misalign). Options: return
+  positional sentinels (`None`/a `Missing` marker) for un-`DONE` items, or return
+  a config-keyed mapping instead of a positional list. Decide and document
   (skill + README + test).
 
 - **Document the fix/prune/retry semantics** (skill + README + test):
   - remove an item from configs → not requested; unchanged items are memo hits.
   - change an item (fold the seed into args) → new key → only that item re-runs.
-  - a `FAILED` item auto-relaunches on the next tick (only that key).
+  - a `FAILED` item is *terminal*: it does not auto-relaunch. Retry on purpose
+    (`version=`, edit the fn, or an explicit retry) — see settled-vs-retryable
+    above. (Opt-in `max_attempts` may auto-retry *before* settling, bounded.)
   - force a re-run of a `DONE` item via `version=` or by editing the fn.
 
 ## Polling / monitoring
+
+- **Keep `tick` (drive) distinct from polling (read).** `tick` re-runs `main` and
+  *launches* missing/retryable work — it has side effects. A status/monitor check
+  must use the read-only path (`state` / `records`), never re-`tick`, so "is it
+  done yet?" can't accidentally relaunch work. Worth stating explicitly in the
+  skill so an agent doesn't poll by re-ticking.
 
 - **Cheap polling for large sweeps.** Cache settled (`DONE`/`FAILED`/`CANCELLED`)
   records client-side — they're immutable — and poll only the unsettled subset.
