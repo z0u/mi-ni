@@ -5,14 +5,14 @@ An experiment is a ``main(ctx)`` DAG (or a single sweep, lowered to one ``ctx.ma
 Each subcommand is a quick, stateless call against the durable memo store, so an
 agent (or you) can drive, poll, and gather without holding a session open:
 
-    python -m mini run    experiments/pipeline.py --watch  # drive a DAG to completion (live bar)
-    python -m mini run    experiments/pipeline.py          # advance one wake, then return
-    python -m mini retry  experiments/pipeline.py          # reset FAILED/CANCELLED, then advance
-    python -m mini ls                                       # experiments + task state
-    python -m mini status pipeline                          # per-task state + metrics, by NAME
-    python -m mini results pipeline                         # per-task results
-    python -m mini logs   pipeline <key>                    # a failed task's traceback
-    python -m mini cancel pipeline                          # stop in-flight tasks
+    python -m mini run    docs/pipeline/experiment.py --watch  # drive a DAG to completion (live bar)
+    python -m mini run    docs/pipeline/experiment.py          # advance one wake, then return
+    python -m mini retry  docs/pipeline/experiment.py          # reset FAILED/CANCELLED, then advance
+    python -m mini ls                                          # experiments + task state
+    python -m mini status pipeline                             # per-task state + metrics, by NAME
+    python -m mini results pipeline                            # per-task results
+    python -m mini logs   pipeline <key>                       # a failed task's traceback
+    python -m mini cancel pipeline                             # stop in-flight tasks
 
 State is addressed by experiment NAME (one memo store per experiment). Read
 commands take ``--app modal`` to inspect a run on the Modal control plane.
