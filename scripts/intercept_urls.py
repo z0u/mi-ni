@@ -98,6 +98,14 @@ def main() -> int:
 
     handle_url = render_qr if mode == 'qr' else open_url
 
+    # Open/render a literal URL (e.g. one we constructed) rather than a command's output.
+    if args and args[0] == '--url':
+        if len(args) < 2:
+            sys.stderr.write(f'Usage: {sys.argv[0]} [--qr|--open] --url <URL>\n')
+            return 1
+        handle_url(args[1])
+        return 0
+
     pid, fd = pty.fork()
     if pid == 0:
         os.execvp(args[0], args)
