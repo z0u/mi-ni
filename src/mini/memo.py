@@ -12,13 +12,14 @@ churn (site-packages and the mini framework itself are excluded).
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import inspect
 import json
-import pickle
 import time
 import types
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
@@ -78,9 +79,37 @@ def _code_fingerprint(fn: Callable) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
+def _canonical(o: Any) -> Any:
+    """Normalize *o* into a JSON-stable structure — deterministic across processes.
+
+    ``pickle.dumps`` is *not* stable run-to-run for values containing sets, and a
+    Pydantic model carries one (``__pydantic_fields_set__``); set iteration order
+    is hash-randomized per process, so the same config would fingerprint
+    differently each wake and miss the cache (the same trap that ruled out
+    cloudpickle for the *code* fingerprint). So we canonicalize first: models and
+    dataclasses to their field dicts, sets to sorted lists, then JSON with sorted
+    keys downstream.
+    """
+    dump = getattr(o, 'model_dump', None)  # pydantic v2, duck-typed (no hard dep on pydantic)
+    if callable(dump):
+        try:
+            return _canonical(dump(mode='json'))
+        except TypeError:
+            return _canonical(dump())
+    if dataclasses.is_dataclass(o) and not isinstance(o, type):
+        return _canonical(dataclasses.asdict(o))
+    if isinstance(o, Mapping):
+        return {str(k): _canonical(v) for k, v in o.items()}
+    if isinstance(o, (set, frozenset)):
+        return sorted((_canonical(x) for x in o), key=lambda v: json.dumps(v, sort_keys=True, default=repr))
+    if isinstance(o, (list, tuple)):
+        return [_canonical(x) for x in o]
+    return o
+
+
 def _input_fingerprint(args: tuple) -> str:
     try:
-        blob = pickle.dumps(args, protocol=4)  # stable for dict/list/tuple/str/num
+        blob = json.dumps(_canonical(args), sort_keys=True, default=repr).encode()
     except Exception:
         blob = repr(args).encode()
     return hashlib.sha256(blob).hexdigest()

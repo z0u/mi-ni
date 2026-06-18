@@ -210,3 +210,26 @@ def test_fingerprint_is_deterministic_and_input_sensitive():
 
     assert fingerprint(fn, (1,)) == fingerprint(fn, (1,))
     assert fingerprint(fn, (1,)) != fingerprint(fn, (2,))
+
+
+def test_input_fingerprint_stable_across_processes():
+    """Inputs containing a set (e.g. a Pydantic model's ``__pydantic_fields_set__``)
+    must fingerprint identically across processes — every agent wake is a fresh one,
+    and ``PYTHONHASHSEED`` randomizes set order. A plain ``pickle.dumps`` would differ.
+    """
+    import os
+    import subprocess
+    import sys
+
+    code = "from mini.memo import _input_fingerprint; print(_input_fingerprint(({'e', 'a', 'd', 'b', 'c'},)))"
+    outs = {
+        subprocess.run(
+            [sys.executable, '-c', code],
+            capture_output=True,
+            text=True,
+            env={**os.environ, 'PYTHONHASHSEED': seed},
+            check=True,
+        ).stdout.strip()
+        for seed in ('0', '1', '2')
+    }
+    assert len(outs) == 1, f'fingerprint varied across hash seeds: {outs}'
