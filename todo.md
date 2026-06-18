@@ -145,15 +145,25 @@ orchestration detached on Modal, verified live on Modal 1.3.3:
   state. `ModalApparatus.spawn_task` spawns one detached call per task under
   `app.run(detach=True)` and persists the `FunctionCall` id.
 
+**Monitoring validated live (2026-06-18).** End-to-end on Modal from this env:
+`run --app modal` (detached launch + `fc_id`), `status`/`results --app modal`
+(client reads of the Dict + Volume), `run --app modal --watch` (drove the DAG to
+completion with live bars off the Dict), and `cancel --app modal` (cancelled both
+`FunctionCall`s by `fc_id` → app went to `stopping...`).
+
 **Still to do:**
-- **Client-side `gather` egress.** `ModalMemoStore.result` reads the result blocks
-  straight from the Volume's storage CDN (`*.modal-storage.com`). That path 403'd
-  from the locked-down web/sandbox env (TLS was end-to-end; likely IP-bound signed
-  URLs), while the Dict control plane (via `api.modal.com`) worked. Result
-  integrity was confirmed by reading it back *inside* a Modal function. So gather
-  works from an unrestricted machine but may fail in the very environment the
-  agent runs in. Option: a remote read-back function returning the (small) result
-  over gRPC — the pattern the `modal` skill already recommends. **Decide.**
+- **Read-only Modal commands shouldn't build the image.** `status`/`results`/
+  `cancel --app modal` only need the Dict (and Volume for results), but
+  `ModalApparatus.__init__` registers the image every call ("Creating Modal image
+  with dependencies…") — wasteful + noisy for an agent polling status in the
+  cloud. Give a lightweight client path (read the named `modal.Dict` / cancel an
+  `fc_id`) that skips image/app setup.
+- ~~**Client-side `gather` egress.**~~ **Worked live now.** `ModalMemoStore.result`
+  reads result blocks from the Volume's storage CDN; this previously 403'd from
+  the locked-down env, but `results --app modal` and `--watch`'s final gather both
+  succeeded here (egress rules since configured — see the README network-egress
+  section). Keep the remote gRPC read-back function in mind as a fallback if a
+  more restricted env 403s again.
 - ~~**`spawn_map` batching.**~~ **Done** (`Apparatus.spawn_tasks`). A `ctx.map`'s
   missing tasks launch in one detached `app.run`, and the memo worker drops the
   `max_containers=1` cap so the sweep parallelises (verified live: 3 tasks ran
