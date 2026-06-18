@@ -15,6 +15,11 @@ src/mini/
 └── vis/          # Visualization helpers
 ```
 
+## Two ways to compute
+
+- **Interactive `Apparatus`** (`app.map`/`app.arun`) — a blocking call inside a notebook; dies with the process. Covered here. Use for quick, light work you watch finish.
+- **Memoized orchestration** (`Experiment(main=...)`, driven by the `mini` CLI) — detached, durable, pollable across short-lived processes. Use for sweeps, multi-step pipelines, anything slow, and anything an agent runs autonomously. See the **`experiments`** skill.
+
 ## Apparatus and Volume
 
 `mini` provides experiment infrastructure via the `Apparatus` class. Its interface is similar to an Executor, but it abstracts compute and storage. See [apparatus.md](./references/apparatus.md), especially if you're using it in a notebook.
