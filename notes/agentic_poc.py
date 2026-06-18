@@ -129,7 +129,9 @@ def worker(job_dir_str: str) -> None:
     _merge_status(job_dir, state='RUNNING')
     # Reuse mini's progress context unchanged; only the sink is durable.
     try:
-        with progress_context(run_id=job_dir.parent.parent.name, job_id=job_dir.name, queue=sink, emission_interval=0.0):
+        with progress_context(
+            run_id=job_dir.parent.parent.name, job_id=job_dir.name, queue=sink, emission_interval=0.0
+        ):
             result = train(cfg)
         (job_dir / 'result.pkl').write_bytes(pickle.dumps(result))
         _merge_status(job_dir, state='DONE')
@@ -169,7 +171,7 @@ def gather(run_id: str) -> None:
         if rp.exists():
             print(f'  job {job_dir.name}: {pickle.loads(rp.read_bytes())}')
         else:
-            err = (job_dir / 'error.txt')
+            err = job_dir / 'error.txt'
             tail = err.read_text().strip().splitlines()[-1] if err.exists() else 'no result yet'
             print(f'  job {job_dir.name}: FAILED/incomplete -> {tail}')
 
