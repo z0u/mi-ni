@@ -96,11 +96,13 @@ orchestration detached on Modal, verified live on Modal 1.3.3:
   works from an unrestricted machine but may fail in the very environment the
   agent runs in. Option: a remote read-back function returning the (small) result
   over gRPC — the pattern the `modal` skill already recommends. **Decide.**
-- **`spawn_map` batching.** Today each task is its own `spawn` under its own
-  `app.run(detach=True)` — correct, but a sweep opens N app contexts per wake.
-  Batch a `ctx.map`'s missing tasks into one `spawn_map` (one `FunctionCall`, poll
-  per index) for efficiency. Also revisit `max_containers=1` default (serialises a
-  sweep through one container).
+- ~~**`spawn_map` batching.**~~ **Done.** The seam is now batched
+  (`Apparatus.spawn_tasks`): a `ctx.map`'s missing tasks launch in one detached
+  `spawn_map`, and the memo worker drops the `max_containers=1` cap so the sweep
+  parallelises (verified live: 3 tasks ran concurrently). Caveat: Modal 1.3.x
+  `spawn_map` returns `None`, so there's no per-index `FunctionCall` for liveness
+  — heartbeats in the Dict are the only signal. Revisit if/when we move to a
+  Modal version where `spawn_map` returns a `FunctionCall`.
 - **Run/job path (`submit`/`Run`).** A `ModalControlPlane` behind the run/job
   `ControlPlane` ABC (distinct from the memo's `RecordStore`) + the `control.py`
   split, if/when the non-memoized detached path needs Modal.
