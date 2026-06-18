@@ -46,6 +46,16 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 
 ## Polling / monitoring
 
+- **Unify the rest of the inspect commands across both state models.** *Done for
+  `ls`/`status`*: both now read the memo store (`.control/memo/`) as well as
+  run/job runs (`.control/index.json`), so `mini run`/`--watch` experiments are
+  discoverable. Still run/job-only: `results`, `logs`, `retry`, `cancel`. For the
+  memo path, `results <name>` could gather per-task results (`store.result(key)`)
+  or re-`tick` to recompute the orchestration payload; `logs <name> <key>` already
+  exists as `tasklog`. `retry`/`cancel` for memo tasks await the settled-vs-
+  retryable + liveness work above. Decide the addressing (memo is name-keyed, one
+  store per experiment; run/job is `<name>/<token>`).
+
 - **Keep `tick` (drive) distinct from polling (read).** `tick` re-runs `main` and
   *launches* missing/retryable work — it has side effects. A status/monitor check
   must use the read-only path (`state` / `records`), never re-`tick`, so "is it
