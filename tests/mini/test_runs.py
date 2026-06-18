@@ -155,13 +155,13 @@ def test_load_and_launch_experiment_file(tmp_path: Path):
 
     exp_file = tmp_path / 'exp.py'
     exp_file.write_text(
-        'from mini import Experiment, LocalApparatus\n'
+        'from mini import Experiment\n'
         'def go(x):\n'
         '    return x + 1\n'
-        f'experiment = Experiment(name="filexp", fn=go, configs=[(1,), (2,)],\n'
-        f'    apparatus=LocalApparatus("filexp", data_dir={str(tmp_path / "filexp")!r}))\n'
+        'experiment = Experiment(name="filexp", fn=go, configs=[(1,), (2,)])\n'
     )
-    run = load_experiment(exp_file).submit()
+    app = LocalApparatus('filexp', data_dir=tmp_path / 'filexp')
+    run = load_experiment(exp_file).submit(app)
     _wait(run)
     assert run.results() == [2, 3]
 

@@ -15,15 +15,16 @@ from mini.memo import MemoStore, fingerprint
 from mini.orchestration import tick
 
 
-def _exp(name: str, main, tmp_path: Path) -> Experiment:
-    return Experiment(name=name, main=main, apparatus=LocalApparatus(name, data_dir=tmp_path / name))
+def _setup(name: str, main, tmp_path: Path) -> tuple[Experiment, LocalApparatus]:
+    """An experiment (no compute) plus the apparatus it's run on (injected)."""
+    return Experiment(name=name, main=main), LocalApparatus(name, data_dir=tmp_path / name)
 
 
-def _drive(exp: Experiment, timeout: float = 30.0):
+def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 30.0):
     """Re-run the orchestration each 'wake' until it completes (mirrors the agent loop)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        done, payload = tick(exp)
+        done, payload = tick(exp, app)
         if done:
             return payload
         time.sleep(0.1)
@@ -41,7 +42,7 @@ def test_multistep_dependency(tmp_path: Path):
         meta = ctx.run(prep)  # sweep configs depend on prep's output
         return ctx.map(train, [(lr, meta['vocab']) for lr in (0.1, 0.2)])
 
-    assert _drive(_exp('dep', main, tmp_path)) == [{'lr': 0.1, 'vocab': 7}, {'lr': 0.2, 'vocab': 7}]
+    assert _drive(*_setup('dep', main, tmp_path)) == [{'lr': 0.1, 'vocab': 7}, {'lr': 0.2, 'vocab': 7}]
 
 
 def test_prep_runs_once_across_wakes(tmp_path: Path):
@@ -60,10 +61,10 @@ def test_prep_runs_once_across_wakes(tmp_path: Path):
         ctx.run(prep)
         return ctx.map(train, [(1,), (2,)])
 
-    exp = _exp('once', main, tmp_path)
-    _drive(exp)
-    tick(exp)  # extra wakes after completion
-    tick(exp)
+    exp, app = _setup('once', main, tmp_path)
+    _drive(exp, app)
+    tick(exp, app)  # extra wakes after completion
+    tick(exp, app)
     assert (tmp_path / 'once' / 'prep_count').read_text() == '1'  # prep memoized, ran once
 
 
@@ -81,8 +82,8 @@ def test_crash_recovers_on_rerun(tmp_path: Path):
     def main(ctx):
         return ctx.map(train, [(1,), (2,), (3,)])
 
-    exp = _exp('crash', main, tmp_path)
-    assert _drive(exp) == [10, 20, 30]
+    exp, app = _setup('crash', main, tmp_path)
+    assert _drive(exp, app) == [10, 20, 30]
     assert (tmp_path / 'crash' / 'att_2').read_text() == '2'  # the failed one re-ran
     assert (tmp_path / 'crash' / 'att_1').read_text() == '1'  # its siblings did not
 
@@ -91,10 +92,9 @@ def test_single_map_sugar(tmp_path: Path):
     def sq(x):
         return x * x
 
-    exp = Experiment(
-        name='sugar', fn=sq, configs=[(2,), (3,)], apparatus=LocalApparatus('sugar', data_dir=tmp_path / 'sugar')
-    )
-    assert _drive(exp) == [4, 9]
+    exp = Experiment(name='sugar', fn=sq, configs=[(2,), (3,)])
+    app = LocalApparatus('sugar', data_dir=tmp_path / 'sugar')
+    assert _drive(exp, app) == [4, 9]
 
 
 def test_metrics_recorded_on_task(tmp_path: Path):
@@ -107,7 +107,7 @@ def test_metrics_recorded_on_task(tmp_path: Path):
     def main(ctx):
         return ctx.map(t, [(5,)])
 
-    _drive(_exp('met', main, tmp_path))
+    _drive(*_setup('met', main, tmp_path))
     recs = MemoStore(tmp_path / 'met').records()
     assert any(r.get('metrics', {}).get('v') == 5.0 for r in recs)
 
@@ -122,9 +122,37 @@ def test_version_busts_cache(tmp_path: Path):
     def main_v2(ctx):
         return ctx.map(t, [(1,)], version='v2')
 
-    _drive(_exp('ver', main_v1, tmp_path))
-    _drive(Experiment(name='ver', main=main_v2, apparatus=LocalApparatus('ver', data_dir=tmp_path / 'ver')))
+    _drive(*_setup('ver', main_v1, tmp_path))
+    _drive(Experiment(name='ver', main=main_v2), LocalApparatus('ver', data_dir=tmp_path / 'ver'))
     assert len({r['key'] for r in MemoStore(tmp_path / 'ver').records()}) == 2  # distinct keys per version
+
+
+def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
+    """``on=`` routes a step to a different apparatus — here proven via its hooks."""
+
+    def mark_default():
+        from mini import get_data_dir
+
+        (get_data_dir() / 'default_hook').touch()
+
+    def mark_gpu():
+        from mini import get_data_dir
+
+        (get_data_dir() / 'gpu_hook').touch()
+
+    def task(x):
+        return x
+
+    data_dir = tmp_path / 'perstep'
+    default = LocalApparatus('perstep', data_dir=data_dir).before_each(mark_default)
+    gpu = LocalApparatus('perstep', data_dir=data_dir).before_each(mark_gpu)
+
+    def main(ctx):
+        return ctx.map(task, [(1,)], on=gpu)
+
+    assert _drive(Experiment(name='perstep', main=main), default) == [1]
+    assert (data_dir / 'gpu_hook').exists()  # the on= apparatus's hook ran
+    assert not (data_dir / 'default_hook').exists()  # the tick default's did not
 
 
 def test_fingerprint_is_deterministic_and_input_sensitive():

@@ -14,12 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
-from mini.apparatus import Apparatus
-from mini.local_apparatus import LocalApparatus
-from mini.runs import Run
-
 if TYPE_CHECKING:
+    from mini.apparatus import Apparatus
     from mini.orchestration import Ctx
+    from mini.runs import Run
 
 __all__ = ['Experiment', 'load_experiment']
 
@@ -28,6 +26,10 @@ __all__ = ['Experiment', 'load_experiment']
 class Experiment:
     """A named experiment: a single sweep, or a multi-step orchestration.
 
+    The definition carries *no* compute: the apparatus is injected at execution
+    (by the CLI or a notebook) — ``apparatus.submit(...)`` / ``tick(exp,
+    apparatus)`` — so the same module runs locally or remotely without edits.
+
     Single sweep::
 
         Experiment(name='sweep', fn=train, configs=[(1e-3,), (1e-2,)])
@@ -35,8 +37,8 @@ class Experiment:
     Multi-step (memoized; re-run to recover)::
 
         def main(ctx):
-            meta = ctx.run(prepare_data)
-            return ctx.map(train, [(lr, meta['vocab']) for lr in lrs])
+            meta = ctx.run(prepare_data)                 # CPU prep
+            return ctx.map(train, [...], on=gpu)         # per-step compute
 
         Experiment(name='pipeline', main=main)
     """
@@ -45,16 +47,6 @@ class Experiment:
     fn: Callable[..., Any] | None = None
     configs: Sequence[Any] | None = None
     main: Callable[[Ctx], Any] | None = None
-    apparatus: Apparatus | None = None
-
-    def make_apparatus(self) -> Apparatus:
-        return self.apparatus or LocalApparatus(self.name)
-
-    def data_dir(self) -> Path:
-        return self.make_apparatus().volume.path
-
-    def before_hooks(self) -> list[Callable[[], Any]]:
-        return list(getattr(self.make_apparatus(), '_before_hooks', []))
 
     def columns(self) -> list[list[Any]]:
         """Transpose per-job configs into per-argument columns for ``submit``."""
@@ -71,11 +63,11 @@ class Experiment:
         items = [c if isinstance(c, tuple) else (c,) for c in self.configs]
         return lambda ctx: ctx.map(fn, items)
 
-    def submit(self) -> Run:
-        """Launch a single sweep detached (one-shot run/job model)."""
+    def submit(self, apparatus: Apparatus) -> Run:
+        """Launch a single sweep detached on *apparatus* (one-shot run/job model)."""
         if self.fn is None or self.configs is None:
             raise ValueError('submit() needs fn= and configs=; use the orchestration driver for main=')
-        return self.make_apparatus().submit(self.fn, *self.columns())
+        return apparatus.submit(self.fn, *self.columns())
 
 
 def load_experiment(path: str | Path) -> Experiment:

@@ -132,7 +132,7 @@ Split each experiment into:
 
 ```
 experiments/arch-sweep/
-  experiment.py   # Experiment(name, apparatus, fn, configs)  — importable, no UI
+  experiment.py   # Experiment(name, fn, configs)  — importable, no UI, no compute
   report.py       # marimo notebook: loads results for a run id, plots
 ```
 
@@ -195,6 +195,8 @@ cross-checked with `FunctionCall.get(timeout=0)`.
 
 The agent drives short-lived processes; each reads/writes the control plane:
 
+> These should probably be exposed as a project entrypoint like `./go mini launch ...` or `mini launch ...` etc.
+
 ```bash
 python -m mini launch experiments/arch_sweep.py   # → arch-sweep/3f9a  (detached)
 python -m mini ls                                  # experiments + active runs
@@ -208,9 +210,10 @@ python -m mini report  arch-sweep/3f9a             # render report.py → HTML
 ```
 
 `__main__.py` is a thin shell over the `Run` API; `load_experiment(path)` imports
-the module and expects a module-level `experiment = Experiment(name, apparatus,
-fn, configs)`. **Waking is the harness's job** (scheduled self-check / cron / PR
-webhook), not mini's — mini's job is to make `status` a cheap, honest read.
+the module and expects a module-level `experiment = Experiment(name, fn,
+configs)` — no compute baked in; the CLI picks the apparatus (`--app`). **Waking
+is the harness's job** (scheduled self-check / cron / PR webhook), not mini's —
+mini's job is to make `status` a cheap, honest read.
 
 ## 4. Composition across detached steps
 
@@ -255,6 +258,18 @@ This subsumes the current model: a plain sweep is just `main = lambda ctx:
 ctx.map(train, configs)`. It reuses everything already built — the control plane,
 the detached worker, `Run` — with two additions: a `Ctx` that memoizes, and a
 content key that replaces the random run id.
+
+> I like this design a lot. I agree it should generally replace the detached mode, but:
+> - We should have a way to consume the output of experiment A from experiment B. Sugar for getting the function result and data from the volume? One option, perhaps: add a parameter to `get_data_dir` like:
+>
+>    ``py
+>    from experiment_a import experiment as other
+>    get_data_dir(other)
+>    ```
+>
+>    But I'm quite unsure about this.
+>
+> - Can we retain the ability to poll/monitor a running experiment _without_ re-running it?
 
 The PoC ran the gpt_sweep shape across 10 wakes: prep launched and the wake
 suspended until it finished (touching `meta` suspends); the sweep then launched
@@ -307,6 +322,7 @@ bump `version=` (or just edit the function) to force a re-run.
 - A real eventual-consistency wrinkle: a poll read a job as `RUNNING` while
   `gather` a moment later found its result. Lesson baked into the API above:
   `status`/`gather` always read durable truth, never trust the last poll.
+  > In the memoized flow, do we have the ability to fix and re-run individual sweep items? E.g. restart with a different seed? Or can we prune failed items to allow the agent to continue regardless? I guess you just remove it from the sweep config and re-run; the unchanged items will be skipped — right? If this is right then we should document it (skill + readme/examples + tests).
 
 `multistep_poc.py` — the memoized multi-step model (section 5): a prep→sweep DAG
 resumed across wakes, prep memoized to a single execution, and a crashed job
@@ -322,3 +338,4 @@ healed by re-run without re-running its siblings.
 - Garbage-collecting old run records / named Dicts / Volume run dirs.
 - Whether to retire `LocalQueue` entirely (display polls the control plane) or
   keep it for the interactive path only.
+  > Let's retire it, but we do need to reinstate an interactive solution (like a long-running monitor process)

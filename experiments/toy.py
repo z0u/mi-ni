@@ -3,7 +3,7 @@ A toy experiment for exercising the detached run lifecycle on local compute.
 
 Launch it with::
 
-    python -m mini launch experiments/toy.py
+    python -m mini launch experiments/toy.py --workers 3
 
 It sweeps a "learning rate" over three jobs. The largest LR diverges on purpose,
 so you can watch a failure surface in `status`, read its traceback with `logs`,
@@ -15,7 +15,7 @@ from __future__ import annotations
 import random
 import time
 
-from mini import Experiment, LocalApparatus, emit_metrics, emit_progress, get_data_dir
+from mini import Experiment, emit_metrics, emit_progress, get_data_dir
 
 
 def train(lr: float, steps: int = 10) -> dict:
@@ -39,5 +39,4 @@ experiment = Experiment(
     name='toy',
     fn=train,
     configs=[(1e-3,), (1e-2,), (2e-1,)],  # the last one diverges
-    apparatus=LocalApparatus('toy', max_workers=3),
 )

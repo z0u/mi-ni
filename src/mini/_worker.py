@@ -1,10 +1,20 @@
 """
 Detached worker: runs a submitted run's jobs and records durable state.
 
-Spawned as ``python -m mini._worker <data_dir> <run_id>`` in its own session
-(so it outlives the launcher). It loads the cloudpickled spec, runs each PENDING
-job in a thread pool, and writes progress/metrics/results/errors to the control
-and I/O planes — the same state a fresh ``status``/``results`` call reads back.
+This is a *process entrypoint*, not a per-call wrapper. ``LocalApparatus.submit``
+spawns it as ``python -m mini._worker <data_dir> <run_id>`` in its own session,
+then returns; the worker outlives the launcher and is what a later
+``status``/``results`` call reads back through the control and I/O planes.
+
+``_run_job`` is the durable analogue of ``_wrap_for_local`` /
+``_wrap_for_modal``: it reuses the same progress/hooks plumbing, but instead of
+yielding a result in-process it persists state/metrics/results/errors so they
+survive the launcher's death. The two-plane split (see notes/agentic-experiments.md):
+
+  - control plane (small, hot): per-job state/step/metrics/heartbeat, written
+    through ``run.cp`` — what ``status`` polls.
+  - I/O plane (large, cold): ``result.pkl`` / ``error.txt`` under the job dir —
+    what ``results`` / ``logs`` read.
 """
 
 from __future__ import annotations

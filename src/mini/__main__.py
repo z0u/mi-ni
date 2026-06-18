@@ -19,7 +19,9 @@ from __future__ import annotations
 import argparse
 import time
 
+from mini.apparatus import Apparatus
 from mini.experiment import load_experiment
+from mini.local_apparatus import LocalApparatus
 from mini.memo import MemoStore
 from mini.orchestration import tick
 from mini.runs import DATA_ROOT, RunState, Run, latest_run, open_experiment, open_run
@@ -31,6 +33,18 @@ _GLYPH = {
     RunState.FAILED: '✗',
     RunState.CANCELLED: '⊘',
 }
+
+
+def _build_apparatus(name: str, args: argparse.Namespace) -> Apparatus:
+    """Construct the apparatus the experiment runs on, from CLI flags.
+
+    Compute is an execution choice, not part of the experiment definition. Only
+    ``local`` is wired up so far; ``modal`` lands with the Modal backend.
+    """
+    backend = getattr(args, 'app', 'local')
+    if backend == 'local':
+        return LocalApparatus(name, max_workers=getattr(args, 'workers', 1))
+    raise SystemExit(f'--app {backend!r} not supported yet (only "local")')
 
 
 def _resolve(ref: str) -> Run:
@@ -52,7 +66,8 @@ def _age(ts: float | None) -> str:
 
 
 def cmd_launch(args: argparse.Namespace) -> None:
-    print(load_experiment(args.path).submit().id)
+    exp = load_experiment(args.path)
+    print(exp.submit(_build_apparatus(exp.name, args)).id)
 
 
 def cmd_ls(args: argparse.Namespace) -> None:
@@ -114,8 +129,9 @@ def cmd_cancel(args: argparse.Namespace) -> None:
 def cmd_run(args: argparse.Namespace) -> None:
     """One wake of a (possibly multi-step) orchestration: advance + report."""
     exp = load_experiment(args.path)
-    done, payload = tick(exp)
-    store = MemoStore(exp.data_dir())
+    apparatus = _build_apparatus(exp.name, args)
+    done, payload = tick(exp, apparatus)
+    store = MemoStore(apparatus.volume.path)
     print(f'{exp.name}:')
     for rec in store.records():
         state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
@@ -139,12 +155,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog='mini', description='Drive detached mi-ni experiments.')
     sub = parser.add_subparsers(dest='command', required=True)
 
+    def _add_compute_flags(p: argparse.ArgumentParser) -> None:
+        p.add_argument('--app', default='local', help='compute backend (only "local" so far)')
+        p.add_argument('--workers', type=int, default=1, help='local worker threads / job concurrency')
+
     p = sub.add_parser('run', help='advance a (multi-step) memoized orchestration by one wake')
     p.add_argument('path')
+    _add_compute_flags(p)
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser('launch', help='launch a single sweep detached (one-shot run/job model)')
     p.add_argument('path')
+    _add_compute_flags(p)
     p.set_defaults(func=cmd_launch)
 
     p = sub.add_parser('ls', help='list experiments and their runs')
