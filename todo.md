@@ -46,17 +46,17 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 
 ## Polling / monitoring
 
-- **Memo CLI gaps: `retry` and `cancel`.** The CLI is now memo-only and
-  name-addressed (`run`/`ls`/`status`/`results`/`logs`); the old run/job model
-  (model 2: `submit`/`Run`/`mini launch`) is gone. Two verbs didn't carry over:
-  - `retry`: today re-running `mini run <path>` relaunches un-run/`FAILED` tasks
-    (it busy-loops on `FAILED` — see settled-vs-retryable). Once `FAILED` is
-    terminal, add an explicit `mini retry <name> [<key>]` lever.
-  - `cancel`: stopping in-flight tasks. The local memo records don't store the
-    task-worker pid (only Modal records an `fc_id`), so there's nothing to signal
-    yet. Record the pid at `spawn_taskworker` and add `mini cancel <name>` that
-    SIGTERMs live workers + marks them `CANCELLED`; on Modal, cancel via `fc_id`.
-    Ties into the dead-worker liveness check below.
+- **Memo CLI gap: `retry`.** The CLI is now memo-only and name-addressed
+  (`run`/`ls`/`status`/`results`/`logs`/`cancel`); the old run/job model (model 2:
+  `submit`/`Run`/`mini launch`) is gone. `retry` is the one verb still missing:
+  today re-running `mini run <path>` relaunches un-run/`FAILED` tasks (it
+  busy-loops on `FAILED` — see settled-vs-retryable). Once `FAILED` is terminal,
+  add an explicit `mini retry <name> [<key>]` lever.
+
+  - ~~`cancel`~~ **Done.** `Apparatus.cancel(store)` marks unsettled tasks
+    `CANCELLED` and delegates the per-task stop to `_stop_task`: local SIGTERMs the
+    worker's process group (pid recorded at `spawn_tasks`, `pgid == pid`), Modal
+    cancels the `FunctionCall` by `fc_id`. CLI `mini cancel <name> [--app]`.
 
 - **Keep `tick` (drive) distinct from polling (read).** `tick` re-runs `main` and
   *launches* missing/retryable work — it has side effects. A status/monitor check

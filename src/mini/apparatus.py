@@ -203,6 +203,27 @@ class Apparatus(ABC, Generic[V]):
             f'{type(self).__name__} does not support detached spawn_tasks yet. See notes/agentic-experiments.md.'
         )
 
+    def cancel(self, store: MemoStore) -> list[str]:
+        """Stop in-flight tasks and mark them CANCELLED; return the cancelled keys.
+
+        Backend-agnostic loop: the per-task stop is delegated to ``_stop_task``
+        (local SIGTERMs the worker's process group; Modal cancels the
+        ``FunctionCall``). Settled tasks are left alone.
+        """
+        from mini.runs import RunState
+
+        cancelled: list[str] = []
+        for rec in store.records():
+            state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
+            if state in (RunState.RUNNING, RunState.PENDING):
+                self._stop_task(rec)
+                store.update(rec['key'], state=RunState.CANCELLED)
+                cancelled.append(rec['key'])
+        return cancelled
+
+    def _stop_task(self, rec: dict[str, Any]) -> None:
+        """Backend-specific: stop one in-flight task. Default: nothing to stop."""
+
 
 def _map_in_thread(
     app: Apparatus,

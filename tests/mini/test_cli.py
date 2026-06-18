@@ -1,20 +1,21 @@
-"""CLI inspect commands span both state models (run/job *and* memo).
+"""CLI inspect/cancel commands over the memo store.
 
-`mini ls` / `mini status` historically only saw run/job runs (`index.json`);
-these assert they now also surface `mini run` orchestration experiments, whose
-state lives in the memo store. Commands are driven against ``.mini`` under a
-tmp cwd, so DATA_ROOT (a relative path) resolves there.
+`ls`/`status` surface memo-orchestration experiments (state lives in the memo
+store, addressed by name); `cancel` stops in-flight tasks. Commands are driven
+against ``.mini`` under a tmp cwd, so DATA_ROOT (a relative path) resolves there.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from pathlib import Path
 
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
 from mini.orchestration import tick
+from mini.runs import RunState
 
 
 def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 30.0) -> None:
@@ -45,3 +46,31 @@ def test_ls_and_status_surface_memo_experiments(tmp_path: Path, monkeypatch, cap
     cmd_status(argparse.Namespace(name='cli', app='local'))
     status_out = capsys.readouterr().out
     assert 'train-' in status_out and '2 tasks' in status_out  # per-task memo records
+
+
+def test_cancel_stops_running_task(tmp_path: Path):
+    def slow(x):
+        import time
+
+        time.sleep(30)  # long enough that only a cancel ends it within the test
+        return x
+
+    app = LocalApparatus('cancelexp', data_dir=tmp_path / 'cancelexp')
+    tick(Experiment(name='cancelexp', main=lambda ctx: ctx.map(slow, [(1,)])), app)  # launch + suspend
+
+    store = app.memo_store()
+    (rec,) = store.records()
+    pid = rec['pid']  # recorded synchronously at spawn
+    assert pid and RunState(rec['state']) == RunState.RUNNING
+
+    assert app.cancel(store) == [rec['key']]
+    assert all(RunState(r['state']) == RunState.CANCELLED for r in store.records())
+
+    # the worker really took the SIGTERM (reap it to confirm + avoid a zombie)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if os.waitpid(pid, os.WNOHANG)[0] == pid:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError('worker did not exit after cancel')

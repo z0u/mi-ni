@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import secrets
+import signal
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from pathlib import Path
 from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
@@ -70,7 +72,14 @@ class LocalApparatus(Apparatus[LocalVolume]):
     def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
         for key, fn, args, hooks in batch:
             store.write_call(key, fn, args, hooks)  # stage to disk for the subprocess worker
-            spawn_taskworker(store.data_dir, key)
+            store.update(key, pid=spawn_taskworker(store.data_dir, key))  # pid == pgid, for cancel
+
+    @override
+    def _stop_task(self, rec: dict[str, Any]) -> None:
+        """SIGTERM the worker's process group (it's a session leader: pgid == pid)."""
+        if pid := rec.get('pid'):
+            with suppress(ProcessLookupError, PermissionError):
+                os.killpg(pid, signal.SIGTERM)
 
     @override
     async def amap(

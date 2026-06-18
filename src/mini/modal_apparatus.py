@@ -286,6 +286,15 @@ class ModalApparatus(Apparatus[ModalVolume]):
             store.update(key, fc_id=fc_id, heartbeat_at=now)
 
     @override
+    def _stop_task(self, rec: dict[str, Any]) -> None:
+        """Cancel the task's Modal ``FunctionCall`` by its recorded id."""
+        from contextlib import suppress
+
+        if fc_id := rec.get('fc_id'):
+            with suppress(Exception):  # already finished / unknown id
+                modal.FunctionCall.from_id(fc_id).cancel()
+
+    @override
     async def amap(
         self,
         fn: Callable[..., R],

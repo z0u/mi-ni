@@ -11,6 +11,7 @@ agent (or you) can drive, poll, and gather without holding a session open:
     python -m mini status pipeline                          # per-task state + metrics, by NAME
     python -m mini results pipeline                         # per-task results
     python -m mini logs   pipeline <key>                    # a failed task's traceback
+    python -m mini cancel pipeline                          # stop in-flight tasks
 
 State is addressed by experiment NAME (one memo store per experiment). Read
 commands take ``--app modal`` to inspect a run on the Modal control plane.
@@ -180,6 +181,15 @@ def cmd_logs(args: argparse.Namespace) -> None:
     print(_store_for(args.name, args).error(args.key))
 
 
+def cmd_cancel(args: argparse.Namespace) -> None:
+    apparatus = _build_apparatus(args.name, args)
+    cancelled = apparatus.cancel(apparatus.memo_store())
+    if cancelled:
+        print(f'cancelled {len(cancelled)} task(s): {", ".join(cancelled)}')
+    else:
+        print('nothing to cancel (no in-flight tasks)')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog='mini', description='Run and monitor memoized mi-ni experiments.')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -213,6 +223,11 @@ def main() -> None:
     p.add_argument('key')
     _add_app_flag(p)
     p.set_defaults(func=cmd_logs)
+
+    p = sub.add_parser('cancel', help='stop in-flight tasks and mark them cancelled')
+    p.add_argument('name')
+    _add_app_flag(p)
+    p.set_defaults(func=cmd_cancel)
 
     args = parser.parse_args()
     args.func(args)
