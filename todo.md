@@ -50,10 +50,11 @@ experiment:
   owns its native knobs; selection happens at the edge (CLI flag / notebook code).
 
 **Still to do:**
-- **Wire compute through the memoized path.** `MemoStore.launch` still hardcodes a
-  local `subprocess.Popen` and never consults the apparatus, so `on=` currently
-  only differentiates *hooks* locally — not *where* work runs. The Modal backend
-  (and meaningful per-step `on=`) needs `launch` to spawn via the apparatus.
+- ~~**Wire compute through the memoized path.**~~ **Done.** `MemoStore` no longer
+  spawns: it `stage`s the call durably and the apparatus spawns via the
+  `Apparatus.spawn_task(store, key, call)` seam (`LocalApparatus` → subprocess;
+  `ModalApparatus` → detached Modal spawn). `on=` now routes *compute*, not just
+  hooks. Records went behind a `RecordStore` (local JSON / `modal.Dict`).
 - **Role labels for file-based experiments.** `on=apparatus` only works from a
   notebook (which holds apparatus handles); a file experiment loaded by the CLI
   has none. Plan: abstract *role* labels (`ctx.map(..., role='gpu')`) that the
@@ -78,11 +79,35 @@ experiment:
 
 ## Modal backend
 
-- `ModalControlPlane` backed by a named `modal.Dict` behind the `ControlPlane`
-  ABC; split `ControlPlane`/`LocalControlPlane`/`ModalControlPlane` into their own
-  `control.py` when the Modal class lands (move both at once).
-- Detached execution: `spawn_map` under `app.run(detach=True)`; persist the
-  `FunctionCall` id; poll per index.
+**Done (memoized path).** `mini run experiment.py --app modal` runs the memoized
+orchestration detached on Modal, verified live on Modal 1.3.3:
+- Control plane = named `modal.Dict` (`ModalRecordStore`, client-readable with no
+  remote function). I/O plane = the Volume; the remote worker (`_modal_task_entry`,
+  reusing the backend-agnostic `execute_task`) commits results before settling
+  state. `ModalApparatus.spawn_task` spawns one detached call per task under
+  `app.run(detach=True)` and persists the `FunctionCall` id.
+
+**Still to do:**
+- **Client-side `gather` egress.** `ModalMemoStore.result` reads the result blocks
+  straight from the Volume's storage CDN (`*.modal-storage.com`). That path 403'd
+  from the locked-down web/sandbox env (TLS was end-to-end; likely IP-bound signed
+  URLs), while the Dict control plane (via `api.modal.com`) worked. Result
+  integrity was confirmed by reading it back *inside* a Modal function. So gather
+  works from an unrestricted machine but may fail in the very environment the
+  agent runs in. Option: a remote read-back function returning the (small) result
+  over gRPC — the pattern the `modal` skill already recommends. **Decide.**
+- **`spawn_map` batching.** Today each task is its own `spawn` under its own
+  `app.run(detach=True)` — correct, but a sweep opens N app contexts per wake.
+  Batch a `ctx.map`'s missing tasks into one `spawn_map` (one `FunctionCall`, poll
+  per index) for efficiency. Also revisit `max_containers=1` default (serialises a
+  sweep through one container).
+- **Run/job path (`submit`/`Run`).** A `ModalControlPlane` behind the run/job
+  `ControlPlane` ABC (distinct from the memo's `RecordStore`) + the `control.py`
+  split, if/when the non-memoized detached path needs Modal.
+- **Restricted-env TLS.** Modal's gRPC uses `certifi`, which omits a corporate/
+  sandbox proxy CA that lives in the system bundle → `CERTIFICATE_VERIFY_FAILED`.
+  The agent harness may need the system CA bundle merged into certifi (or
+  `grpclib` pointed at it) to reach Modal at all.
 
 ## Housekeeping (from the proposal's "Deferred / open")
 
