@@ -42,6 +42,6 @@ def test_ls_and_status_surface_memo_experiments(tmp_path: Path, monkeypatch, cap
     ls_out = capsys.readouterr().out
     assert 'cli' in ls_out and 'tasks' in ls_out  # discovered via the memo store
 
-    cmd_status(argparse.Namespace(ref='cli'))
+    cmd_status(argparse.Namespace(name='cli', app='local'))
     status_out = capsys.readouterr().out
     assert 'train-' in status_out and '2 tasks' in status_out  # per-task memo records

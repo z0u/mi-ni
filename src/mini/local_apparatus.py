@@ -26,7 +26,7 @@ from mini.local_volume import LocalVolume
 from mini.memo import MemoStore
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
-from mini.runs import LocalControlPlane, Run, spawn_taskworker, spawn_worker
+from mini.runs import spawn_taskworker
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -65,29 +65,6 @@ class LocalApparatus(Apparatus[LocalVolume]):
         new_app = self.clone()
         new_app._before_hooks = self._before_hooks + [hook]
         return new_app
-
-    @override
-    def submit(self, fn: Callable[..., R], *iterables: Iterable[Any], kwargs: dict[str, Any] | None = None) -> Run:
-        cols = [list(it) for it in iterables]
-        jobs = [tuple(args) for args in zip(*cols, strict=False)] if cols else []
-        run_id = f'{self.name}/{secrets.token_hex(3)}'
-        data_dir = self.volume.path
-        cp = LocalControlPlane(data_dir / '.control')
-        spec = {
-            'fn': fn,
-            'jobs': jobs,
-            'kwargs': kwargs or {},
-            'before_hooks': self._before_hooks,
-            'max_workers': self.max_workers,
-        }
-        cp.create_run(run_id, spec, n_jobs=len(jobs))
-        cp.write_run(run_id, pid=spawn_worker(data_dir, run_id))
-        return Run(run_id, cp, data_dir)
-
-    @override
-    def reopen(self, run_id: str) -> Run:
-        data_dir = self.volume.path
-        return Run(run_id, LocalControlPlane(data_dir / '.control'), data_dir)
 
     @override
     def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:

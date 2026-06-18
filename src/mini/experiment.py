@@ -15,9 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 if TYPE_CHECKING:
-    from mini.apparatus import Apparatus
     from mini.orchestration import Ctx
-    from mini.runs import Run
 
 __all__ = ['Experiment', 'load_experiment']
 
@@ -27,10 +25,10 @@ class Experiment:
     """A named experiment: a single sweep, or a multi-step orchestration.
 
     The definition carries *no* compute: the apparatus is injected at execution
-    (by the CLI or a notebook) — ``apparatus.submit(...)`` / ``tick(exp,
-    apparatus)`` — so the same module runs locally or remotely without edits.
+    (by the CLI or a notebook) — ``tick(exp, apparatus)`` — so the same module
+    runs locally or remotely without edits.
 
-    Single sweep::
+    Single sweep (lowered to a one-line map)::
 
         Experiment(name='sweep', fn=train, configs=[(1e-3,), (1e-2,)])
 
@@ -48,11 +46,6 @@ class Experiment:
     configs: Sequence[Any] | None = None
     main: Callable[[Ctx], Any] | None = None
 
-    def columns(self) -> list[list[Any]]:
-        """Transpose per-job configs into per-argument columns for ``submit``."""
-        rows = [c if isinstance(c, tuple) else (c,) for c in (self.configs or [])]
-        return [list(col) for col in zip(*rows, strict=False)] if rows else []
-
     def orchestration(self) -> Callable[[Ctx], Any]:
         """Return the ``main(ctx)`` DAG (single sweeps become a one-line map)."""
         if self.main is not None:
@@ -62,12 +55,6 @@ class Experiment:
         fn = self.fn
         items = [c if isinstance(c, tuple) else (c,) for c in self.configs]
         return lambda ctx: ctx.map(fn, items)
-
-    def submit(self, apparatus: Apparatus) -> Run:
-        """Launch a single sweep detached on *apparatus* (one-shot run/job model)."""
-        if self.fn is None or self.configs is None:
-            raise ValueError('submit() needs fn= and configs=; use the orchestration driver for main=')
-        return apparatus.submit(self.fn, *self.columns())
 
 
 def load_experiment(path: str | Path) -> Experiment:

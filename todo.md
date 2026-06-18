@@ -8,10 +8,10 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 - **Settled vs. retryable failure (don't busy-loop, don't hide).** Today
   `_classify` treats `FAILED` like "never run" and relaunches it every `tick`, so
   a deterministically-failing task busy-loops (and wedges its `map` — see
-  `allow_partial` below). Fix: make `FAILED` *terminal/settled*, matching the
-  `Run`/job path (`SETTLED`, explicit `Run.retry()`); `tick` auto-launches only
-  un-run / retryable tasks. Re-running a `FAILED` task takes intent: bump
-  `version=`, edit the fn (new key), or an explicit retry lever.
+  `allow_partial` below). Fix: make `FAILED` *terminal/settled*; `tick`
+  auto-launches only un-run / retryable tasks. Re-running a `FAILED` task takes
+  intent: bump `version=`, edit the fn (new key), or an explicit retry lever
+  (the `mini retry` the CLI no longer has — see "memo CLI gaps" below).
 
   We deliberately do **not** classify transient (preemption / OOM / network
   timeout) vs. fatal in code — it's context-dependent and a wrong guess either
@@ -25,7 +25,7 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
     Bounded + backed-off so it can't hammer; on exhaustion → `FAILED`.
   - `mark_running` rewrites the record wholesale, so it must carry `attempts`
     forward (today it'd clobber the counter).
-  Document (skill + README + test) and unify with `Run.retry()` semantics.
+  Document (skill + README + test).
 
 - **`allow_partial=` for `ctx.map`.** Today `map` raises `Pending` if *any* item
   isn't `DONE`. Once failures settle (see above), a `FAILED` item no longer
@@ -46,15 +46,17 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 
 ## Polling / monitoring
 
-- **Unify the rest of the inspect commands across both state models.** *Done for
-  `ls`/`status`*: both now read the memo store (`.control/memo/`) as well as
-  run/job runs (`.control/index.json`), so `mini run`/`--watch` experiments are
-  discoverable. Still run/job-only: `results`, `logs`, `retry`, `cancel`. For the
-  memo path, `results <name>` could gather per-task results (`store.result(key)`)
-  or re-`tick` to recompute the orchestration payload; `logs <name> <key>` already
-  exists as `tasklog`. `retry`/`cancel` for memo tasks await the settled-vs-
-  retryable + liveness work above. Decide the addressing (memo is name-keyed, one
-  store per experiment; run/job is `<name>/<token>`).
+- **Memo CLI gaps: `retry` and `cancel`.** The CLI is now memo-only and
+  name-addressed (`run`/`ls`/`status`/`results`/`logs`); the old run/job model
+  (model 2: `submit`/`Run`/`mini launch`) is gone. Two verbs didn't carry over:
+  - `retry`: today re-running `mini run <path>` relaunches un-run/`FAILED` tasks
+    (it busy-loops on `FAILED` — see settled-vs-retryable). Once `FAILED` is
+    terminal, add an explicit `mini retry <name> [<key>]` lever.
+  - `cancel`: stopping in-flight tasks. The local memo records don't store the
+    task-worker pid (only Modal records an `fc_id`), so there's nothing to signal
+    yet. Record the pid at `spawn_taskworker` and add `mini cancel <name>` that
+    SIGTERMs live workers + marks them `CANCELLED`; on Modal, cancel via `fc_id`.
+    Ties into the dead-worker liveness check below.
 
 - **Keep `tick` (drive) distinct from polling (read).** `tick` re-runs `main` and
   *launches* missing/retryable work — it has side effects. A status/monitor check
@@ -76,8 +78,8 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
   — no `LocalQueue`. Ctrl-C stops only the watch; detached workers live on, so
   re-running resumes. Still to do:
   - A *read-only* `mini watch <exp>` (name-addressed, doesn't `tick`/launch) that
-    works against runs it didn't launch and the run/job (`submit`/`Run`) path, not
-    just the memo orchestration.
+    renders the live bar for a run it didn't launch — i.e. `status` with a Rich
+    refresh loop, for watching a detached/Modal run from another process.
   - **A dead worker wedges the watch.** A worker killed (or hard-crashed) without
     writing `FAILED` leaves a stale `RUNNING` record, and the drain loop waits on
     it forever. No heartbeat-timeout yet — and heartbeats only tick on
@@ -91,9 +93,8 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 **Done (local-only slice).** Compute is injected at execution, not stored on the
 experiment:
 - `Experiment` no longer has an `apparatus` field (nor `make_apparatus`,
-  `data_dir`, `before_hooks`); `Experiment.submit(apparatus)` and
-  `tick(exp, apparatus)` take it explicitly. CLI `--app`/`--workers` build it via
-  `_build_apparatus` (`--app local` only; `modal` raises "not supported yet").
+  `data_dir`, `before_hooks`); `tick(exp, apparatus)` takes it explicitly. CLI
+  `--app`/`--workers` build it via `_build_apparatus`.
 - Per-step override plumbed: `ctx.run(fn, *args, on=apparatus)` /
   `ctx.map(fn, items, on=apparatus)`, defaulting to the tick's apparatus; per-step
   `before_each` hooks come from whichever apparatus runs the step. Covered by
@@ -162,9 +163,6 @@ orchestration detached on Modal, verified live on Modal 1.3.3:
   which would leave a failed launch undiagnosable. Follow-up: a programmatic
   liveness cross-check (`FunctionCall.from_id(fc_id).get(timeout=0)`) in
   `mini status`, distinguishing "queued but never started" from "running".
-- **Run/job path (`submit`/`Run`).** A `ModalControlPlane` behind the run/job
-  `ControlPlane` ABC (distinct from the memo's `RecordStore`) + the `control.py`
-  split, if/when the non-memoized detached path needs Modal.
 - ~~**Restricted-env TLS.**~~ **Done** (`mini/_tls.py`). Modal's gRPC uses
   `certifi`, which omits a corporate/sandbox proxy CA that lives in the system
   bundle → `CERTIFICATE_VERIFY_FAILED`. `ensure_grpc_trusts_system_ca()` (called

@@ -14,7 +14,6 @@ from mini.volume import Volume
 
 if TYPE_CHECKING:
     from mini.memo import MemoStore
-    from mini.runs import Run
 
 P = ParamSpec('P')
 R = TypeVar('R')
@@ -163,21 +162,11 @@ class Apparatus(ABC, Generic[V]):
         """
         ...
 
-    # -- Detached lifecycle ---------------------------------------------------
-    # Unlike ``map``/``amap`` (launch + monitor + collect in one blocking call),
-    # these split the lifecycle so it can span short-lived processes: ``submit``
-    # launches detached and returns a durable handle; ``reopen`` reconstructs it
-    # elsewhere. See notes/agentic-experiments.md.
-
-    def submit(self, fn: Callable[..., R], *iterables: Iterable[Any], kwargs: dict[str, Any] | None = None) -> Run:
-        """Launch *fn* over the iterables detached; return a durable `Run`."""
-        raise NotImplementedError(
-            f'{type(self).__name__} does not support detached submit yet. See notes/agentic-experiments.md.'
-        )
-
-    def reopen(self, run_id: str) -> Run:
-        """Reconstruct a `Run` handle from a previous submit, in a fresh process."""
-        raise NotImplementedError(f'{type(self).__name__} does not support reopen yet.')
+    # -- Detached, memoized orchestration -------------------------------------
+    # Unlike ``map``/``amap`` (launch + monitor + collect in one blocking call,
+    # for notebooks), the memoized path splits the lifecycle so it can span
+    # short-lived processes: ``mini.orchestration.tick`` stages each call and
+    # ``spawn_tasks`` launches it detached. See notes/agentic-experiments.md.
 
     def memo_store(self) -> MemoStore:
         """Return the `MemoStore` for the memoized orchestration on this backend.
