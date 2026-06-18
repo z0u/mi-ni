@@ -25,8 +25,19 @@ Special objects like database connections, GPU contexts, and file descriptors ar
 **Closures & scope**
 Closures work with remote functions, but don't assume that global scope will be available on the remote container. Usually module-level imports work fine, but occasionally you may need to import within the function.
 
-**Image & environment setup**
-Define container images with explicit dependencies using `modal.Image`. Use pinned versions to ensure pickling compatibility between local and remote environments. mi-ni provides utilities for building images with pinned dependencies from `pyproject.toml`; see `requirements.py` and the `ModalApparatus`.
+**Image & environment setup (mostly automatic)**
+You normally don't write any `modal.Image` code. `ModalApparatus` builds the image for you, lazily, on the first spawn/map (read-only commands like `status`/`results` never build it). What it does, so you can rely on it:
+
+- **Pins your deps from `pyproject.toml`.** It freezes the resolved versions (`uv_freeze`, all dependency groups except `local`/`dev`) so the remote matches your lockfile. The `cuda` group is included remotely (e.g. `jax[cuda12]`) while local installs stay CPU-only — so the same code runs CPU locally and picks up the GPU when one is attached.
+- **Ships your source automatically.** It adds the project's top-level `src/` packages via `add_local_python_source(*project_packages())` — so a remote worker can `import experiment...`/`import utils...` with no manual mounting or packaging. New top-level packages under `src/` are discovered automatically.
+- **Cached by content hash**, so it only rebuilds when deps or source change. The first build can take a few minutes; later runs are near-instant cache hits.
+
+To override (extra apt/pip, a custom base), pass `.w(image=my_image)`. See `make_image`/`requirements.py` and `ModalApparatus._ensure_image`.
+
+**Running in restricted environments / cloud sandboxes**
+- **TLS-inspecting proxies:** `ModalApparatus.__init__` calls `ensure_grpc_trusts_system_ca()` (`mini/_tls.py`) so Modal's gRPC trusts a corporate/sandbox proxy CA. The bare `modal` CLI does *not* apply this, so it may fail to connect where mini works — prefer driving Modal through mini (`bin/mini ... --app modal`, or `ModalApparatus`) rather than the raw CLI.
+- **Auth:** `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` env vars (or `./go auth`, which writes `~/.modal.toml`).
+- **Egress:** the worker pulls datasets/results over the network; ensure the Modal + storage domains listed in the README are allowed.
 
 #### Common patterns in this project
 

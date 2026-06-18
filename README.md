@@ -128,6 +128,16 @@ Typically, you would store _data_ rather than code in LFS:
 - model weights
 - visualizations (images and video)
 
+If `git-lfs` isn't already on your machine (e.g. a fresh cloud sandbox where `apt` is locked down), install the release binary directly:
+
+```bash
+ver=3.6.1
+curl -fsSL "https://github.com/git-lfs/git-lfs/releases/download/v${ver}/git-lfs-linux-amd64-v${ver}.tar.gz" | tar xz
+install -m755 "git-lfs-${ver}/git-lfs" /usr/local/bin/git-lfs && git lfs install
+```
+
+Note that LFS _uploads_ need write access to the repo's LFS store — some sandboxes can fetch LFS objects but can't push them. If a push fails with an LFS authorization error, regenerate and commit the file from an environment with full repo credentials.
+
 </details>
 
 [dc]: https://containers.dev
