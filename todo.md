@@ -50,7 +50,9 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
   *launches* missing/retryable work — it has side effects. A status/monitor check
   must use the read-only path (`state` / `records`), never re-`tick`, so "is it
   done yet?" can't accidentally relaunch work. Worth stating explicitly in the
-  skill so an agent doesn't poll by re-ticking.
+  skill so an agent doesn't poll by re-ticking. The `--watch` driver
+  (`mini.monitor.drive_and_watch`) honours this: it `tick`s only to advance to the
+  next stage, then polls `store.records()` read-only between ticks.
 
 - **Cheap polling for large sweeps.** Cache settled (`DONE`/`FAILED`/`CANCELLED`)
   records client-side — they're immutable — and poll only the unsettled subset.
@@ -58,9 +60,21 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
   With per-job keys, read only active jobs; consider a last-writer-wins run-summary
   key for cheap top-level polling. Relevant once the control plane is a `modal.Dict`.
 
-- **Interactive monitor to replace `LocalQueue`.** A long-running `mini watch <exp>`
-  that loops on the durable read path (`MemoStore.records()` / control plane) and
-  renders Rich until settled — no queue, works against runs it didn't launch.
+- **Interactive monitor.** *Partly done* for the memo path: `mini run <exp>
+  --watch` (`mini.monitor.drive_and_watch`) drives the DAG to completion with a
+  live Rich bar per task, looping on the durable read path (`MemoStore.records()`)
+  — no `LocalQueue`. Ctrl-C stops only the watch; detached workers live on, so
+  re-running resumes. Still to do:
+  - A *read-only* `mini watch <exp>` (name-addressed, doesn't `tick`/launch) that
+    works against runs it didn't launch and the run/job (`submit`/`Run`) path, not
+    just the memo orchestration.
+  - **A dead worker wedges the watch.** A worker killed (or hard-crashed) without
+    writing `FAILED` leaves a stale `RUNNING` record, and the drain loop waits on
+    it forever. No heartbeat-timeout yet — and heartbeats only tick on
+    `emit_progress`/state-changes, so a long no-emit step (e.g. `prepare_data`)
+    can't be told apart from a stall by age alone. Tie this to the liveness
+    cross-check under "Modal backend" (`FunctionCall.get(timeout=0)` there; a
+    pid/heartbeat check locally).
 
 ## Compute decoupling (apparatus)
 
@@ -94,9 +108,12 @@ experiment:
 
 ## CLI / ergonomics
 
-- **Expose a real entrypoint** — `mini launch …` / `./go mini …` rather than
-  `python -m mini …` (notes/agentic-experiments.md, "CLI" section). See the
-  `bin/` wrapper convention.
+- **Expose a real entrypoint.** *Partly done*: `bin/mini` wraps `uv run python -m
+  mini …` so it works from any cwd (matches the `bin/` convention). Follow-up: a
+  proper `[project.scripts]` console-script (`mini = mini.__main__:main`) so the
+  wrapper can drop the `python -m` indirection — and decide whether the data root
+  should follow the project (today `.mini` is relative to cwd, so `bin/mini` from
+  elsewhere writes a stray `.mini/` there).
 
 ## Cross-experiment composition
 

@@ -1,0 +1,122 @@
+"""
+Drive a memoized experiment to completion with a live Rich progress display.
+
+``mini run <exp> --watch`` ticks the orchestration to launch each stage, then
+*polls the durable memo records* (never re-ticking to poll — see todo, "Keep
+`tick` (drive) distinct from polling (read)") and renders a live bar per task
+until the in-flight set settles, advancing the DAG stage by stage until done.
+
+Ctrl-C only stops *watching*: the task workers are detached subprocesses, so
+they keep running. Re-running the same command reattaches — completed steps are
+memo hits and in-flight tasks aren't relaunched — so monitoring just resumes.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from rich.console import Console
+from rich.markup import escape
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
+
+from mini.apparatus import Apparatus
+from mini.experiment import Experiment
+from mini.orchestration import tick
+from mini.runs import RunState
+
+__all__ = ['drive_and_watch', 'ExperimentFailed']
+
+_COLOR = {
+    RunState.RUNNING: 'cyan',
+    RunState.DONE: 'green',
+    RunState.FAILED: 'red',
+    RunState.CANCELLED: 'yellow',
+}
+
+
+class ExperimentFailed(Exception):
+    """The watched DAG can't progress because one or more tasks have FAILED.
+
+    We stop rather than let the next ``tick`` relaunch the failure (today
+    ``FAILED`` isn't terminal — see todo, "Settled vs. retryable failure"), so a
+    deterministic bug surfaces instead of busy-looping.
+    """
+
+    def __init__(self, failed: list[dict[str, Any]]):
+        self.failed = failed
+        keys = ', '.join(r['key'] for r in failed)
+        super().__init__(f'{len(failed)} task(s) failed: {keys}')
+
+
+def _fmt_metrics(metrics: dict[str, float]) -> str:
+    return '  '.join(f'{k}={v:g}' for k, v in metrics.items())
+
+
+def _refresh(progress: Progress, bars: dict[str, TaskID], records: list[dict[str, Any]]) -> None:
+    """Reflect the latest memo records onto the live bars (one per task key)."""
+    for rec in records:
+        key = rec['key']
+        state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
+        step, total = rec.get('step', 0), rec.get('total', 0)
+        if state == RunState.DONE:  # prep steps emit no progress; show them full
+            total = total or 1
+            step = total
+        elif state in (RunState.FAILED, RunState.CANCELLED):
+            total = total or 1
+        desc = key
+        if rec.get('message'):
+            desc += f' — {rec["message"]}'
+        if rec.get('metrics'):
+            desc += f'  {_fmt_metrics(rec["metrics"])}'
+        if rec.get('error'):
+            desc += f'  !! {rec["error"]}'
+        desc = f'[{_COLOR.get(state, "white")}]{escape(desc)}[/]'  # escape: errors/messages may hold [...]
+        if key not in bars:
+            bars[key] = progress.add_task(desc, total=total or None)
+        progress.update(bars[key], completed=step, total=total or None, description=desc)
+
+
+def drive_and_watch(
+    experiment: Experiment,
+    apparatus: Apparatus,
+    *,
+    poll: float = 0.5,
+    console: Console | None = None,
+) -> Any:
+    """Drive *experiment* to completion on *apparatus*, rendering a live bar.
+
+    Returns the orchestration's payload on completion. Raises ``ExperimentFailed``
+    if a task settles FAILED (so we don't relaunch it on the next tick), and lets
+    ``KeyboardInterrupt`` propagate (the caller reports; detached workers live on).
+    """
+    store = apparatus.memo_store()
+    with Progress(
+        TextColumn('[progress.description]{task.description}'),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console or Console(),
+    ) as progress:
+        bars: dict[str, TaskID] = {}
+        while True:
+            done, payload = tick(experiment, apparatus)  # advance DAG, launch missing work
+            _refresh(progress, bars, store.records())
+            if done:
+                return payload
+            # Read-only poll until the in-flight set settles — no re-ticking.
+            while True:
+                records = store.records()
+                _refresh(progress, bars, records)
+                if not any(r.get('state') == RunState.RUNNING for r in records):
+                    break
+                time.sleep(poll)
+            if failed := [r for r in records if r.get('state') == RunState.FAILED]:
+                raise ExperimentFailed(failed)

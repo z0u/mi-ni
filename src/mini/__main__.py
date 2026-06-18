@@ -131,9 +131,16 @@ def cmd_cancel(args: argparse.Namespace) -> None:
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    """One wake of a (possibly multi-step) orchestration: advance + report."""
+    """One wake of a (possibly multi-step) orchestration: advance + report.
+
+    With ``--watch``, instead drive the DAG to completion with a live progress
+    bar; Ctrl-C stops watching (detached workers live on — re-run to resume).
+    """
     exp = load_experiment(args.path)
     apparatus = _build_apparatus(exp.name, args)
+    if args.watch:
+        _watch(exp, apparatus, poll=args.poll)
+        return
     done, payload = tick(exp, apparatus)
     store = apparatus.memo_store()
     print(f'{exp.name}:')
@@ -153,6 +160,24 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(f'… suspended — {payload} (re-run to advance)')
 
 
+def _watch(exp, apparatus: Apparatus, poll: float) -> None:
+    """Drive an orchestration to completion with a live bar (the ``--watch`` path)."""
+    from mini.monitor import ExperimentFailed, drive_and_watch
+
+    try:
+        payload = drive_and_watch(exp, apparatus, poll=poll)
+    except KeyboardInterrupt:
+        print('\n… stopped watching; tasks keep running. Re-run the same command to resume.')
+        return
+    except ExperimentFailed as e:
+        print(f'✗ {e}')
+        for rec in e.failed:
+            print(f'  ✗ {rec["key"]}  !! {rec.get("error", "")}')
+        print(f'inspect a traceback with:  python -m mini tasklog {exp.name} <key>')
+        raise SystemExit(1) from e
+    print(f'✓ complete: {payload}')
+
+
 def cmd_tasklog(args: argparse.Namespace) -> None:
     print(MemoStore(DATA_ROOT / args.experiment).error(args.key))
 
@@ -167,6 +192,8 @@ def main() -> None:
 
     p = sub.add_parser('run', help='advance a (multi-step) memoized orchestration by one wake')
     p.add_argument('path')
+    p.add_argument('-w', '--watch', action='store_true', help='drive to completion with a live progress bar')
+    p.add_argument('--poll', type=float, default=0.5, help='seconds between record polls while watching')
     _add_compute_flags(p)
     p.set_defaults(func=cmd_run)
 

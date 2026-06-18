@@ -2,7 +2,17 @@
 A gpt_sweep-shaped multi-step experiment on local compute.
 
 One data-prep step, then a training sweep whose configs depend on prep's output.
-Drive it across wakes (each call advances the DAG and returns immediately):
+
+Run it start to finish with a live progress bar:
+
+    python -m mini run experiments/pipeline.py --watch --workers 3
+
+``--watch`` ticks the DAG to launch each stage, then polls the durable records
+and renders a bar per task until done. Ctrl-C only stops *watching* — the task
+workers are detached, so re-running the same command resumes monitoring (done
+steps are memo hits; in-flight tasks aren't relaunched).
+
+Or drive it one wake at a time (each call advances the DAG and returns at once):
 
     python -m mini run experiments/pipeline.py     # launches prep, suspends
     python -m mini run experiments/pipeline.py      # ...prep done -> launches sweep
