@@ -43,6 +43,16 @@ app.volume.download(...)
 
 For a more complete example, have a look at the [nanoGPT notebook](./docs/nanogpt.py).
 
+If you encounter network issues, ensure the following domains are accessible from your environment (e.g. [in Claude Code](https://code.claude.com/docs/en/claude-code-on-the-web#network-access)):
+
+```
+storage.googleapis.com
+modal.com
+*.modal.com
+*.modal-storage.com
+*.modal.run
+```
+
 [codespaces]: https://github.com/features/codespaces
 
 <details><summary>Virtual environment</summary>
