@@ -8,6 +8,11 @@ output. See test_orchestration.py for the single-tick ``_drive`` counterpart.
 from __future__ import annotations
 
 import io
+import os
+import signal
+import threading
+import time
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -16,10 +21,19 @@ from rich.console import Console
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
 from mini.monitor import ExperimentFailed, drive_and_watch
+from mini.orchestration import tick
+from mini.runs import RunState
 
 
 def _quiet() -> Console:
     return Console(file=io.StringIO())
+
+
+def _sleeper(x):
+    import time
+
+    time.sleep(60)  # long enough that only a kill ends it within the test
+    return x
 
 
 def _watch(exp: Experiment, app: LocalApparatus):
@@ -51,3 +65,63 @@ def test_raises_on_failure_without_relaunching(tmp_path: Path):
     with pytest.raises(ExperimentFailed) as exc:
         _watch(exp, app)
     assert len(exc.value.failed) == 2  # both surfaced, not busy-looped
+
+
+def test_reap_dead_settles_a_killed_worker(tmp_path: Path):
+    """A worker hard-killed mid-run (no FAILED written) is detected as dead and
+    settled FAILED, so it can't masquerade as RUNNING forever."""
+    app = LocalApparatus('reap', data_dir=tmp_path / 'reap')
+    tick(Experiment(name='reap', main=lambda ctx: ctx.map(_sleeper, [(1,)])), app)  # launch + suspend
+    store = app.memo_store()
+    (rec,) = store.records()
+    pid = rec['pid']
+    assert RunState(rec['state']) == RunState.RUNNING
+    assert app.reap_dead(store) == []  # a live worker is left alone
+
+    os.killpg(pid, signal.SIGKILL)  # crash it without letting it write a result
+    deadline = time.monotonic() + 10  # wait until truly gone (a zombie counts as dead)
+    while time.monotonic() < deadline and app._is_task_alive(rec):
+        time.sleep(0.05)
+    assert not app._is_task_alive(rec)
+
+    assert app.reap_dead(store) == [rec['key']]
+    (settled,) = store.records()
+    assert RunState(settled['state']) == RunState.FAILED and 'vanished' in settled['error']
+    assert app.reap_dead(store) == []  # idempotent — it's terminal now
+    with suppress(ChildProcessError):
+        os.waitpid(pid, 0)  # reap the zombie we created
+
+
+def test_watch_surfaces_a_killed_worker(tmp_path: Path):
+    """The wedge fix end-to-end: a worker killed *while watching* settles FAILED
+    via ``reap_dead``, so the drain raises instead of waiting on it forever."""
+    app = LocalApparatus('watch_killed', data_dir=tmp_path / 'watch_killed')
+    exp = Experiment(name='watch_killed', main=lambda ctx: ctx.map(_sleeper, [(1,)]))
+
+    captured: dict[str, BaseException] = {}
+
+    def run() -> None:
+        try:
+            _watch(exp, app)
+        except BaseException as e:  # noqa: BLE001 — record whatever the watch raised
+            captured['exc'] = e
+
+    watcher = threading.Thread(target=run)
+    watcher.start()
+
+    store = app.memo_store()  # wait for the detached worker to be RUNNING with a pid
+    pid = None
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if (recs := store.records()) and recs[0].get('pid') and recs[0].get('state') == RunState.RUNNING:
+            pid = recs[0]['pid']
+            break
+        time.sleep(0.05)
+    assert pid, 'worker never started'
+
+    os.killpg(pid, signal.SIGKILL)
+    watcher.join(timeout=15)
+    assert not watcher.is_alive(), 'watch wedged on the dead worker'
+    assert isinstance(captured.get('exc'), ExperimentFailed)
+    with suppress(ChildProcessError):
+        os.waitpid(pid, 0)

@@ -311,6 +311,34 @@ class ModalApparatus(Apparatus[ModalVolume]):
                 modal.FunctionCall.from_id(fc_id).cancel()
 
     @override
+    def _is_task_alive(self, rec: dict[str, Any]) -> bool:
+        """Probe the task's ``FunctionCall`` for liveness (for ``reap_dead``).
+
+        ``get(timeout=0)`` polls without waiting: a ``modal.exception.TimeoutError``
+        means the input is still unfinished (running/queued → alive); a normal
+        return means it completed (the record settles on its own → treat as alive).
+        Only the *definitive gone* signals — the output expired, or the call id is
+        unknown — count as dead. We deliberately treat any other error (a remote
+        infra failure, or a transient read-side network blip) as alive: a false
+        "dead" would mark a live GPU task FAILED, and a retry would double-spawn it.
+        """
+        fc_id = rec.get('fc_id')
+        if not fc_id:
+            return True  # not launched on Modal yet — nothing to probe
+        from modal.exception import NotFoundError, OutputExpiredError
+        from modal.exception import TimeoutError as ModalTimeout
+
+        try:
+            modal.FunctionCall.from_id(fc_id).get(timeout=0)
+        except ModalTimeout:
+            return True  # output not ready, input still unfinished → running/queued
+        except OutputExpiredError, NotFoundError:
+            return False  # the call is gone — it will never settle the record
+        except Exception:
+            return True  # ambiguous infra/network error — don't risk reaping a live task
+        return True  # completed and returned → the record settles on its own
+
+    @override
     async def amap(
         self,
         fn: Callable[..., R],

@@ -45,9 +45,9 @@ _COLOR = {
 class ExperimentFailed(Exception):
     """The watched DAG can't progress because one or more tasks have FAILED.
 
-    We stop rather than let the next ``tick`` relaunch the failure (today
-    ``FAILED`` isn't terminal — see todo, "Settled vs. retryable failure"), so a
-    deterministic bug surfaces instead of busy-looping.
+    ``FAILED`` is terminal — ``tick`` won't relaunch it — so we stop and surface
+    it rather than spin. The failure may be a thrown task or a worker the watch
+    *reaped* as dead (``Apparatus.reap_dead``). Recover with ``mini retry``.
     """
 
     def __init__(self, failed: list[dict[str, Any]]):
@@ -113,6 +113,7 @@ def drive_and_watch(
                 return payload
             # Read-only poll until the in-flight set settles — no re-ticking.
             while True:
+                apparatus.reap_dead(store)  # settle vanished workers so a kill can't wedge the drain
                 records = store.records()
                 _refresh(progress, bars, records)
                 if not any(r.get('state') == RunState.RUNNING for r in records):

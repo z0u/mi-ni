@@ -82,6 +82,12 @@ class LocalApparatus(Apparatus[LocalVolume]):
                 os.killpg(pid, signal.SIGTERM)
 
     @override
+    def _is_task_alive(self, rec: dict[str, Any]) -> bool:
+        """Is the recorded worker pid still a live process? (for ``reap_dead``)."""
+        pid = rec.get('pid')
+        return _pid_alive(pid) if pid else True  # no pid yet — can't probe; assume alive
+
+    @override
     async def amap(
         self,
         fn: Callable[..., R],
@@ -124,6 +130,33 @@ class LocalApparatus(Apparatus[LocalVolume]):
             # Yield results in input order to match map semantics
             for task in tasks:
                 yield await task
+
+
+def _pid_alive(pid: int) -> bool:
+    """Whether *pid* is a running process — counting a zombie as *not* alive.
+
+    ``os.kill(pid, 0)`` succeeds on a zombie (an exited child not yet reaped),
+    which would keep a hard-killed worker looking alive when it's a direct child
+    of the watcher. On Linux we read ``/proc/<pid>/stat`` and treat state ``Z`` as
+    dead; elsewhere we fall back to a signal-0 probe (no zombie distinction).
+    """
+    proc = Path('/proc') / str(pid)
+    if Path('/proc').is_dir():
+        if not proc.exists():
+            return False
+        try:
+            # stat is "pid (comm) state ..."; comm may hold spaces/parens, so the
+            # state field is the first token after the final ')'.
+            return (proc / 'stat').read_text().rsplit(')', 1)[1].split()[0] != 'Z'
+        except OSError:
+            return False  # vanished between the exists() check and the read
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but not ours (shouldn't happen for our own worker)
 
 
 def _wrap_for_local(

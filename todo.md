@@ -77,13 +77,20 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
   - A *read-only* `mini watch <exp>` (name-addressed, doesn't `tick`/launch) that
     renders the live bar for a run it didn't launch — i.e. `status` with a Rich
     refresh loop, for watching a detached/Modal run from another process.
-  - **A dead worker wedges the watch.** A worker killed (or hard-crashed) without
-    writing `FAILED` leaves a stale `RUNNING` record, and the drain loop waits on
-    it forever. No heartbeat-timeout yet — and heartbeats only tick on
-    `emit_progress`/state-changes, so a long no-emit step (e.g. `prepare_data`)
-    can't be told apart from a stall by age alone. Tie this to the liveness
-    cross-check under "Modal backend" (`FunctionCall.get(timeout=0)` there; a
-    pid/heartbeat check locally).
+  - ~~**A dead worker wedges the watch.**~~ **Done.** `Apparatus.reap_dead(store)`
+    cross-checks each `RUNNING` task against the *real* worker (`_is_task_alive`:
+    local probes `/proc/<pid>/stat`, counting a zombie as dead so a SIGKILLed child
+    of the watcher is caught; Modal probes `FunctionCall.get(timeout=0)`) and
+    settles orphans `FAILED` ("worker vanished…"). It re-reads state before writing
+    (a worker settles *then* exits, so gone+RUNNING ⇒ died mid-run) and never
+    relaunches, so it's safe on the poll path. Wired into the `--watch` drain loop
+    (`drive_and_watch`) and `mini status`, so a killed worker surfaces as `FAILED`
+    (→ `mini retry`) instead of hanging. We sidestep heartbeat-age entirely (it
+    can't tell a long no-emit step from a stall), probing the worker directly.
+    Modal is deliberately conservative — only *definitive gone* signals
+    (`OutputExpiredError`/`NotFoundError`) reap; transient/infra read errors are
+    treated as alive, since a false "dead" would mark a live GPU task FAILED and a
+    retry would double-spawn it.
 
 ## Compute decoupling (apparatus)
 
@@ -166,9 +173,11 @@ completion with live bars off the Dict), and `cancel --app modal` (cancelled bot
   concurrently). We use one `spawn()` per task (not `spawn_map`) inside that
   single context: same batching win, but each task gets a `FunctionCall` id
   recorded in its memo record at launch — `spawn_map` returns `None` on 1.3.x,
-  which would leave a failed launch undiagnosable. Follow-up: a programmatic
-  liveness cross-check (`FunctionCall.from_id(fc_id).get(timeout=0)`) in
-  `mini status`, distinguishing "queued but never started" from "running".
+  which would leave a failed launch undiagnosable. The programmatic liveness
+  cross-check (`FunctionCall.from_id(fc_id).get(timeout=0)`) now lands in
+  `ModalApparatus._is_task_alive`, used by `reap_dead` from `mini status`/`--watch`
+  (see "A dead worker wedges the watch" above). It does not yet distinguish
+  "queued but never started" from "running" — both read as alive.
 - ~~**Restricted-env TLS.**~~ **Done** (`mini/_tls.py`). Modal's gRPC uses
   `certifi`, which omits a corporate/sandbox proxy CA that lives in the system
   bundle → `CERTIFICATE_VERIFY_FAILED`. `ensure_grpc_trusts_system_ca()` (called

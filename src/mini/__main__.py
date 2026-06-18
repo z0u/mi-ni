@@ -179,7 +179,10 @@ def cmd_ls(args: argparse.Namespace) -> None:
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    recs = _store_for(args.name, args).records()
+    apparatus = _build_apparatus(args.name, args)
+    store = apparatus.memo_store()
+    apparatus.reap_dead(store)  # a worker that died mid-run shouldn't read as RUNNING forever
+    recs = store.records()
     if not recs:
         raise SystemExit(f'no tasks found for experiment {args.name!r}')
     state = _aggregate_state([_rec_state(r) for r in recs])

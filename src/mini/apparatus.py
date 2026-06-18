@@ -224,6 +224,41 @@ class Apparatus(ABC, Generic[V]):
     def _stop_task(self, rec: dict[str, Any]) -> None:
         """Backend-specific: stop one in-flight task. Default: nothing to stop."""
 
+    def reap_dead(self, store: MemoStore) -> list[str]:
+        """Settle RUNNING tasks whose worker has vanished (→ FAILED); return their keys.
+
+        A worker killed or hard-crashed — OOM, SIGKILL, a segfault, a closed
+        laptop — can exit *without* writing a settled state, leaving a stale
+        RUNNING record. That wedges a ``--watch`` drain forever (it waits on a task
+        that will never report) and misleads a ``status`` poll. We cross-check the
+        real worker via ``_is_task_alive`` (local pid / Modal ``FunctionCall``) and
+        mark the orphans FAILED. FAILED is terminal, so recovery is a deliberate
+        ``retry`` — same as any other failure. Reaping never *relaunches*, so it's
+        safe on the read/poll path (see todo, "Keep tick distinct from polling").
+        """
+        from mini.runs import RunState
+
+        reaped: list[str] = []
+        for rec in store.records():
+            if rec.get('state') != RunState.RUNNING or self._is_task_alive(rec):
+                continue
+            # Re-read before settling: a worker writes its final state *then* exits,
+            # so if it's gone yet the record still says RUNNING it died mid-run. The
+            # re-read closes the gap between our records() snapshot and the probe.
+            if store.state(rec['key']) != RunState.RUNNING:
+                continue
+            store.update(rec['key'], state=RunState.FAILED, error='worker vanished (killed/crashed, no result written)')
+            reaped.append(rec['key'])
+        return reaped
+
+    def _is_task_alive(self, rec: dict[str, Any]) -> bool:
+        """Backend probe: is this RUNNING task's worker still alive?
+
+        Default: unknown → ``True``, so a backend with no way to inspect a worker
+        never reaps a task it can't actually confirm is dead.
+        """
+        return True
+
 
 def _map_in_thread(
     app: Apparatus,
