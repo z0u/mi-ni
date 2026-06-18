@@ -23,6 +23,7 @@ from mini._queues import QueueLike
 from mini.apparatus import Apparatus
 from mini.local_queue import LocalQueue
 from mini.local_volume import LocalVolume
+from mini.memo import MemoStore
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.runs import LocalControlPlane, Run, spawn_taskworker, spawn_worker
@@ -89,8 +90,10 @@ class LocalApparatus(Apparatus[LocalVolume]):
         return Run(run_id, LocalControlPlane(data_dir / '.control'), data_dir)
 
     @override
-    def spawn_task(self, data_dir: Path, key: str) -> None:
-        spawn_taskworker(data_dir, key)
+    def spawn_task(self, store: MemoStore, key: str, call: tuple[Callable, tuple, list]) -> None:
+        fn, args, hooks = call
+        store.write_call(key, fn, args, hooks)  # stage to disk for the subprocess worker
+        spawn_taskworker(store.data_dir, key)
 
     @override
     async def amap(

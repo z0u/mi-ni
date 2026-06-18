@@ -166,9 +166,11 @@ def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
     spawned: list[str] = []
 
     class InlineApparatus(LocalApparatus):
-        def spawn_task(self, data_dir: Path, key: str) -> None:
+        def spawn_task(self, store, key, call):
             spawned.append(key)
-            run_task(data_dir, key)  # run now, in-process — no subprocess
+            fn, args, hooks = call
+            store.write_call(key, fn, args, hooks)
+            run_task(store.data_dir, key)  # run now, in-process — no subprocess
 
     def task(x):
         return x * 3

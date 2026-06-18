@@ -52,11 +52,11 @@ class Ctx:
         key = fingerprint(fn, args, version)
         state = self.store.state(key)
         if state in (None, RunState.FAILED):
-            # Stage the call durably, then let the apparatus decide *where* it
-            # runs. This is the seam that makes per-step ``on=`` route compute
-            # (local subprocess vs Modal), not just hooks.
-            self.store.stage(fn, args, key, hooks=getattr(app, '_before_hooks', []))
-            app.spawn_task(self.store.data_dir, key)
+            # Mark RUNNING, then let the apparatus decide *where* the call runs.
+            # This is the seam that makes per-step ``on=`` route compute (local
+            # subprocess vs Modal), not just hooks.
+            self.store.mark_running(fn, key)
+            app.spawn_task(self.store, key, (fn, args, getattr(app, '_before_hooks', [])))
             self.launched.append(key)
             state = RunState.RUNNING
         return key, state

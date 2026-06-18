@@ -54,7 +54,7 @@ class _MemoSink:
 
 def run_task(data_dir: Path, key: str) -> None:
     store = MemoStore(data_dir)
-    fn, args, hooks = cloudpickle.loads(store._call(key).read_bytes())
+    fn, args, hooks = store.read_call(key)
     result_dir = store.result_dir(key)
     result_dir.mkdir(parents=True, exist_ok=True)
     sink = _MemoSink(store, key)

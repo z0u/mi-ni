@@ -18,6 +18,7 @@ import json
 import pickle
 import time
 import types
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,7 +26,7 @@ import cloudpickle
 
 from mini.runs import RunState, _atomic_write, _merge_json
 
-__all__ = ['fingerprint', 'MemoStore']
+__all__ = ['fingerprint', 'RecordStore', 'LocalRecordStore', 'MemoStore']
 
 # Source under these roots is treated as an opaque, stable dependency: the
 # stdlib, installed packages, and the mini framework itself (so editing mini
@@ -95,20 +96,69 @@ def fingerprint(fn: Callable, args: tuple, version: str | None = None) -> str:
     return f'{getattr(fn, "__name__", "task")}-{h.hexdigest()[:12]}'
 
 
+class RecordStore(ABC):
+    """A small, flat ``key -> record`` store: the memo's control plane.
+
+    Records are tiny and hot (state, step, latest metrics, heartbeat),
+    last-writer-wins. The local backend is JSON files; the Modal backend is a
+    named ``modal.Dict`` (readable from the client with no remote function). The
+    interface is deliberately minimal so a ``modal.Dict`` satisfies it directly.
+    """
+
+    @abstractmethod
+    def read(self, key: str) -> dict[str, Any] | None: ...
+    @abstractmethod
+    def write(self, key: str, record: dict[str, Any]) -> None:
+        """Overwrite a record wholesale (resets stale fields, e.g. a prior error)."""
+
+    @abstractmethod
+    def merge(self, key: str, fields: dict[str, Any]) -> None:
+        """Merge *fields* into the record (progress/heartbeat updates)."""
+
+    @abstractmethod
+    def keys(self) -> list[str]: ...
+
+
+class LocalRecordStore(RecordStore):
+    """``RecordStore`` backed by JSON files under a directory."""
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+
+    def read(self, key: str) -> dict[str, Any] | None:
+        p = self.root / f'{key}.json'
+        return json.loads(p.read_text()) if p.exists() else None
+
+    def write(self, key: str, record: dict[str, Any]) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        _atomic_write(self.root / f'{key}.json', json.dumps(record))
+
+    def merge(self, key: str, fields: dict[str, Any]) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        _merge_json(self.root / f'{key}.json', fields)
+
+    def keys(self) -> list[str]:
+        return sorted(p.stem for p in self.root.glob('*.json')) if self.root.exists() else []
+
+
 class MemoStore:
     """Per-experiment content-addressed task store (the orchestration backend).
 
-    Records (small: state, metrics, heartbeat) live on the control plane; results
-    and tracebacks (large) live on the I/O plane — the same two-plane split as
-    runs. Each task is launched as its own detached worker, keyed by content.
+    Two planes (see notes/agentic-experiments.md): records (small: state,
+    metrics, heartbeat) live on a ``RecordStore`` control plane; results and
+    tracebacks (large) live on the I/O plane. Locally both are files under
+    ``data_dir``; on Modal the records go to a ``modal.Dict`` and results to the
+    Volume, so the same ``MemoStore`` serves the client (poll/gather) and the
+    remote worker (write-back) without either touching the other's filesystem.
+
+    The cloudpickled *call* is not part of either plane: locally it's staged to
+    disk for the subprocess worker; on Modal it's passed straight to ``spawn``.
     """
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, records: RecordStore | None = None):
         self.data_dir = Path(data_dir)
         self.root = self.data_dir / '.control' / 'memo'
-
-    def _rec(self, key: str) -> Path:
-        return self.root / f'{key}.json'
+        self.records_backend: RecordStore = records or LocalRecordStore(self.root)
 
     def _call(self, key: str) -> Path:
         return self.root / f'{key}.pkl'
@@ -117,12 +167,11 @@ class MemoStore:
         return self.data_dir / '_memo' / key
 
     def state(self, key: str) -> RunState | None:
-        p = self._rec(key)
-        return RunState(json.loads(p.read_text())['state']) if p.exists() else None
+        rec = self.records_backend.read(key)
+        return RunState(rec['state']) if rec and rec.get('state') else None
 
     def record(self, key: str) -> dict[str, Any]:
-        p = self._rec(key)
-        return json.loads(p.read_text()) if p.exists() else {'key': key, 'state': None}
+        return self.records_backend.read(key) or {'key': key, 'state': None}
 
     def result(self, key: str) -> Any:
         return cloudpickle.loads((self.result_dir(key) / 'result.pkl').read_bytes())
@@ -132,32 +181,26 @@ class MemoStore:
         return e.read_text() if e.exists() else '(no logs)'
 
     def update(self, key: str, **fields: Any) -> None:
-        _merge_json(self._rec(key), fields)
+        self.records_backend.merge(key, fields)
 
     def records(self) -> list[dict[str, Any]]:
-        if not self.root.exists():
-            return []
-        return [json.loads(p.read_text()) for p in sorted(self.root.glob('*.json'))]
+        return [rec for key in self.records_backend.keys() if (rec := self.records_backend.read(key))]
 
-    def stage(self, fn: Callable, args: tuple, key: str, hooks: list[Callable] | None = None) -> None:
-        """Persist the call and mark it RUNNING, ready for a worker to pick up.
+    def mark_running(self, fn: Callable, key: str) -> None:
+        """Flip the record to RUNNING (wholesale, clearing any prior error).
 
-        Staging is pure durable-state: it writes the cloudpickled call to the
-        control plane and flips the record to RUNNING. *Spawning* the worker is
-        the apparatus's job (``Apparatus.spawn_task``) — that's the seam that
-        decides *where* the task runs (local subprocess vs Modal). Persist before
-        spawning so the worker always finds the call.
+        Called by ``Ctx`` before the apparatus spawns the worker, so a poll
+        between stage and first heartbeat sees RUNNING rather than a stale state.
         """
+        self.records_backend.write(
+            key,
+            {'key': key, 'fn': getattr(fn, '__name__', 'task'), 'state': RunState.RUNNING, 'created_at': time.time()},
+        )
+
+    def write_call(self, key: str, fn: Callable, args: tuple, hooks: list[Callable] | None = None) -> None:
+        """Stage the cloudpickled call to disk for a local subprocess worker."""
         self.root.mkdir(parents=True, exist_ok=True)
         self._call(key).write_bytes(cloudpickle.dumps((fn, args, hooks or [])))
-        _atomic_write(
-            self._rec(key),
-            json.dumps(
-                {
-                    'key': key,
-                    'fn': getattr(fn, '__name__', 'task'),
-                    'state': RunState.RUNNING,
-                    'created_at': time.time(),
-                }
-            ),
-        )
+
+    def read_call(self, key: str) -> tuple[Callable, tuple, list[Callable]]:
+        return cloudpickle.loads(self._call(key).read_bytes())
