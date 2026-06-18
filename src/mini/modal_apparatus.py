@@ -25,6 +25,7 @@ import cloudpickle
 import modal
 
 from mini._queues import QueueLike
+from mini._tls import ensure_grpc_trusts_system_ca
 from mini.apparatus import Apparatus
 from mini.memo import MemoStore, RecordStore
 from mini.modal_queue import ModalQueue
@@ -182,6 +183,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
     app: modal.App
 
     def __init__(self, app: modal.App | str):
+        ensure_grpc_trusts_system_ca()  # work behind TLS-inspecting proxies (see mini._tls)
         if isinstance(app, str):
             name = app
             self.app = modal.App(name)
@@ -265,25 +267,23 @@ class ModalApparatus(Apparatus[ModalVolume]):
     @override
     def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
         worker = self._memo_worker()
-        blobs = [cloudpickle.dumps((fn, args, hooks)) for _, fn, args, hooks in batch]
-        keys = [key for key, *_ in batch]
-        # One detached spawn_map for the whole batch, rather than an app.run per
-        # task. The workers outlive this block (and this process); a later wake
-        # polls their state from the Dict. NB on Modal 1.3.x spawn_map returns
-        # None (no FunctionCall to poll), so liveness rests on Dict heartbeats.
+        dict_name, volume_name, mount_point = self._dict_name, self.app.name, str(self.volume.path)
+        # One detached app context for the whole batch (the cost we batch away is
+        # app setup/registration, not the per-task spawn), then one ``spawn`` per
+        # task. Unlike ``spawn_map`` — which returns None on Modal 1.3.x — ``spawn``
+        # yields a FunctionCall id per task, recorded immediately so a launch
+        # failure is diagnosable (cross-check via FunctionCall.from_id, find logs
+        # on the dashboard) even before the worker writes its first heartbeat.
+        # max_containers is dropped in ``_memo_worker``, so the tasks parallelise.
+        fc_ids: dict[str, str] = {}
         with self.app.run(detach=True):
-            worker.spawn_map(
-                blobs,
-                keys,
-                kwargs={
-                    'dict_name': self._dict_name,
-                    'volume_name': self.app.name,
-                    'mount_point': str(self.volume.path),
-                },
-            )
+            for key, fn, args, hooks in batch:
+                blob = cloudpickle.dumps((fn, args, hooks))
+                fc = worker.spawn(blob, key, dict_name, volume_name, mount_point)
+                fc_ids[key] = fc.object_id
         now = time.time()
-        for key in keys:
-            store.update(key, heartbeat_at=now)
+        for key, fc_id in fc_ids.items():
+            store.update(key, fc_id=fc_id, heartbeat_at=now)
 
     @override
     async def amap(

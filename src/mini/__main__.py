@@ -142,6 +142,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         line = f'  {_GLYPH.get(state, "?")} {rec.get("fn", "task"):14} {rec["key"]:26} {state}'
         if rec.get('metrics'):
             line += f'  {_fmt_metrics(rec["metrics"])}'
+        if rec.get('fc_id'):
+            line += f'  [{rec["fc_id"]}]'  # Modal FunctionCall id — for log lookup / liveness
         if rec.get('error'):
             line += f'  !! {rec["error"]}'
         print(line)
