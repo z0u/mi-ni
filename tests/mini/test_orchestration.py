@@ -12,7 +12,8 @@ from pathlib import Path
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import MemoStore, fingerprint
-from mini.orchestration import tick
+from mini.orchestration import retry, tick
+from mini.runs import RunState
 
 
 def _setup(name: str, main, tmp_path: Path) -> tuple[Experiment, LocalApparatus]:
@@ -68,14 +69,17 @@ def test_prep_runs_once_across_wakes(tmp_path: Path):
     assert (tmp_path / 'once' / 'prep_count').read_text() == '1'  # prep memoized, ran once
 
 
-def test_crash_recovers_on_rerun(tmp_path: Path):
+def test_failed_is_terminal_until_retry(tmp_path: Path):
+    """A thrown task settles FAILED and does *not* auto-relaunch; an explicit
+    ``retry`` resets it so the next drive reruns just that task and completes."""
+
     def train(x):
         from mini import get_data_dir
 
         f = get_data_dir() / f'att_{x}'
         n = int(f.read_text()) if f.exists() else 0
         f.write_text(str(n + 1))
-        if x == 2 and n == 0:
+        if x == 2 and n == 0:  # fails on the first attempt only
             raise RuntimeError('transient')
         return x * 10
 
@@ -83,9 +87,28 @@ def test_crash_recovers_on_rerun(tmp_path: Path):
         return ctx.map(train, [(1,), (2,), (3,)])
 
     exp, app = _setup('crash', main, tmp_path)
+    store = app.memo_store()
+
+    # Drive until task 2 settles FAILED (siblings DONE), then keep ticking: FAILED
+    # is terminal, so it is never relaunched and the map stays blocked.
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        tick(exp, app)
+        if any(r.get('state') == RunState.FAILED for r in store.records()):
+            break
+        time.sleep(0.1)
+    for _ in range(3):
+        tick(exp, app)
+        time.sleep(0.1)
+    states = {r['key']: r.get('state') for r in store.records()}
+    assert sum(s == RunState.FAILED for s in states.values()) == 1  # not relaunched
+    assert (tmp_path / 'crash' / 'att_2').read_text() == '1'  # threw exactly once
+
+    # Explicit retry heals: reset the failed task, then drive to completion.
+    assert len(retry(store)) == 1  # one FAILED task reset
     assert _drive(exp, app) == [10, 20, 30]
-    assert (tmp_path / 'crash' / 'att_2').read_text() == '2'  # the failed one re-ran
-    assert (tmp_path / 'crash' / 'att_1').read_text() == '1'  # its siblings did not
+    assert (tmp_path / 'crash' / 'att_2').read_text() == '2'  # ran again on retry
+    assert (tmp_path / 'crash' / 'att_1').read_text() == '1'  # siblings untouched
 
 
 def test_single_map_sugar(tmp_path: Path):

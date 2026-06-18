@@ -5,27 +5,23 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 
 ## Memoized orchestration
 
-- **Settled vs. retryable failure (don't busy-loop, don't hide).** Today
-  `_classify` treats `FAILED` like "never run" and relaunches it every `tick`, so
-  a deterministically-failing task busy-loops (and wedges its `map` — see
-  `allow_partial` below). Fix: make `FAILED` *terminal/settled*; `tick`
-  auto-launches only un-run / retryable tasks. Re-running a `FAILED` task takes
-  intent: bump `version=`, edit the fn (new key), or an explicit retry lever
-  (the `mini retry` the CLI no longer has — see "memo CLI gaps" below).
+- **Settled vs. retryable failure (don't busy-loop, don't hide).** *Core done.*
+  `_classify` now launches only un-run tasks (`state is None`); `FAILED`/
+  `CANCELLED` are terminal, so a deterministic failure no longer busy-loops (it
+  does still wedge its `map` — see `allow_partial` below). Re-running takes intent:
+  `mini retry` (resets FAILED/CANCELLED → `orchestration.retry` → `MemoStore.reset`),
+  bump `version=`, or edit the fn. The traceback is on the I/O plane; the record
+  carries `error` (last line).
 
-  We deliberately do **not** classify transient (preemption / OOM / network
-  timeout) vs. fatal in code — it's context-dependent and a wrong guess either
-  masks a bug or wastes money. The *agent* is the classifier; our job is to (a)
-  never busy-loop and (b) surface what it needs to decide:
-  - default: a task that throws → `FAILED`, with the traceback on the I/O plane
-    and `last_error` / `attempts` / `errored_at` on the record. Visible, not
-    swallowed.
-  - opt-in bounded auto-retry per step (`max_attempts=N`, exponential backoff via
-    a persisted `next_attempt_at`) for steps the author *knows* are flaky.
-    Bounded + backed-off so it can't hammer; on exhaustion → `FAILED`.
-  - `mark_running` rewrites the record wholesale, so it must carry `attempts`
-    forward (today it'd clobber the counter).
-  Document (skill + README + test).
+  Still to do — the **opt-in bounded auto-retry** for steps the author *knows* are
+  flaky, since we deliberately don't classify transient vs. fatal in code (the
+  agent is the classifier; we just avoid busy-looping and surface the error):
+  - `max_attempts=N` per step with exponential backoff via a persisted
+    `next_attempt_at`; on exhaustion → `FAILED`. Bounded + backed-off so it can't
+    hammer.
+  - track `attempts` / `errored_at` on the record; `mark_running` rewrites the
+    record wholesale, so it must carry `attempts` forward (today it'd clobber it).
+  - Document (skill + README + test).
 
 - **`allow_partial=` for `ctx.map`.** Today `map` raises `Pending` if *any* item
   isn't `DONE`. Once failures settle (see above), a `FAILED` item no longer
@@ -46,13 +42,14 @@ and [notes/agentic-experiments.md](./notes/agentic-experiments.md) for context.
 
 ## Polling / monitoring
 
-- **Memo CLI gap: `retry`.** The CLI is now memo-only and name-addressed
-  (`run`/`ls`/`status`/`results`/`logs`/`cancel`); the old run/job model (model 2:
-  `submit`/`Run`/`mini launch`) is gone. `retry` is the one verb still missing:
-  today re-running `mini run <path>` relaunches un-run/`FAILED` tasks (it
-  busy-loops on `FAILED` — see settled-vs-retryable). Once `FAILED` is terminal,
-  add an explicit `mini retry <name> [<key>]` lever.
+- **Memo CLI verbs.** The CLI is memo-only and name-addressed
+  (`run`/`retry`/`ls`/`status`/`results`/`logs`/`cancel`); the old run/job model
+  (model 2: `submit`/`Run`/`mini launch`) is gone.
 
+  - ~~`retry`~~ **Done.** `mini retry <path> [--key K] [--watch]` resets
+    FAILED/CANCELLED tasks (`orchestration.retry`) then advances the DAG; FAILED is
+    terminal so a plain `run` won't relaunch. `run` prints a retry hint when a task
+    settles FAILED.
   - ~~`cancel`~~ **Done.** `Apparatus.cancel(store)` marks unsettled tasks
     `CANCELLED` and delegates the per-task stop to `_stop_task`: local SIGTERMs the
     worker's process group (pid recorded at `spawn_tasks`, `pgid == pid`), Modal

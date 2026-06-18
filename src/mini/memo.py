@@ -186,6 +186,14 @@ class MemoStore:
     def records(self) -> list[dict[str, Any]]:
         return [rec for key in self.records_backend.keys() if (rec := self.records_backend.read(key))]
 
+    def reset(self, key: str) -> None:
+        """Clear a record back to un-run (state → None) so the next tick reruns it.
+
+        The retry primitive: a settled-but-not-DONE task is terminal, so re-running
+        takes intent. Stale result/error artifacts are overwritten on the rerun.
+        """
+        self.records_backend.write(key, {'key': key, 'state': None})
+
     def mark_running(self, fn: Callable, key: str) -> None:
         """Flip the record to RUNNING (wholesale, clearing any prior error).
 

@@ -7,6 +7,7 @@ agent (or you) can drive, poll, and gather without holding a session open:
 
     python -m mini run    experiments/pipeline.py --watch  # drive a DAG to completion (live bar)
     python -m mini run    experiments/pipeline.py          # advance one wake, then return
+    python -m mini retry  experiments/pipeline.py          # reset FAILED/CANCELLED, then advance
     python -m mini ls                                       # experiments + task state
     python -m mini status pipeline                          # per-task state + metrics, by NAME
     python -m mini results pipeline                         # per-task results
@@ -26,7 +27,7 @@ from mini.apparatus import Apparatus
 from mini.experiment import load_experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import MemoStore
-from mini.orchestration import tick
+from mini.orchestration import retry, tick
 from mini.runs import DATA_ROOT, SETTLED, RunState
 
 _GLYPH = {
@@ -110,15 +111,38 @@ def cmd_run(args: argparse.Namespace) -> None:
     """
     exp = load_experiment(args.path)
     apparatus = _build_apparatus(exp.name, args)
+    _run(exp, apparatus, args)
+
+
+def cmd_retry(args: argparse.Namespace) -> None:
+    """Reset FAILED/CANCELLED tasks (or one ``--key``) then advance the DAG.
+
+    FAILED/CANCELLED are terminal, so a plain ``run`` won't re-launch them; this is
+    the explicit lever. DONE tasks stay memo hits — to re-run one, edit its fn or
+    bump ``version=``.
+    """
+    exp = load_experiment(args.path)
+    apparatus = _build_apparatus(exp.name, args)
+    reset = retry(apparatus.memo_store(), key=args.key)
+    print(f'retrying {len(reset)} task(s): {", ".join(reset) or "(none failed/cancelled)"}')
+    _run(exp, apparatus, args)
+
+
+def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
+    """Drive one wake (or to completion with ``--watch``) and report."""
     if args.watch:
         _watch(exp, apparatus, poll=args.poll)
         return
     done, payload = tick(exp, apparatus)
+    records = apparatus.memo_store().records()
     print(f'{exp.name}:')
-    for rec in apparatus.memo_store().records():
+    for rec in records:
         print(_memo_line(rec))
     if done:
         print(f'✓ complete: {payload}')
+    elif failed := [r for r in records if _rec_state(r) == RunState.FAILED]:
+        print(f'✗ {len(failed)} task(s) failed (terminal) — fix, then: python -m mini retry {args.path}')
+        print(f'   see a traceback with:  python -m mini logs {exp.name} <key>')
     else:
         print(f'… suspended — {payload} (re-run to advance)')
 
@@ -197,13 +221,21 @@ def main() -> None:
     def _add_app_flag(p: argparse.ArgumentParser) -> None:
         p.add_argument('--app', default='local', help='backend to read/run on: "local" or "modal"')
 
+    def _add_run_flags(p: argparse.ArgumentParser) -> None:
+        p.add_argument('path')
+        p.add_argument('-w', '--watch', action='store_true', help='drive to completion with a live progress bar')
+        p.add_argument('--poll', type=float, default=0.5, help='seconds between record polls while watching')
+        _add_app_flag(p)
+        p.add_argument('--workers', type=int, default=1, help='local worker threads / task concurrency')
+
     p = sub.add_parser('run', help='advance a (multi-step) memoized orchestration')
-    p.add_argument('path')
-    p.add_argument('-w', '--watch', action='store_true', help='drive to completion with a live progress bar')
-    p.add_argument('--poll', type=float, default=0.5, help='seconds between record polls while watching')
-    _add_app_flag(p)
-    p.add_argument('--workers', type=int, default=1, help='local worker threads / task concurrency')
+    _add_run_flags(p)
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser('retry', help='reset FAILED/CANCELLED tasks then advance the DAG')
+    _add_run_flags(p)
+    p.add_argument('--key', default=None, help='retry just this task key (default: all failed/cancelled)')
+    p.set_defaults(func=cmd_retry)
 
     p = sub.add_parser('ls', help='list local experiments and their task state')
     p.set_defaults(func=cmd_ls)

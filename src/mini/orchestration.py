@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from mini.apparatus import Apparatus
     from mini.experiment import Experiment
 
-__all__ = ['Pending', 'Ctx', 'tick']
+__all__ = ['Pending', 'Ctx', 'tick', 'retry']
 
 
 class Pending(Exception):
@@ -55,7 +55,7 @@ class Ctx:
         key = fingerprint(fn, args, version)
         state = self.store.state(key)
         to_launch: tuple[str, Callable, tuple, list] | None = None
-        if state in (None, RunState.FAILED):
+        if state is None:  # never run; FAILED/CANCELLED are terminal (retry takes intent)
             self.store.mark_running(fn, key)
             to_launch = (key, fn, args, getattr(app, '_before_hooks', []))
             self.launched.append(key)
@@ -109,3 +109,24 @@ def tick(experiment: Experiment, apparatus: Apparatus) -> tuple[bool, Any]:
     except Pending as p:
         return False, str(p)
     return True, result
+
+
+def retry(store: MemoStore, key: str | None = None) -> list[str]:
+    """Reset settled-but-not-DONE tasks so the next ``tick`` reruns them.
+
+    ``FAILED``/``CANCELLED`` are terminal — ``tick`` won't auto-relaunch them — so
+    re-running takes intent. This clears their records (state → un-run); the next
+    ``tick`` then relaunches. Pass *key* to retry one task; otherwise all
+    failed/cancelled tasks. Returns the keys reset (a `DONE` task is never reset —
+    edit the fn or bump ``version=`` to force that). DONE results stay memo hits.
+    """
+    targets: list[str] = []
+    for rec in store.records():
+        k = rec['key']
+        if key is not None and k != key:
+            continue
+        state = RunState(rec['state']) if rec.get('state') else None
+        if state in (RunState.FAILED, RunState.CANCELLED):
+            store.reset(k)
+            targets.append(k)
+    return targets

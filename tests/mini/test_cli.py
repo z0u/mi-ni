@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import textwrap
 import time
 from pathlib import Path
+
+import pytest
 
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
@@ -74,3 +77,33 @@ def test_cancel_stops_running_task(tmp_path: Path):
         time.sleep(0.05)
     else:
         raise AssertionError('worker did not exit after cancel')
+
+
+def test_retry_cli_heals_failed_task(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)  # DATA_ROOT + the experiment file resolve under here
+    exp_file = tmp_path / 'retrycli.py'
+    exp_file.write_text(
+        textwrap.dedent("""
+        from mini import Experiment, get_data_dir
+        def flaky(x):
+            f = get_data_dir() / 'attempts'
+            n = int(f.read_text()) if f.exists() else 0
+            f.write_text(str(n + 1))
+            if n == 0:  # fail on the first attempt only
+                raise RuntimeError('boom once')
+            return x
+        experiment = Experiment(name='retrycli', main=lambda ctx: ctx.map(flaky, [(7,)]))
+        """)
+    )
+    from mini.__main__ import cmd_retry, cmd_run
+
+    def ns():  # run/retry share flags; --watch drives synchronously to settle
+        return argparse.Namespace(path=str(exp_file), watch=True, poll=0.05, app='local', workers=1, key=None)
+
+    with pytest.raises(SystemExit):  # FAILED is terminal — watch surfaces it and exits 1
+        cmd_run(ns())
+    capsys.readouterr()  # drop the failure output
+
+    cmd_retry(ns())  # resets the failed task, then the rerun (attempt 2) succeeds
+    out = capsys.readouterr().out
+    assert 'retrying 1 task' in out and '✓ complete' in out
