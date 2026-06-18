@@ -152,12 +152,11 @@ completion with live bars off the Dict), and `cancel --app modal` (cancelled bot
 `FunctionCall`s by `fc_id` → app went to `stopping...`).
 
 **Still to do:**
-- **Read-only Modal commands shouldn't build the image.** `status`/`results`/
-  `cancel --app modal` only need the Dict (and Volume for results), but
-  `ModalApparatus.__init__` registers the image every call ("Creating Modal image
-  with dependencies…") — wasteful + noisy for an agent polling status in the
-  cloud. Give a lightweight client path (read the named `modal.Dict` / cancel an
-  `fc_id`) that skips image/app setup.
+- ~~**Read-only Modal commands shouldn't build the image.**~~ **Done.**
+  `make_image` is now lazy (`ModalApparatus._ensure_image`, built once on first
+  spawn/map), not eager in `__init__`. `status`/`results`/`cancel --app modal`
+  touch only the `modal.Dict`/Volume, so they no longer run `uv` freeze or print
+  "Creating Modal image…" (verified live: 0 occurrences on `status`).
 - ~~**Client-side `gather` egress.**~~ **Worked live now.** `ModalMemoStore.result`
   reads result blocks from the Volume's storage CDN; this previously 403'd from
   the locked-down env, but `results --app modal` and `--watch`'s final gather both

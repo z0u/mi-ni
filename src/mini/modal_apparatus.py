@@ -193,7 +193,6 @@ class ModalApparatus(Apparatus[ModalVolume]):
             name = app.name
             self.app = app
         self.modal_fn_kwargs: dict[str, Any] = {
-            'image': make_image(),
             'max_containers': 1,
             # Don't let Modal silently retry failures — surface them immediately.
             'retries': 0,
@@ -201,6 +200,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         self._before_hooks: list[Callable[[], Any]] = []
         self._volume: ModalVolume | None = ModalVolume(name)
         self._memo_fn: modal.Function | None = None
+        self._image: modal.Image | None = None  # lazily built default; see _ensure_image
 
     def __str__(self) -> str:
         return f'Modal apparatus "{self.app.name}"'
@@ -210,7 +210,22 @@ class ModalApparatus(Apparatus[ModalVolume]):
         new_app.modal_fn_kwargs = self.modal_fn_kwargs.copy()
         new_app._before_hooks = self._before_hooks[:]
         new_app._volume = self._volume
+        new_app._image = self._image  # carry the cached image so a clone doesn't rebuild
         return new_app
+
+    def _ensure_image(self) -> modal.Image:
+        """The image for remote functions: a user override via ``.w(image=)`` if
+        present, else the project default, built once and cached.
+
+        Deferred (not built in ``__init__``) so read-only commands — ``status`` /
+        ``results`` / ``cancel``, which only touch the ``modal.Dict`` and Volume —
+        never run ``make_image`` (no ``uv`` freeze, no "Creating Modal image" noise).
+        """
+        if 'image' in self.modal_fn_kwargs:
+            return self.modal_fn_kwargs['image']
+        if self._image is None:
+            self._image = make_image()
+        return self._image
 
     @property
     def _dict_name(self) -> str:
@@ -256,6 +271,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         if self._memo_fn is None:
             drop = {'startup_timeout', 'max_containers'}
             fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k not in drop}
+            fn_kwargs['image'] = self._ensure_image()
             if isinstance(self._volume, ModalVolume):
                 fn_kwargs['volumes'] = {
                     **fn_kwargs.get('volumes', {}),
@@ -323,7 +339,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         log.info('Running %d jobs on Modal', n)
         run_id = secrets.token_hex(4)
 
-        image: modal.Image = self.modal_fn_kwargs.get('image') or modal.Image.debian_slim()
+        image: modal.Image = self._ensure_image()
         with modal.enable_output():
             async with self.app.run():
                 await image.build.aio(self.app)
@@ -367,7 +383,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
             data_dir=self._volume.path if self._volume is not None else None,
             commit_volume=(self._volume._modal_volume if isinstance(self._volume, ModalVolume) else None),
         )
-        fn_kwargs = {**self.modal_fn_kwargs}
+        fn_kwargs: dict[str, Any] = {**self.modal_fn_kwargs}
+        fn_kwargs['image'] = self._ensure_image()
         startup_timeout: float = fn_kwargs.pop('startup_timeout', STARTUP_TIMEOUT_SECONDS)
         if isinstance(self._volume, ModalVolume):
             volumes = fn_kwargs.get('volumes', {})
