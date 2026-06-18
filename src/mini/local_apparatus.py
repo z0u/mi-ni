@@ -25,7 +25,7 @@ from mini.local_queue import LocalQueue
 from mini.local_volume import LocalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
-from mini.runs import LocalControlPlane, Run, spawn_worker
+from mini.runs import LocalControlPlane, Run, spawn_taskworker, spawn_worker
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -87,6 +87,10 @@ class LocalApparatus(Apparatus[LocalVolume]):
     def reopen(self, run_id: str) -> Run:
         data_dir = self.volume.path
         return Run(run_id, LocalControlPlane(data_dir / '.control'), data_dir)
+
+    @override
+    def spawn_task(self, data_dir: Path, key: str) -> None:
+        spawn_taskworker(data_dir, key)
 
     @override
     async def amap(

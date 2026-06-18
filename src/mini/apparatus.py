@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Generic, Iterab
 from mini.volume import Volume
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from mini.runs import Run
 
 P = ParamSpec('P')
@@ -177,6 +179,21 @@ class Apparatus(ABC, Generic[V]):
     def reopen(self, run_id: str) -> Run:
         """Reconstruct a `Run` handle from a previous submit, in a fresh process."""
         raise NotImplementedError(f'{type(self).__name__} does not support reopen yet.')
+
+    def spawn_task(self, data_dir: Path, key: str) -> None:
+        """Spawn a detached worker for one memoized task, on *this* apparatus.
+
+        The seam that lets the memoized orchestration (``mini.orchestration.Ctx``)
+        decide *where* a step runs. ``Ctx`` first stages the call durably
+        (``MemoStore.stage``), then calls this to launch a worker that runs the
+        staged call and persists its result/state under *key* — so it survives
+        the tick that launched it. The local backend spawns a subprocess; the
+        Modal backend spawns on Modal. This is what makes per-step ``on=`` route
+        *compute*, not just hooks.
+        """
+        raise NotImplementedError(
+            f'{type(self).__name__} does not support detached spawn_task yet. See notes/agentic-experiments.md.'
+        )
 
 
 def _map_in_thread(

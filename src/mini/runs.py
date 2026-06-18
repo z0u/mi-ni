@@ -29,7 +29,17 @@ from typing import Any
 
 import cloudpickle
 
-__all__ = ['RunState', 'JobStatus', 'ControlPlane', 'LocalControlPlane', 'Run', 'open_run', 'open_experiment']
+__all__ = [
+    'RunState',
+    'JobStatus',
+    'ControlPlane',
+    'LocalControlPlane',
+    'Run',
+    'open_run',
+    'open_experiment',
+    'spawn_worker',
+    'spawn_taskworker',
+]
 
 DATA_ROOT = Path('.mini')
 
@@ -300,6 +310,22 @@ def spawn_worker(data_dir: Path, run_id: str) -> int:
     """Launch a detached worker for *run_id*; return its pid (== its pgid)."""
     proc = subprocess.Popen(
         [sys.executable, '-m', 'mini._worker', str(data_dir), run_id],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return proc.pid
+
+
+def spawn_taskworker(data_dir: Path, key: str) -> int:
+    """Launch a detached worker for one memoized task *key*; return its pid.
+
+    The local implementation of ``Apparatus.spawn_task``: a subprocess that runs
+    the staged call (``MemoStore._call``) and persists its result/state under the
+    content key, outliving the orchestration tick that launched it.
+    """
+    proc = subprocess.Popen(
+        [sys.executable, '-m', 'mini._taskworker', str(data_dir), key],
         start_new_session=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

@@ -155,6 +155,30 @@ def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
     assert not (data_dir / 'default_hook').exists()  # the tick default's did not
 
 
+def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
+    """``ctx`` launches each task through ``apparatus.spawn_task`` — the seam the
+    Modal backend implements. Proven by routing a step to an apparatus that runs
+    tasks *synchronously in-process* instead of spawning a subprocess: if Ctx
+    bypassed the seam, the task would never run and the drive would time out."""
+    from mini._taskworker import run_task
+    from mini.local_apparatus import LocalApparatus
+
+    spawned: list[str] = []
+
+    class InlineApparatus(LocalApparatus):
+        def spawn_task(self, data_dir: Path, key: str) -> None:
+            spawned.append(key)
+            run_task(data_dir, key)  # run now, in-process — no subprocess
+
+    def task(x):
+        return x * 3
+
+    app = InlineApparatus('inline', data_dir=tmp_path / 'inline')
+    exp = Experiment(name='inline', main=lambda ctx: ctx.map(task, [(2,), (5,)]))
+    assert _drive(exp, app) == [6, 15]
+    assert len(spawned) == 2  # both tasks went through the apparatus seam
+
+
 def test_fingerprint_is_deterministic_and_input_sensitive():
     def fn(x):
         return x

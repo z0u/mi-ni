@@ -16,8 +16,6 @@ import hashlib
 import inspect
 import json
 import pickle
-import subprocess
-import sys
 import time
 import types
 from pathlib import Path
@@ -141,8 +139,15 @@ class MemoStore:
             return []
         return [json.loads(p.read_text()) for p in sorted(self.root.glob('*.json'))]
 
-    def launch(self, fn: Callable, args: tuple, key: str, hooks: list[Callable] | None = None) -> None:
-        """Persist the call and spawn a detached worker for it."""
+    def stage(self, fn: Callable, args: tuple, key: str, hooks: list[Callable] | None = None) -> None:
+        """Persist the call and mark it RUNNING, ready for a worker to pick up.
+
+        Staging is pure durable-state: it writes the cloudpickled call to the
+        control plane and flips the record to RUNNING. *Spawning* the worker is
+        the apparatus's job (``Apparatus.spawn_task``) — that's the seam that
+        decides *where* the task runs (local subprocess vs Modal). Persist before
+        spawning so the worker always finds the call.
+        """
         self.root.mkdir(parents=True, exist_ok=True)
         self._call(key).write_bytes(cloudpickle.dumps((fn, args, hooks or [])))
         _atomic_write(
@@ -155,10 +160,4 @@ class MemoStore:
                     'created_at': time.time(),
                 }
             ),
-        )
-        subprocess.Popen(
-            [sys.executable, '-m', 'mini._taskworker', str(self.data_dir), key],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
