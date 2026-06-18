@@ -50,7 +50,17 @@ def _build_apparatus(name: str, args: argparse.Namespace) -> Apparatus:
     if backend == 'modal':
         from mini.modal_apparatus import ModalApparatus
 
-        return ModalApparatus(name)
+        app = ModalApparatus(name)
+        overrides = {
+            k: v
+            for k, v in (
+                ('gpu', getattr(args, 'gpu', None)),
+                ('timeout', getattr(args, 'timeout', None)),
+                ('max_containers', getattr(args, 'max_containers', None)),
+            )
+            if v is not None
+        }
+        return app.w(**overrides) if overrides else app
     raise SystemExit(f'--app {backend!r} not supported (use "local" or "modal")')
 
 
@@ -230,6 +240,15 @@ def main() -> None:
         p.add_argument('--poll', type=float, default=0.5, help='seconds between record polls while watching')
         _add_app_flag(p)
         p.add_argument('--workers', type=int, default=1, help='local worker threads / task concurrency')
+        p.add_argument('--gpu', default=None, help='Modal GPU type, e.g. L4, A100 (--app modal)')
+        p.add_argument('--timeout', type=int, default=None, help='per-task timeout in seconds (--app modal)')
+        p.add_argument(
+            '--max-containers',
+            type=int,
+            default=None,
+            dest='max_containers',
+            help='cap concurrent Modal containers (--app modal; default: unbounded)',
+        )
 
     p = sub.add_parser('run', help='advance a (multi-step) memoized orchestration')
     _add_run_flags(p)
