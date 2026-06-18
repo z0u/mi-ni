@@ -96,20 +96,23 @@ orchestration detached on Modal, verified live on Modal 1.3.3:
   works from an unrestricted machine but may fail in the very environment the
   agent runs in. Option: a remote read-back function returning the (small) result
   over gRPC — the pattern the `modal` skill already recommends. **Decide.**
-- ~~**`spawn_map` batching.**~~ **Done.** The seam is now batched
-  (`Apparatus.spawn_tasks`): a `ctx.map`'s missing tasks launch in one detached
-  `spawn_map`, and the memo worker drops the `max_containers=1` cap so the sweep
-  parallelises (verified live: 3 tasks ran concurrently). Caveat: Modal 1.3.x
-  `spawn_map` returns `None`, so there's no per-index `FunctionCall` for liveness
-  — heartbeats in the Dict are the only signal. Revisit if/when we move to a
-  Modal version where `spawn_map` returns a `FunctionCall`.
+- ~~**`spawn_map` batching.**~~ **Done** (`Apparatus.spawn_tasks`). A `ctx.map`'s
+  missing tasks launch in one detached `app.run`, and the memo worker drops the
+  `max_containers=1` cap so the sweep parallelises (verified live: 3 tasks ran
+  concurrently). We use one `spawn()` per task (not `spawn_map`) inside that
+  single context: same batching win, but each task gets a `FunctionCall` id
+  recorded in its memo record at launch — `spawn_map` returns `None` on 1.3.x,
+  which would leave a failed launch undiagnosable. Follow-up: a programmatic
+  liveness cross-check (`FunctionCall.from_id(fc_id).get(timeout=0)`) in
+  `mini status`, distinguishing "queued but never started" from "running".
 - **Run/job path (`submit`/`Run`).** A `ModalControlPlane` behind the run/job
   `ControlPlane` ABC (distinct from the memo's `RecordStore`) + the `control.py`
   split, if/when the non-memoized detached path needs Modal.
-- **Restricted-env TLS.** Modal's gRPC uses `certifi`, which omits a corporate/
-  sandbox proxy CA that lives in the system bundle → `CERTIFICATE_VERIFY_FAILED`.
-  The agent harness may need the system CA bundle merged into certifi (or
-  `grpclib` pointed at it) to reach Modal at all.
+- ~~**Restricted-env TLS.**~~ **Done** (`mini/_tls.py`). Modal's gRPC uses
+  `certifi`, which omits a corporate/sandbox proxy CA that lives in the system
+  bundle → `CERTIFICATE_VERIFY_FAILED`. `ensure_grpc_trusts_system_ca()` (called
+  from `ModalApparatus.__init__`) points `certifi.where()` at a certifi+system
+  combined bundle, additively. Verified live on a clean certifi.
 
 ## Housekeeping (from the proposal's "Deferred / open")
 
