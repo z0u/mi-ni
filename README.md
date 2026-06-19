@@ -12,7 +12,7 @@ mi-ni is a template repository and library for doing AI research. Features:
 
 There are two ways to compute, sharing one storage abstraction.
 
-**Interactive** — map a function over a sweep, right in a notebook. Swap the apparatus to change _where_ it runs; the code stays the same:
+**Interactive.** Map a function over a sweep, right in a notebook. Swap the apparatus to change _where_ it runs; the code stays the same:
 
 ```py
 # app = LocalApparatus('my-experiment', max_workers=4)
@@ -23,7 +23,7 @@ app.volume.download('outputs', 'local/outputs')
 
 [Getting started notebook →](./docs/getting_started.py)
 
-**Detached & memoized** — for sweeps, multi-step pipelines, and long runs. Define the experiment as an importable `main(ctx)` DAG; drive and monitor it from the CLI across separate processes. Work is launched detached, and its results, progress, and errors are written to durable storage — so you can close your laptop and check back later, and so can an agent:
+**Detached & memoized.** For sweeps, multi-step pipelines, and long runs. Define the experiment as an importable `main(ctx)` DAG; drive and monitor it from the CLI across separate processes. Work is launched detached, and its results, progress, and errors are written to durable storage — so you can close your laptop and check back later, and so can an agent:
 
 ```py
 # docs/pipeline/experiment.py
@@ -78,16 +78,6 @@ Ask for something like:
 
 The `mi-ni` skill teaches the assistant the conventions: define `main(ctx)`, drive with `mini run`, poll with `mini status` (or `mini watch` for a live bar; never by re-running), read tracebacks with `mini logs`, and recover with `mini retry`. For a long run, it delegates launching and babysitting to a cheap monitor agent and can schedule periodic check-ins.
 
-If you encounter network issues, ensure the following domains are accessible from your environment (e.g. [in Claude Code](https://code.claude.com/docs/en/claude-code-on-the-web#network-access)):
-
-```
-storage.googleapis.com
-modal.com
-*.modal.com
-*.modal-storage.com
-*.modal.run
-```
-
 [codespaces]: https://github.com/features/codespaces
 
 <details><summary>Virtual environment</summary>
@@ -130,16 +120,6 @@ Typically, you would store _data_ rather than code in LFS:
 - training data
 - model weights
 - visualizations (images and video)
-
-If `git-lfs` isn't already on your machine (e.g. a fresh cloud sandbox where `apt` is locked down), install the release binary directly:
-
-```bash
-ver=3.6.1
-curl -fsSL "https://github.com/git-lfs/git-lfs/releases/download/v${ver}/git-lfs-linux-amd64-v${ver}.tar.gz" | tar xz
-install -m755 "git-lfs-${ver}/git-lfs" /usr/local/bin/git-lfs && git lfs install
-```
-
-Note that LFS _uploads_ need write access to the repo's LFS store — some sandboxes can fetch LFS objects but can't push them. If a push fails with an LFS authorization error, regenerate and commit the file from an environment with full repo credentials.
 
 </details>
 
