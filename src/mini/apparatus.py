@@ -255,7 +255,7 @@ class Apparatus(ABC, Generic[V]):
         from mini.runs import RunState
 
         reaped: list[str] = []
-        for rec in (store.records() if records is None else records):
+        for rec in store.records() if records is None else records:
             if rec.get('state') != RunState.RUNNING or self._is_task_alive(rec):
                 continue
             # Re-read before settling: a worker writes its final state *then* exits,
