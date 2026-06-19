@@ -1,6 +1,6 @@
 ---
 name: mi-ni
-description: How to use the library code provided by mi-ni. Code design patterns that abstract compute to easily scale experiments. Read to learn about the `mini` package, the `Apparatus` class, hyperparameter schedulers, and notebook/visualization utils. These should be used by default.
+description: How to use the library code provided by mi-ni. Code design patterns that abstract compute to easily scale experiments. Read to learn about the `mini` package, the `Apparatus` class, hyperparameter schedulers, notebook/visualization utils, and how to author, run, and monitor memoized experiments from the CLI. These should be used by default.
 ---
 
 Library structure:
@@ -17,8 +17,15 @@ src/mini/
 
 ## Two ways to compute
 
-- **Interactive `Apparatus`** (`app.map`/`app.arun`) — a blocking call inside a notebook; dies with the process. Covered here. Use for quick, light work you watch finish.
-- **Memoized orchestration** (`Experiment(main=...)`, driven by the `mini` CLI) — detached, durable, pollable across short-lived processes. Use for sweeps, multi-step pipelines, anything slow, and anything an agent runs autonomously. See the **`experiments`** skill.
+- **Interactive `Apparatus`** (`app.map`/`app.arun`) — a blocking call inside a notebook; dies with the process. Use for quick, light work you watch finish.
+- **Memoized orchestration** (`Experiment(main=...)`, driven by the `mini` CLI) — detached, durable, pollable across short-lived processes. Use for sweeps, multi-step pipelines, anything slow, and anything an agent runs autonomously.
+
+## Authoring, running, monitoring
+
+- **Author** a memoized experiment — the `main(ctx)` DAG, repo layout, and cache-friendly design: [authoring.md](./references/authoring.md). Key internals in [memoization.md](./references/memoization.md).
+- **Run & monitor** one from the CLI — the wake-loop, recovery, hotfix safety, and how to delegate/schedule a long run: [running.md](./references/running.md).
+
+To keep cost down, delegate launching and babysitting to the `experiment-monitor` subagent (it escalates to `experiment-doctor`); see running.md.
 
 ## Apparatus and Volume
 

@@ -42,4 +42,4 @@ Heavier or multi-step experiments live in a subdirectory as an importable
 `experiment.py` (the definition, driven by the `mini` CLI) plus a `report.py`
 notebook (reads durable results and publishes). A plain `.py` that isn't a Marimo
 notebook is ignored by the build, so the definition module never lands on the
-site. See the `experiments` skill.
+site. See the `mi-ni` skill (authoring, running & monitoring).

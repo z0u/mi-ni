@@ -73,7 +73,7 @@ Ask for something like:
 
 > Write an experiment under `docs/<name>/` that compares X and Y, run it on Modal, watch for failures, and summarise the results in the report notebook.
 
-The assistant has skills that teach it the conventions — `mi-ni` for the library and `experiments` for this flow: define `main(ctx)`, drive with `mini run`, poll with `mini status` (never by re-running), read tracebacks with `mini logs`, and recover with `mini retry`.
+The `mi-ni` skill teaches the assistant the conventions: define `main(ctx)`, drive with `mini run`, poll with `mini status` (never by re-running), read tracebacks with `mini logs`, and recover with `mini retry`. For a long run, it delegates launching and babysitting to a cheap monitor agent and can schedule periodic check-ins.
 
 If you encounter network issues, ensure the following domains are accessible from your environment (e.g. [in Claude Code](https://code.claude.com/docs/en/claude-code-on-the-web#network-access)):
 
