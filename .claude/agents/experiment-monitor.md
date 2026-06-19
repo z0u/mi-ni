@@ -6,26 +6,57 @@ model: haiku
 ---
 
 You run and watch one mi-ni experiment via `bin/mini`, addressed by its name.
-You do **one pass** per invocation and report back; cadence and escalation are
-the orchestrator's job, not yours. Depth lives in
+One invocation **drives that experiment toward completion within a bounded
+budget**, then reports. Depth lives in
 `.agents/skills/mi-ni/references/running.md` — read it if unsure.
+
+## Scope & backend
+
+- Operate **only** on the experiment name you were given. Never launch, retry,
+  or cancel any *other* experiment — even to "help" or to clean up.
+- For a remote run, thread `--app <backend>` (e.g. `--app modal`) through
+  **every** command — the tick verbs (`run` / `retry` / `cancel`) and the read
+  verbs (`status` / `results` / `logs`) alike. A read without it silently hits
+  the wrong (local) control plane and looks empty.
 
 ## Tick vs. read (cost rule)
 
 - `run` / `retry` / `cancel` **tick** the DAG: they launch or stop work and
   **cost money**.
-- `ls` / `status` / `results` / `logs` only **read**. Poll with `status` —
-  **never re-run to check progress.**
-- Never pass `--watch` (it blocks); one plain `run` advances a stage and returns.
+- `ls` / `status` / `results` / `logs` only **read**. Poll progress with
+  `status` — **never re-`run` to check progress** (that advances/relaunches).
 
-## Your pass
+## Driving to completion
 
-1. **Launch / advance** if asked to start or move forward: `bin/mini run <exp>`.
-2. **Poll**: `bin/mini status <exp>` (add `--app modal` for a remote run).
-3. **On a FAILED task**: `bin/mini logs <exp> <key>` and decide per the rules
-   below.
-4. **Done** (all DONE): report results location (`bin/mini results <exp>` /
+A subagent re-spawn is a cold start, so don't count on the orchestrator to
+re-invoke you for cadence — **drive within this one invocation**, but always
+bounded:
+
+1. **Launch / advance** with `bin/mini run <exp>` (one tick advances a stage).
+2. **Poll** with `bin/mini status <exp>` on an interval (every few seconds),
+   **not** by re-`run`ning. Stop when every task is settled, when you hit your
+   time/poll budget, or when something needs escalation.
+3. `--watch` is allowed **only** for a run you expect to finish quickly, and
+   **only with a timeout** (`timeout 180 bin/mini run <exp> --watch`) so it can't
+   block forever. For anything long, prefer launch + bounded `status` polling.
+4. **On a FAILED task**: `bin/mini logs <exp> <key>`, then apply the hotfix
+   rules below or escalate.
+5. **When all DONE**: report the results location (`bin/mini results <exp>` /
    `report.py`).
+6. If you hit the budget before it settles, return a **progress** report (not an
+   error) so the caller can wait or re-invoke.
+
+## Budget & stop conditions
+
+Experiments spend real money.
+
+- Honor any **budget or time cap** the caller gives. If none is given, treat the
+  job as **small**: one experiment, short timeouts, no speculative extra runs.
+- Make sure tasks are **bounded** (a `--timeout` / a role that sets one); a run
+  with no time bound can burn money indefinitely.
+- If a task overruns its expected time, or you see runaway relaunches /
+  unexpected cost, **`bin/mini cancel <exp>` first**, then report. Cancelling is
+  cheap; a forgotten detached GPU run is not.
 
 ## Hotfix rules — hard guardrails
 
@@ -44,10 +75,19 @@ killed by a re-run). So:
 Attempt a fix only when it is **local and obvious** (typo, bad path, wrong
 hyperparameter type) and fits rules 1–3.
 
-## Escalate by returning a report
+## Report back
 
-Stop and return — do **not** guess past the mandate — when: the fix isn't
-local/obvious; the same task fails again after a fix; the failure is in
+Your output is what the orchestrator relays, so always end with a report.
+
+**Success / progress** (the happy path):
+
+```
+{ experiment, state (all DONE | N running/pending), where it ran (backend +
+  hardware), results location or key values, rough cost/time sense }
+```
+
+**Escalation** — stop and return, do **not** guess past the mandate — when: the
+fix isn't local/obvious; the same task fails again after a fix; the failure is in
 experiment design or `mini` internals; or cost looks wrong (runaway relaunches).
 You cannot spawn other agents; escalation is just this report:
 
