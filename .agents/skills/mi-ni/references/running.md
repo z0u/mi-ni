@@ -5,6 +5,11 @@ workers and its state, results, and errors are written to a per-experiment
 store. You drive and poll it from short-lived CLI processes (`bin/mini`),
 addressed by experiment **name**. Run `bin/mini --help` for the verb list.
 
+The store lives at the **project root** (`.mini/`, found by walking up for
+`pyproject.toml`/`.git`), so the verbs work from any working directory — a poll
+from a subdir finds the same run. `bin/mini` wraps the `mini` console-script and
+pins the project, so it also runs from anywhere without an activated venv.
+
 ## The one invariant: tick vs. read
 
 - **`run` / `retry` / `cancel` _tick_ the DAG** — they re-run `main` and launch
