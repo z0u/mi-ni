@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import secrets
+import signal
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from pathlib import Path
 from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
 
@@ -23,8 +25,10 @@ from mini._queues import QueueLike
 from mini.apparatus import Apparatus
 from mini.local_queue import LocalQueue
 from mini.local_volume import LocalVolume
+from mini.memo import MemoStore
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
+from mini.runs import data_root, spawn_taskworker
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -47,7 +51,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
         self.name = name
         self.max_workers = max_workers
         self._before_hooks: list[Callable[[], Any]] = []
-        self._volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
+        self._volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else data_root() / name)
 
     def __str__(self) -> str:
         return f'Local apparatus "{self.name}"'
@@ -63,6 +67,31 @@ class LocalApparatus(Apparatus[LocalVolume]):
         new_app = self.clone()
         new_app._before_hooks = self._before_hooks + [hook]
         return new_app
+
+    @override
+    def memo_store(self) -> MemoStore:
+        from mini.memo import MemoStore
+
+        return MemoStore(self.volume.path)
+
+    @override
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
+        for key, fn, args, hooks in batch:
+            store.write_call(key, fn, args, hooks)  # stage to disk for the subprocess worker
+            store.update(key, pid=spawn_taskworker(store.data_dir, key))  # pid == pgid, for cancel
+
+    @override
+    def _stop_task(self, rec: dict[str, Any]) -> None:
+        """SIGTERM the worker's process group (it's a session leader: pgid == pid)."""
+        if pid := rec.get('pid'):
+            with suppress(ProcessLookupError, PermissionError):
+                os.killpg(pid, signal.SIGTERM)
+
+    @override
+    def _is_task_alive(self, rec: dict[str, Any]) -> bool:
+        """Is the recorded worker pid still a live process? (for ``reap_dead``)."""
+        pid = rec.get('pid')
+        return _pid_alive(pid) if pid else True  # no pid yet — can't probe; assume alive
 
     @override
     async def amap(
@@ -107,6 +136,33 @@ class LocalApparatus(Apparatus[LocalVolume]):
             # Yield results in input order to match map semantics
             for task in tasks:
                 yield await task
+
+
+def _pid_alive(pid: int) -> bool:
+    """Whether *pid* is a running process — counting a zombie as *not* alive.
+
+    ``os.kill(pid, 0)`` succeeds on a zombie (an exited child not yet reaped),
+    which would keep a hard-killed worker looking alive when it's a direct child
+    of the watcher. On Linux we read ``/proc/<pid>/stat`` and treat state ``Z`` as
+    dead; elsewhere we fall back to a signal-0 probe (no zombie distinction).
+    """
+    proc = Path('/proc') / str(pid)
+    if Path('/proc').is_dir():
+        if not proc.exists():
+            return False
+        try:
+            # stat is "pid (comm) state ..."; comm may hold spaces/parens, so the
+            # state field is the first token after the final ')'.
+            return (proc / 'stat').read_text().rsplit(')', 1)[1].split()[0] != 'Z'
+        except OSError:
+            return False  # vanished between the exists() check and the read
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but not ours (shouldn't happen for our own worker)
 
 
 def _wrap_for_local(

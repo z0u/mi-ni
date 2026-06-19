@@ -4,10 +4,24 @@
         "network": {
             "allowedDomains": [
                 "*.pytorch.org",
+                "storage.googleapis.com",
                 "modal.com",
                 "*.modal.com",
-                "*.modal.run"
+                "*.modal.run",
+                "*.modal-storage.com"
             ]
         }
+    },
+    "hooks": {
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+                    }
+                ]
+            }
+        ]
     }
 }

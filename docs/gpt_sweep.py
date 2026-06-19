@@ -148,7 +148,7 @@ def _():
     ## Data
 
     Same Pride and Prejudice corpus as the single-arch notebook. If data is
-    already prepared in the volume (e.g. from running `nanogpt.py` first), this
+    already prepared in the volume (e.g. from running `gpt.py` first), this
     is a fast no-op.
     """)
     return

@@ -1,0 +1,171 @@
+"""
+Drive a memoized experiment to completion with a live Rich progress display.
+
+``mini run <exp> --watch`` ticks the orchestration to launch each stage, then
+*polls the durable memo records* (never re-ticking to poll — see todo, "Keep
+`tick` (drive) distinct from polling (read)") and renders a live bar per task
+until the in-flight set settles, advancing the DAG stage by stage until done.
+
+Ctrl-C only stops *watching*: the task workers are detached subprocesses, so
+they keep running. Re-running the same command reattaches — completed steps are
+memo hits and in-flight tasks aren't relaunched — so monitoring just resumes.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from rich.console import Console
+from rich.markup import escape
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
+
+from mini.apparatus import Apparatus
+from mini.experiment import Experiment
+from mini.memo import PollCache
+from mini.orchestration import MemoError, tick
+from mini.runs import SETTLED, RunState
+
+__all__ = ['drive_and_watch', 'watch', 'ExperimentFailed']
+
+_COLOR = {
+    RunState.RUNNING: 'cyan',
+    RunState.DONE: 'green',
+    RunState.FAILED: 'red',
+    RunState.CANCELLED: 'yellow',
+}
+
+
+class ExperimentFailed(MemoError):
+    """The watched DAG can't progress because a task settled without completing.
+
+    ``FAILED``/``CANCELLED`` are terminal — ``tick`` won't relaunch them — so a
+    DAG that depends on one can never finish. We stop and surface it rather than
+    spin (``tick`` would keep raising ``Pending`` with nothing left in flight).
+    The blocker may be a thrown task, a worker the watch *reaped* as dead
+    (``Apparatus.reap_dead``), or a cancelled one. Recover with ``mini retry``.
+    """
+
+    def __init__(self, failed: list[dict[str, Any]]):
+        self.failed = failed
+        keys = ', '.join(f'{r["key"]} ({r.get("state")})' for r in failed)
+        super().__init__(f'{len(failed)} task(s) settled without completing: {keys}')
+
+
+def _fmt_metrics(metrics: dict[str, float]) -> str:
+    return '  '.join(f'{k}={v:g}' for k, v in metrics.items())
+
+
+def _refresh(progress: Progress, bars: dict[str, TaskID], records: list[dict[str, Any]]) -> None:
+    """Reflect the latest memo records onto the live bars (one per task key)."""
+    for rec in records:
+        key = rec['key']
+        state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
+        step, total = rec.get('step', 0), rec.get('total', 0)
+        if state == RunState.DONE:  # prep steps emit no progress; show them full
+            total = total or 1
+            step = total
+        elif state in (RunState.FAILED, RunState.CANCELLED):
+            total = total or 1
+        desc = key
+        if rec.get('message'):
+            desc += f' — {rec["message"]}'
+        if rec.get('metrics'):
+            desc += f'  {_fmt_metrics(rec["metrics"])}'
+        if rec.get('error'):
+            desc += f'  !! {rec["error"]}'
+        desc = f'[{_COLOR.get(state, "white")}]{escape(desc)}[/]'  # escape: errors/messages may hold [...]
+        if key not in bars:
+            bars[key] = progress.add_task(desc, total=total or None)
+        progress.update(bars[key], completed=step, total=total or None, description=desc)
+
+
+def _progress(console: Console | None) -> Progress:
+    """The shared live-bar layout (one row per task key)."""
+    return Progress(
+        TextColumn('[progress.description]{task.description}'),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console or Console(),
+    )
+
+
+def _rec_state(rec: dict[str, Any]) -> RunState:
+    return RunState(rec['state']) if rec.get('state') else RunState.PENDING
+
+
+def watch(
+    apparatus: Apparatus,
+    *,
+    poll: float = 0.5,
+    console: Console | None = None,
+) -> list[dict[str, Any]]:
+    """Render a live bar for a run this process did *not* launch, until it settles.
+
+    The read-only twin of ``drive_and_watch``: it polls the durable records and
+    reaps vanished workers, but never ``tick``s — so it never launches work. Use
+    it to watch a detached/Modal run from another process (``mini watch <name>``);
+    contrast ``run --watch``, which also drives the DAG forward.
+
+    Returns the final records once every task has settled. Lets
+    ``KeyboardInterrupt`` propagate (the caller reports; workers live on).
+    """
+    store = apparatus.memo_store()
+    cache = PollCache()  # serve the settled tail from memory; poll only what's in flight
+    with _progress(console) as progress:
+        bars: dict[str, TaskID] = {}
+        while True:
+            records = cache.records(store)
+            apparatus.reap_dead(store, records)  # settle vanished workers — read-only path, never relaunches
+            _refresh(progress, bars, records)
+            if records and all(_rec_state(r) in SETTLED for r in records):
+                return records
+            time.sleep(poll)
+
+
+def drive_and_watch(
+    experiment: Experiment,
+    apparatus: Apparatus,
+    *,
+    poll: float = 0.5,
+    console: Console | None = None,
+) -> Any:
+    """Drive *experiment* to completion on *apparatus*, rendering a live bar.
+
+    Returns the orchestration's payload on completion. Raises ``ExperimentFailed``
+    if a task settles FAILED (so we don't relaunch it on the next tick), and lets
+    ``KeyboardInterrupt`` propagate (the caller reports; detached workers live on).
+    """
+    store = apparatus.memo_store()
+    with _progress(console) as progress:
+        bars: dict[str, TaskID] = {}
+        while True:
+            done, payload = tick(experiment, apparatus)  # advance DAG, launch missing work
+            # A tick can launch new keys and reset retried ones, so the cache for
+            # this stage starts fresh — only the settled tail *within* a poll loop
+            # is immutable, which is where the cheap re-reads pay off.
+            cache = PollCache()
+            _refresh(progress, bars, cache.records(store))
+            if done:
+                return payload
+            # Read-only poll until the in-flight set settles — no re-ticking.
+            while True:
+                records = cache.records(store)
+                apparatus.reap_dead(store, records)  # settle vanished workers so a kill can't wedge the drain
+                _refresh(progress, bars, records)
+                if not any(r.get('state') == RunState.RUNNING for r in records):
+                    break
+                time.sleep(poll)
+            # Any terminal-but-not-DONE task (FAILED *or* CANCELLED) blocks the DAG:
+            # tick won't relaunch it, so without this we'd spin forever (no RUNNING
+            # to drain, no progress to make).
+            if blocked := [r for r in records if _rec_state(r) in (RunState.FAILED, RunState.CANCELLED)]:
+                raise ExperimentFailed(blocked)

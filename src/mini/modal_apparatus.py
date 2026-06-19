@@ -14,16 +14,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager, nullcontext
 from functools import wraps
 from itertools import count
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Iterable, TypeVar, override
 
+import cloudpickle
 import modal
 
 from mini._queues import QueueLike
+from mini._tls import ensure_grpc_trusts_system_ca
 from mini.apparatus import Apparatus
+from mini.memo import MemoStore, RecordStore
 from mini.modal_queue import ModalQueue
 from mini.modal_volume import ModalVolume
 from mini.progress import ProgressMessage, progress_context
@@ -36,7 +40,7 @@ log = logging.getLogger(__name__)
 T = TypeVar('T')
 R = TypeVar('R')
 
-__all__ = ['ModalApparatus']
+__all__ = ['ModalApparatus', 'ModalRecordStore', 'ModalMemoStore']
 
 STARTUP_TIMEOUT_SECONDS = 120
 
@@ -81,6 +85,91 @@ def make_image() -> modal.Image:
     )  # fmt: skip
 
 
+# ---------------------------------------------------------------------------
+# Memoized-orchestration backend (control plane = modal.Dict, I/O plane = Volume)
+# ---------------------------------------------------------------------------
+
+
+class ModalRecordStore(RecordStore):
+    """``RecordStore`` backed by a named ``modal.Dict``.
+
+    The Dict is readable/writable from the client with no remote function and no
+    commit (Redis-backed), so polling never spins up compute. The same named
+    Dict is opened by the remote worker to write back state/metrics. Records are
+    tiny and last-writer-wins, so a Dict value per key is the natural fit.
+    """
+
+    def __init__(self, d: Any):
+        # *d* is a ``modal.Dict`` (or any get/keys/__setitem__ mapping — a plain
+        # dict for tests). Injected rather than opened here so the store is
+        # testable without the network; use ``from_name`` for the real thing.
+        self._d = d
+
+    @classmethod
+    def from_name(cls, name: str) -> ModalRecordStore:
+        return cls(modal.Dict.from_name(name, create_if_missing=True))
+
+    def read(self, key: str) -> dict[str, Any] | None:
+        return self._d.get(key)
+
+    def write(self, key: str, record: dict[str, Any]) -> None:
+        self._d[key] = record
+
+    def merge(self, key: str, fields: dict[str, Any]) -> None:
+        cur = self._d.get(key) or {}
+        cur.update(fields)
+        self._d[key] = cur
+
+    def keys(self) -> list[str]:
+        return list(self._d.keys())
+
+
+class ModalMemoStore(MemoStore):
+    """A ``MemoStore`` whose records live in a ``modal.Dict`` and whose results
+    are read back from the Modal Volume (the remote worker writes them there and
+    commits). Only the I/O-plane *reads* differ from the local store — the remote
+    worker, with the Volume mounted, writes through a plain ``MemoStore``.
+    """
+
+    def __init__(self, volume: ModalVolume, records: RecordStore):
+        super().__init__(volume.path, records=records)
+        self._volume = volume
+
+    def _read_volume_bytes(self, rel: str) -> bytes:
+        # Client-side reads already reflect the worker's committed writes;
+        # ``reload()`` is only valid inside a running function, not here.
+        return b''.join(self._volume._modal_volume.read_file(rel))
+
+    def result(self, key: str) -> Any:
+        return cloudpickle.loads(self._read_volume_bytes(f'_memo/{key}/result.pkl'))
+
+    def error(self, key: str) -> str:
+        try:
+            return self._read_volume_bytes(f'_memo/{key}/error.txt').decode()
+        except FileNotFoundError, modal.exception.NotFoundError:
+            return '(no logs)'
+
+
+def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, mount_point: str) -> None:
+    """Remote entry: run one memoized call on Modal and persist its result/state.
+
+    Mirrors the local subprocess worker (``mini._taskworker``) but reads the call
+    from the ``spawn`` argument (not disk), writes records to the ``modal.Dict``,
+    and commits the Volume before flipping the record to a settled state.
+    """
+    import cloudpickle as _cp
+    import modal as _modal
+
+    from mini._taskworker import execute_task
+    from mini.memo import MemoStore
+    from mini.modal_apparatus import ModalRecordStore
+
+    fn, args, hooks = _cp.loads(blob)
+    store = MemoStore(Path(mount_point), records=ModalRecordStore.from_name(dict_name))
+    volume = _modal.Volume.from_name(volume_name)
+    execute_task(store, key, fn, args, hooks, commit=volume.commit)
+
+
 class ModalApparatus(Apparatus[ModalVolume]):
     """
     Run functions on Modal.
@@ -94,6 +183,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
     app: modal.App
 
     def __init__(self, app: modal.App | str):
+        ensure_grpc_trusts_system_ca()  # work behind TLS-inspecting proxies (see mini._tls)
         if isinstance(app, str):
             name = app
             self.app = modal.App(name)
@@ -103,13 +193,16 @@ class ModalApparatus(Apparatus[ModalVolume]):
             name = app.name
             self.app = app
         self.modal_fn_kwargs: dict[str, Any] = {
-            'image': make_image(),
-            'max_containers': 1,
             # Don't let Modal silently retry failures — surface them immediately.
             'retries': 0,
         }
+        # `max_containers` is deliberately *not* a global default: the detached memo
+        # path wants to fan out (unbounded unless `--max-containers`/`.w()` caps it),
+        # while the blocking `amap` path defaults to 1 — applied in `_build_modal_fn`.
         self._before_hooks: list[Callable[[], Any]] = []
         self._volume: ModalVolume | None = ModalVolume(name)
+        self._memo_fn: modal.Function | None = None
+        self._image: modal.Image | None = None  # lazily built default; see _ensure_image
 
     def __str__(self) -> str:
         return f'Modal apparatus "{self.app.name}"'
@@ -119,7 +212,27 @@ class ModalApparatus(Apparatus[ModalVolume]):
         new_app.modal_fn_kwargs = self.modal_fn_kwargs.copy()
         new_app._before_hooks = self._before_hooks[:]
         new_app._volume = self._volume
+        new_app._image = self._image  # carry the cached image so a clone doesn't rebuild
         return new_app
+
+    def _ensure_image(self) -> modal.Image:
+        """The image for remote functions: a user override via ``.w(image=)`` if
+        present, else the project default, built once and cached.
+
+        Deferred (not built in ``__init__``) so read-only commands — ``status`` /
+        ``results`` / ``cancel``, which only touch the ``modal.Dict`` and Volume —
+        never run ``make_image`` (no ``uv`` freeze, no "Creating Modal image" noise).
+        """
+        if 'image' in self.modal_fn_kwargs:
+            return self.modal_fn_kwargs['image']
+        if self._image is None:
+            self._image = make_image()
+        return self._image
+
+    @property
+    def _dict_name(self) -> str:
+        """Name of the control-plane ``modal.Dict`` for this experiment."""
+        return f'mini-cp-{self.app.name}'
 
     def w(self, **kwargs: Any) -> ModalApparatus:
         """
@@ -138,6 +251,95 @@ class ModalApparatus(Apparatus[ModalVolume]):
         new_app = self.clone()
         new_app._before_hooks = self._before_hooks + [hook]
         return new_app
+
+    # -- Memoized orchestration (detached) ------------------------------------
+
+    @override
+    def memo_store(self) -> MemoStore:
+        return ModalMemoStore(self.volume, ModalRecordStore.from_name(self._dict_name))
+
+    def _memo_worker(self) -> modal.Function:
+        """Register (once) and return the generic remote worker for memo tasks.
+
+        One stable function serves every task; each spawned call carries its own
+        cloudpickled call. The Volume is mounted so the worker writes results to
+        the same path the client reads back from.
+
+        A detached sweep should parallelise, so there's *no* ``max_containers``
+        default here — it's unbounded unless the caller sets one
+        (``--max-containers`` / ``.w(max_containers=N)``), which now passes through
+        to cap concurrency/cost. Only ``startup_timeout`` (a client-side knob, not a
+        ``@function`` kwarg) is dropped.
+        """
+        if self._memo_fn is None:
+            drop = {'startup_timeout'}
+            fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k not in drop}
+            fn_kwargs['image'] = self._ensure_image()
+            if isinstance(self._volume, ModalVolume):
+                fn_kwargs['volumes'] = {
+                    **fn_kwargs.get('volumes', {}),
+                    str(self._volume.path): self._volume._modal_volume,
+                }
+            self._memo_fn = self.app.function(serialized=True, **fn_kwargs)(_modal_task_entry)
+        return self._memo_fn
+
+    @override
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
+        worker = self._memo_worker()
+        dict_name, volume_name, mount_point = self._dict_name, self.app.name, str(self.volume.path)
+        # One detached app context for the whole batch (the cost we batch away is
+        # app setup/registration, not the per-task spawn), then one ``spawn`` per
+        # task. Unlike ``spawn_map`` — which returns None on Modal 1.3.x — ``spawn``
+        # yields a FunctionCall id per task, recorded immediately so a launch
+        # failure is diagnosable (cross-check via FunctionCall.from_id, find logs
+        # on the dashboard) even before the worker writes its first heartbeat.
+        # max_containers is dropped in ``_memo_worker``, so the tasks parallelise.
+        fc_ids: dict[str, str] = {}
+        with self.app.run(detach=True):
+            for key, fn, args, hooks in batch:
+                blob = cloudpickle.dumps((fn, args, hooks))
+                fc = worker.spawn(blob, key, dict_name, volume_name, mount_point)
+                fc_ids[key] = fc.object_id
+        now = time.time()
+        for key, fc_id in fc_ids.items():
+            store.update(key, fc_id=fc_id, heartbeat_at=now)
+
+    @override
+    def _stop_task(self, rec: dict[str, Any]) -> None:
+        """Cancel the task's Modal ``FunctionCall`` by its recorded id."""
+        from contextlib import suppress
+
+        if fc_id := rec.get('fc_id'):
+            with suppress(Exception):  # already finished / unknown id
+                modal.FunctionCall.from_id(fc_id).cancel()
+
+    @override
+    def _is_task_alive(self, rec: dict[str, Any]) -> bool:
+        """Probe the task's ``FunctionCall`` for liveness (for ``reap_dead``).
+
+        ``get(timeout=0)`` polls without waiting: a ``modal.exception.TimeoutError``
+        means the input is still unfinished (running/queued → alive); a normal
+        return means it completed (the record settles on its own → treat as alive).
+        Only the *definitive gone* signals — the output expired, or the call id is
+        unknown — count as dead. We deliberately treat any other error (a remote
+        infra failure, or a transient read-side network blip) as alive: a false
+        "dead" would mark a live GPU task FAILED, and a retry would double-spawn it.
+        """
+        fc_id = rec.get('fc_id')
+        if not fc_id:
+            return True  # not launched on Modal yet — nothing to probe
+        from modal.exception import NotFoundError, OutputExpiredError
+        from modal.exception import TimeoutError as ModalTimeout
+
+        try:
+            modal.FunctionCall.from_id(fc_id).get(timeout=0)
+        except ModalTimeout:
+            return True  # output not ready, input still unfinished → running/queued
+        except OutputExpiredError, NotFoundError:
+            return False  # the call is gone — it will never settle the record
+        except Exception:
+            return True  # ambiguous infra/network error — don't risk reaping a live task
+        return True  # completed and returned → the record settles on its own
 
     @override
     async def amap(
@@ -168,7 +370,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         log.info('Running %d jobs on Modal', n)
         run_id = secrets.token_hex(4)
 
-        image: modal.Image = self.modal_fn_kwargs.get('image') or modal.Image.debian_slim()
+        image: modal.Image = self._ensure_image()
         with modal.enable_output():
             async with self.app.run():
                 await image.build.aio(self.app)
@@ -200,6 +402,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
 
         Return ``(modal_function, startup_timeout)``.
         """
+        # The blocking/interactive path defaults to one container (the memo path is
+        # unbounded); set it here now that it's no longer a global default.
         max_containers = self.modal_fn_kwargs.get('max_containers', 1)
         emission_interval = max_containers / 10.0
         wrapped_fn = _wrap_for_modal(
@@ -212,7 +416,9 @@ class ModalApparatus(Apparatus[ModalVolume]):
             data_dir=self._volume.path if self._volume is not None else None,
             commit_volume=(self._volume._modal_volume if isinstance(self._volume, ModalVolume) else None),
         )
-        fn_kwargs = {**self.modal_fn_kwargs}
+        fn_kwargs: dict[str, Any] = {**self.modal_fn_kwargs}
+        fn_kwargs.setdefault('max_containers', 1)  # interactive default; memo path stays unbounded
+        fn_kwargs['image'] = self._ensure_image()
         startup_timeout: float = fn_kwargs.pop('startup_timeout', STARTUP_TIMEOUT_SECONDS)
         if isinstance(self._volume, ModalVolume):
             volumes = fn_kwargs.get('volumes', {})

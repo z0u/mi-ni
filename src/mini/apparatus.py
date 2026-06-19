@@ -8,9 +8,12 @@ import asyncio
 import threading
 from abc import ABC, abstractmethod
 from functools import wraps
-from typing import Any, AsyncGenerator, Callable, Generic, Iterable, Iterator, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Generic, Iterable, Iterator, ParamSpec, TypeVar
 
 from mini.volume import Volume
+
+if TYPE_CHECKING:
+    from mini.memo import MemoStore
 
 P = ParamSpec('P')
 R = TypeVar('R')
@@ -50,14 +53,8 @@ class Apparatus(ABC, Generic[V]):
 
     @property
     def volume(self) -> V:
-        """
-        Return the volume.
-
-        Raises ``RuntimeError`` if no volume is configured.
-        """
+        """Return the volume; raises ``RuntimeError`` if none is configured."""
         if self._volume is None:
-            # Raise instead of returning None: accessing the volume when none is
-            # configured is exceptional, and None complicates the types.
             raise RuntimeError('No volume configured for this apparatus. Set .volume before accessing it.')
         return self._volume
 
@@ -145,19 +142,114 @@ class Apparatus(ABC, Generic[V]):
 
         yield from _map_in_thread(self, fn, *iterables, kwargs=kwargs)
 
+    def w(self, **kwargs: Any) -> Apparatus:
+        """Return a variant with backend-native options applied (e.g. ``gpu='L4'``).
+
+        Role resolution calls this to specialise one base apparatus per role.
+        The default ignores all options and returns ``self``: a local backend
+        has no extra knobs, so a role table written for Modal still loads locally.
+        ``ModalApparatus`` overrides this to merge ``@function`` kwargs.
+        """
+        return self
+
     @abstractmethod
     def before_each(self, hook: Callable[[], Any]) -> Apparatus:
-        """
-        Return a new apparatus that runs *hook* before each job.
+        """Return a new apparatus that runs *hook* before each job.
 
-        This is useful for things like configuring logging or setting random
-        seeds on a per-job basis.
-
-        Arguments:
-            hook: A function to run before each job. It should take no
-            arguments. Its return value is ignored.
+        Useful for per-job setup like configuring logging or seeding RNGs.
+        *hook* takes no arguments; its return value is ignored.
         """
         ...
+
+    # -- Detached, memoized orchestration -------------------------------------
+    # Unlike map/amap (blocking launch + monitor + collect for notebooks), the
+    # memoized path splits the lifecycle across short-lived processes: tick
+    # stages each call and spawn_tasks launches it detached.
+
+    @abstractmethod
+    def memo_store(self) -> MemoStore:
+        """Return the ``MemoStore`` for memoized orchestration on this backend.
+
+        Binds the record store (small/hot state) to the volume (results).
+        Each backend constructs its own: local uses JSON files; Modal uses a
+        ``modal.Dict`` for records and reads results back from the Volume.
+        Constructing it here (rather than at call sites) lets ``tick`` stay
+        backend-agnostic.
+        """
+        ...
+
+    @abstractmethod
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
+        """Spawn detached workers for a batch of memoized tasks.
+
+        ``Ctx`` marks each record RUNNING, then passes the batch — each entry
+        ``(key, fn, args, hooks)`` — here to launch workers that persist
+        results under each key, surviving the tick that launched them. Batching
+        lets ``ctx.map`` fan out efficiently (one ``spawn_map`` on Modal rather
+        than one detached call per task).
+        """
+        ...
+
+    def cancel(self, store: MemoStore) -> list[str]:
+        """Stop in-flight tasks, mark them CANCELLED, and return their keys.
+
+        Delegates per-task stops to ``_stop_task`` (local SIGTERMs the worker
+        process group; Modal cancels the ``FunctionCall``). Settled tasks are
+        left alone.
+        """
+        from mini.runs import RunState
+
+        cancelled: list[str] = []
+        for rec in store.records():
+            state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
+            if state in (RunState.RUNNING, RunState.PENDING):
+                self._stop_task(rec)
+                store.update(rec['key'], state=RunState.CANCELLED)
+                cancelled.append(rec['key'])
+        return cancelled
+
+    def _stop_task(self, rec: dict[str, Any]) -> None:
+        """Backend-specific: stop one in-flight task. Default: nothing to stop."""
+
+    def reap_dead(self, store: MemoStore, records: list[dict[str, Any]] | None = None) -> list[str]:
+        """Settle RUNNING tasks whose worker has vanished (→ FAILED); return their keys.
+
+        A killed or crashed worker can exit without writing a settled state,
+        leaving a stale RUNNING record that wedges ``--watch`` forever. We
+        cross-check each RUNNING task via ``_is_task_alive`` and mark orphans
+        FAILED — recovery then requires a deliberate ``retry``. Reaping never
+        relaunches, so it's safe on the read/poll path.
+
+        Pass *records* to reuse a snapshot already in hand (avoiding a second
+        full read); reaped records are mutated in place so the caller's copy
+        stays current.
+        """
+        from mini.runs import RunState
+
+        reaped: list[str] = []
+        for rec in store.records() if records is None else records:
+            if rec.get('state') != RunState.RUNNING or self._is_task_alive(rec):
+                continue
+            # Re-read before settling: a worker writes its final state *then* exits,
+            # so if it's gone yet the record still says RUNNING it died mid-run. The
+            # re-read closes the gap between our records() snapshot and the probe.
+            if store.state(rec['key']) != RunState.RUNNING:
+                continue
+            error = 'worker vanished (killed/crashed, no result written)'
+            store.update(rec['key'], state=RunState.FAILED, error=error)
+            rec['state'], rec['error'] = RunState.FAILED, error  # keep the caller's snapshot current
+            reaped.append(rec['key'])
+        return reaped
+
+    def _is_task_alive(self, rec: dict[str, Any]) -> bool:
+        """Is this RUNNING task's worker still alive?
+
+        Defaults to ``True`` (unknown → alive): a backend with no liveness probe
+        never reaps a task it can't confirm is dead. False negatives (marking a
+        live task dead) are far more harmful than false positives (letting a
+        stale record linger).
+        """
+        return True
 
 
 def _map_in_thread(

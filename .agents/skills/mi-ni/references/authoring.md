@@ -1,0 +1,69 @@
+# Authoring an experiment
+
+An experiment is a plain function `main(ctx)` that expresses a dependency graph
+in ordinary Python. Each `ctx.run`/`ctx.map` call is **content-addressed
+(memoized)**: a cache hit returns the stored result; in-flight work suspends the
+wake (raises `Pending`); absent work launches a detached worker, then suspends.
+A driver re-runs `main` on every _wake_, so completed steps are memo hits and
+only the un-run pieces execute. Crash recovery is just "run it again".
+
+```python
+from mini import Ctx, Experiment
+
+def main(ctx: Ctx) -> dict:
+    meta = ctx.run(prepare_data)                        # one step; suspends until done
+    configs = [(lr, meta['vocab_size']) for lr in LRS]  # plain Python between steps
+    return ctx.map(train, configs)                      # fan-out that depends on prep
+
+experiment = Experiment(name='my-exp', main=main)
+```
+
+The module exposes a top-level `experiment = Experiment(...)`. It carries **no
+compute** — the apparatus is injected when it runs, so the same file runs
+locally or on Modal without edits.
+
+## Where experiments live
+
+```
+**/<name>/
+  experiment.py   # the definition: main(ctx); importable, no UI.
+  report.py       # a Marimo notebook that READS durable results and renders them. Published.
+```
+
+Split definition from report. The definition is imported by the CLI and the
+remote workers; the report reads persisted results and plots, so it opens
+standalone without re-running the work. See `docs/pipeline/` for a worked,
+runnable example.
+
+## Write cache-friendly experiments
+
+The memo key is `fingerprint(source of fn + the project fns it calls) + inputs`
+(full semantics in [memoization.md](./memoization.md)). To keep the "fix a bug,
+re-run" loop fast and honest:
+
+- **Pass each task the narrow subset of config it actually uses.** `train(lr,
+  vocab_size)` re-runs only when `lr` or `vocab_size` change; `train(whole_config)`
+  re-runs whenever _any_ unrelated field changes.
+- **Keep `main` cheap and deterministic** — it re-runs every wake. Derive configs
+  there; do heavy or random work _inside_ a task.
+- **Fold RNG seeds into the inputs**, so the memo is honest (same inputs ⇒ same
+  result). A task seeded from wall-clock can never be a cache hit.
+- **Force a re-run** by editing the function (its source fingerprint changes) or
+  passing `version='v2'`. Editing a project helper a task calls also invalidates
+  it; library/framework churn does not.
+
+## Routing steps to compute
+
+Compute is an execution choice, not part of the definition. A file experiment
+stays backend-agnostic by tagging steps with a **role** that the CLI/driver maps
+to a concrete apparatus:
+
+```python
+meta = ctx.run(prepare_data, role='cpu')          # prep on CPU
+return ctx.map(train, configs, role='gpu')        # training on GPU
+```
+
+Each step also picks up that apparatus's `before_each` hooks. The default role
+is the tick's apparatus (set by `--app` / `--workers` on the CLI). In a
+notebook, where you already hold apparatus handles, you can instead pass an
+instance directly: `ctx.run(fn, on=cpu_app)`.

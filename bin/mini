@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Pin to this project so the wrapper works from any cwd, then run the `mini`
+# console-script (see [project.scripts]). The store is found at the project root
+# regardless of where you invoke this from (mini.runs.data_root).
+exec uv run --project "${0%/*}/.." mini "$@"

@@ -5,6 +5,7 @@ description = "AI experiments"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "cloudpickle>=3.1.2",
     "datasets>=3.0.0",  # Hugging Face Datasets
     "equinox>=0.13",  # neural networks as JAX pytrees
     "ftfy>=6.3.1",  # text cleaning for NLP tasks
@@ -17,13 +18,18 @@ dependencies = [
     "numpy>=2.2.3",  # numerical computing (multi-dimensional arrays)
     "optax>=0.2.4",  # gradient transformations and optimizers for JAX
     "pandas>=2.2.3",  # tabular data manipulation
-    "pydantic>=2.10.6",  # data validation
+    "pydantic>=2.13.4",  # data validation
     "pyzmq>=27.1.0",
     "requests>=2.32.3",
     "rich>=14.3.2",  # pretty terminal output
     "scikit-learn>=1.6.1",
     "wandb>=0.25.0",  # experiment tracking
 ]
+
+[project.scripts]
+# Run and monitor memoized experiments: `mini run/ls/status/watch/...`.
+# `bin/mini` wraps this so it works from any cwd without an activated venv.
+mini = "mini.__main__:main"
 
 [dependency-groups]
 # Dependencies that aren't needed remotely (e.g. in Modal)
@@ -77,7 +83,7 @@ select = ["E", "F", "W", "B", "C", "D", "T"]
 ignore = [
     "E501", "E731",
     "C408",
-    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D200", "D202", "D203", "D204", "D211", "D212", "D213", "D400", "D401", "D413", "D415",
+    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D200", "D202", "D203", "D204", "D205", "D211", "D212", "D213", "D400", "D401", "D413", "D415",
     "F722",
     "Q000",
     "T201",
