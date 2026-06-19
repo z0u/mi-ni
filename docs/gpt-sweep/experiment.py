@@ -10,9 +10,10 @@ in. Drive it on Modal L4s from the CLI; the companion ``report.py`` reads the
 durable results and renders them.
 
     # one data-prep run, then nine training runs, fanned out across L4s:
-    bin/mini run docs/gpt-sweep/experiment.py --app modal --gpu L4 --max-containers 9 --timeout 720
+    bin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9
 
-Re-run to advance/resume — done cells are memo hits, so a crash heals by re-running
+The hardware is bound by role (see ``roles`` below): ``prep`` runs CPU-only, ``train``
+on L4s — so ``main`` names labels, not GPUs. Re-run to advance/resume — done cells are memo hits, so a crash heals by re-running
 and a failed cell is recovered with ``bin/mini retry gpt-sweep``. Adding an LR or
 architecture below and re-running launches only the new cells.
 """
@@ -123,8 +124,15 @@ def train_one(config, arch_label: str, lr_str: str) -> tuple:
 
 
 def main(ctx: Ctx) -> list[tuple]:
-    meta = ctx.run(prepare_data)  # CPU prep; suspends until done
-    return ctx.map(train_one, build_sweep(meta))  # GPU sweep that depends on prep
+    meta = ctx.run(prepare_data, role='prep')  # CPU prep; suspends until done
+    return ctx.map(train_one, build_sweep(meta), role='train')  # GPU sweep that depends on prep
 
 
-experiment = Experiment(name='gpt-sweep', main=main)
+experiment = Experiment(
+    name='gpt-sweep',
+    main=main,
+    roles={
+        'prep': {},  # CPU-only: data download + tokenize
+        'train': dict(gpu='L4', timeout=720),  # GPU sweep cells
+    },
+)

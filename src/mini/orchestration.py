@@ -34,16 +34,30 @@ class Ctx:
     only runs once the result exists. For parallel fan-out use ``map``, which
     launches *all* missing tasks before suspending.
 
-    Each call runs on the tick's *apparatus* by default; pass ``on=`` to route a
-    step elsewhere (e.g. CPU prep, GPU training). The apparatus also supplies the
+    Each call runs on the tick's *apparatus* by default. Route a step elsewhere
+    with ``role=`` (a label the experiment's ``roles`` table binds to hardware —
+    the file-experiment path, since the CLI holds no apparatus handles) or ``on=``
+    (a concrete apparatus — the notebook path). The apparatus also supplies the
     per-step ``before_each`` hooks.
     """
 
-    def __init__(self, store: MemoStore, apparatus: Apparatus):
+    def __init__(self, store: MemoStore, apparatus: Apparatus, roles: dict[str, Apparatus] | None = None):
         self.store = store
         self.apparatus = apparatus
+        self.roles = roles or {}
         self.launched: list[str] = []
         self.pending: list[str] = []
+
+    def _route(self, on: Apparatus | None, role: str | None) -> Apparatus:
+        """Resolve which apparatus a step runs on: ``role`` label, ``on=``, or default."""
+        if on is not None and role is not None:
+            raise ValueError('pass either role= or on=, not both')
+        if role is not None:
+            if role not in self.roles:
+                known = ', '.join(sorted(self.roles)) or '(none defined)'
+                raise ValueError(f'unknown role {role!r}; defined roles: {known}')
+            return self.roles[role]
+        return on or self.apparatus
 
     def _classify(
         self, fn: Callable, args: tuple, version: str | None, app: Apparatus
@@ -62,8 +76,15 @@ class Ctx:
             state = RunState.RUNNING
         return key, state, to_launch
 
-    def run(self, fn: Callable, *args: Any, version: str | None = None, on: Apparatus | None = None) -> Any:
-        app = on or self.apparatus
+    def run(
+        self,
+        fn: Callable,
+        *args: Any,
+        version: str | None = None,
+        on: Apparatus | None = None,
+        role: str | None = None,
+    ) -> Any:
+        app = self._route(on, role)
         key, state, to_launch = self._classify(fn, args, version, app)
         if to_launch is not None:
             app.spawn_tasks(self.store, [to_launch])
@@ -73,9 +94,14 @@ class Ctx:
         raise Pending(f'waiting on {key}')
 
     def map(
-        self, fn: Callable, items: Sequence[Any], version: str | None = None, on: Apparatus | None = None
+        self,
+        fn: Callable,
+        items: Sequence[Any],
+        version: str | None = None,
+        on: Apparatus | None = None,
+        role: str | None = None,
     ) -> list[Any]:
-        app = on or self.apparatus
+        app = self._route(on, role)
         results: list[Any] = []
         batch: list[tuple[str, Callable, tuple, list]] = []
         for raw in items:
@@ -103,7 +129,7 @@ def tick(experiment: Experiment, apparatus: Apparatus) -> tuple[bool, Any]:
     on=)``.
     """
     store = apparatus.memo_store()
-    ctx = Ctx(store, apparatus)
+    ctx = Ctx(store, apparatus, experiment.resolve_roles(apparatus))
     try:
         result = experiment.orchestration()(ctx)
     except Pending as p:

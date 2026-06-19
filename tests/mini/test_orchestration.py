@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
@@ -176,6 +177,70 @@ def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
     assert _drive(Experiment(name='perstep', main=main), default) == [1]
     assert (data_dir / 'gpu_hook').exists()  # the on= apparatus's hook ran
     assert not (data_dir / 'default_hook').exists()  # the tick default's did not
+
+
+def test_role_routes_to_its_apparatus(tmp_path: Path):
+    """``role=`` binds a label to a ``.w()`` variant via the experiment's ``roles``
+    table — proven (like ``on=``) through each variant's ``before_each`` hook."""
+
+    def mark_prep():
+        from mini import get_data_dir
+
+        (get_data_dir() / 'prep_hook').touch()
+
+    def mark_train():
+        from mini import get_data_dir
+
+        (get_data_dir() / 'train_hook').touch()
+
+    def task(x):
+        return x
+
+    data_dir = tmp_path / 'roles'
+
+    def roles(base: LocalApparatus) -> dict[str, LocalApparatus]:
+        # callable form: lets each role attach its own hook (local has no .w knobs)
+        return {'prep': base.before_each(mark_prep), 'train': base.before_each(mark_train)}
+
+    def main(ctx):
+        ctx.run(task, 0, role='prep')
+        return ctx.map(task, [(1,)], role='train')
+
+    exp = Experiment(name='roles', main=main, roles=roles)
+    assert _drive(exp, LocalApparatus('roles', data_dir=data_dir)) == [1]
+    assert (data_dir / 'prep_hook').exists() and (data_dir / 'train_hook').exists()
+
+
+def test_role_kwargs_table_applies_w(tmp_path: Path):
+    """The dict form maps a label to ``.w()`` kwargs; the base apparatus's ``.w``
+    interprets them (local ignores GPU knobs, so the same table runs locally)."""
+    captured: dict[str, Any] = {}
+
+    class RecordingLocal(LocalApparatus):
+        def w(self, **kwargs):  # local has no native knobs; record + no-op
+            captured.update(kwargs)
+            return self
+
+    def task(x):
+        return x
+
+    exp = Experiment(name='wtab', main=lambda ctx: ctx.map(task, [(1,)], role='train'), roles={'train': dict(gpu='L4')})
+    assert _drive(exp, RecordingLocal('wtab', data_dir=tmp_path / 'wtab')) == [1]
+    assert captured == {'gpu': 'L4'}
+
+
+def test_unknown_role_and_role_on_conflict_raise(tmp_path: Path):
+    from mini.orchestration import Ctx
+
+    app = LocalApparatus('routing', data_dir=tmp_path / 'routing')
+    ctx = Ctx(app.memo_store(), app, roles={'train': app})
+
+    import pytest
+
+    with pytest.raises(ValueError, match='unknown role'):
+        ctx.run(lambda: None, role='gpu')
+    with pytest.raises(ValueError, match='not both'):
+        ctx.run(lambda: None, on=app, role='train')
 
 
 def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
