@@ -6,7 +6,7 @@ ordinary Python. Each ``ctx.run`` / ``ctx.map`` is content-addressed: cached ->
 return the stored result; otherwise launch a detached task and *suspend* the
 wake by raising ``Pending``. A driver re-runs ``main`` each wake; completed steps
 are memo hits, so only the un-run / failed pieces execute — crash-recovery by
-re-run. See notes/agentic-experiments.md (section 5).
+re-run.
 """
 
 from __future__ import annotations
@@ -20,10 +20,14 @@ if TYPE_CHECKING:
     from mini.apparatus import Apparatus
     from mini.experiment import Experiment
 
-__all__ = ['Pending', 'Ctx', 'tick', 'retry']
+__all__ = ['MemoError', 'Pending', 'Ctx', 'tick', 'retry']
 
 
-class Pending(Exception):
+class MemoError(Exception):
+    """Base for exceptions raised by the memoized detached path."""
+
+
+class Pending(MemoError):
     """Raised to suspend the current wake until in-flight tasks finish."""
 
 

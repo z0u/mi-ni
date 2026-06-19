@@ -30,7 +30,7 @@ from rich.progress import (
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.memo import PollCache
-from mini.orchestration import tick
+from mini.orchestration import MemoError, tick
 from mini.runs import SETTLED, RunState
 
 __all__ = ['drive_and_watch', 'watch', 'ExperimentFailed']
@@ -43,7 +43,7 @@ _COLOR = {
 }
 
 
-class ExperimentFailed(Exception):
+class ExperimentFailed(MemoError):
     """The watched DAG can't progress because a task settled without completing.
 
     ``FAILED``/``CANCELLED`` are terminal — ``tick`` won't relaunch them — so a

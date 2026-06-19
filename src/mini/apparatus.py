@@ -53,14 +53,8 @@ class Apparatus(ABC, Generic[V]):
 
     @property
     def volume(self) -> V:
-        """
-        Return the volume.
-
-        Raises ``RuntimeError`` if no volume is configured.
-        """
+        """Return the volume; raises ``RuntimeError`` if none is configured."""
         if self._volume is None:
-            # Raise instead of returning None: accessing the volume when none is
-            # configured is exceptional, and None complicates the types.
             raise RuntimeError('No volume configured for this apparatus. Set .volume before accessing it.')
         return self._volume
 
@@ -149,77 +143,59 @@ class Apparatus(ABC, Generic[V]):
         yield from _map_in_thread(self, fn, *iterables, kwargs=kwargs)
 
     def w(self, **kwargs: Any) -> Apparatus:
-        """Return a variant of this apparatus with backend-native options applied.
+        """Return a variant with backend-native options applied (e.g. ``gpu='L4'``).
 
-        Role resolution uses this to specialize one base apparatus per role
-        (``base.w(gpu='L4')``). The default ignores every option and returns
-        *self*: a backend with no extra knobs (e.g. local) runs every role on
-        the same compute, so a role table written for Modal still loads and runs
-        locally. ``ModalApparatus`` overrides this to merge ``@function`` kwargs.
+        Role resolution calls this to specialise one base apparatus per role.
+        The default ignores all options and returns ``self``: a local backend
+        has no extra knobs, so a role table written for Modal still loads locally.
+        ``ModalApparatus`` overrides this to merge ``@function`` kwargs.
         """
         return self
 
     @abstractmethod
     def before_each(self, hook: Callable[[], Any]) -> Apparatus:
-        """
-        Return a new apparatus that runs *hook* before each job.
+        """Return a new apparatus that runs *hook* before each job.
 
-        This is useful for things like configuring logging or setting random
-        seeds on a per-job basis.
-
-        Arguments:
-            hook: A function to run before each job. It should take no
-            arguments. Its return value is ignored.
+        Useful for per-job setup like configuring logging or seeding RNGs.
+        *hook* takes no arguments; its return value is ignored.
         """
         ...
 
     # -- Detached, memoized orchestration -------------------------------------
-    # Unlike ``map``/``amap`` (launch + monitor + collect in one blocking call,
-    # for notebooks), the memoized path splits the lifecycle so it can span
-    # short-lived processes: ``mini.orchestration.tick`` stages each call and
-    # ``spawn_tasks`` launches it detached. See notes/agentic-experiments.md.
+    # Unlike map/amap (blocking launch + monitor + collect for notebooks), the
+    # memoized path splits the lifecycle across short-lived processes: tick
+    # stages each call and spawn_tasks launches it detached.
 
+    @abstractmethod
     def memo_store(self) -> MemoStore:
-        """Return the `MemoStore` for the memoized orchestration on this backend.
+        """Return the ``MemoStore`` for memoized orchestration on this backend.
 
-        The store binds the two planes the backend uses: a ``RecordStore`` for
-        small/hot state, and the Volume for results. The default is fully local
-        (JSON records + local files under the Volume path); Modal overrides this
-        to put records in a ``modal.Dict`` and read results back from the Volume.
-        Constructing it here (rather than ``MemoStore(volume.path)`` at call
-        sites) is what lets ``tick`` stay backend-agnostic.
+        Binds the record store (small/hot state) to the volume (results).
+        Each backend constructs its own: local uses JSON files; Modal uses a
+        ``modal.Dict`` for records and reads results back from the Volume.
+        Constructing it here (rather than at call sites) lets ``tick`` stay
+        backend-agnostic.
         """
-        from mini.memo import MemoStore
+        ...
 
-        return MemoStore(self.volume.path)
-
+    @abstractmethod
     def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
-        """Spawn detached workers for a *batch* of memoized tasks, on this apparatus.
+        """Spawn detached workers for a batch of memoized tasks.
 
-        The seam that lets the memoized orchestration (``mini.orchestration.Ctx``)
-        decide *where* steps run. ``Ctx`` marks each record RUNNING
-        (``MemoStore.mark_running``), then hands the batch — each entry
-        ``(key, fn, args, hooks)`` — to this method, which launches workers that
-        run the calls and persist their results/state under each *key*, surviving
-        the tick that launched them.
-
-        Batching is what lets a ``ctx.map`` fan out efficiently: the local backend
-        spawns one subprocess per task, while Modal issues a single ``spawn_map``
-        rather than one detached ``app.run`` per task. ``ctx.run`` passes a
-        one-element batch. How the call reaches the worker is backend-specific
-        (staged to disk vs handed to ``spawn``); either way per-step ``on=`` routes
-        *compute*, not just hooks.
+        ``Ctx`` marks each record RUNNING, then passes the batch — each entry
+        ``(key, fn, args, hooks)`` — here to launch workers that persist
+        results under each key, surviving the tick that launched them. Batching
+        lets ``ctx.map`` fan out efficiently (one ``spawn_map`` on Modal rather
+        than one detached call per task).
         """
-        raise NotImplementedError(
-            f'{type(self).__name__} does not support detached spawn_tasks yet. See notes/agentic-experiments.md.'
-        )
+        ...
 
     def cancel(self, store: MemoStore) -> list[str]:
-        """Stop in-flight tasks and mark them CANCELLED; return the cancelled keys.
+        """Stop in-flight tasks, mark them CANCELLED, and return their keys.
 
-        Backend-agnostic loop: the per-task stop is delegated to ``_stop_task``
-        (local SIGTERMs the worker's process group; Modal cancels the
-        ``FunctionCall``). Settled tasks are left alone.
+        Delegates per-task stops to ``_stop_task`` (local SIGTERMs the worker
+        process group; Modal cancels the ``FunctionCall``). Settled tasks are
+        left alone.
         """
         from mini.runs import RunState
 
@@ -238,19 +214,15 @@ class Apparatus(ABC, Generic[V]):
     def reap_dead(self, store: MemoStore, records: list[dict[str, Any]] | None = None) -> list[str]:
         """Settle RUNNING tasks whose worker has vanished (→ FAILED); return their keys.
 
-        A worker killed or hard-crashed — OOM, SIGKILL, a segfault, a closed
-        laptop — can exit *without* writing a settled state, leaving a stale
-        RUNNING record. That wedges a ``--watch`` drain forever (it waits on a task
-        that will never report) and misleads a ``status`` poll. We cross-check the
-        real worker via ``_is_task_alive`` (local pid / Modal ``FunctionCall``) and
-        mark the orphans FAILED. FAILED is terminal, so recovery is a deliberate
-        ``retry`` — same as any other failure. Reaping never *relaunches*, so it's
-        safe on the read/poll path (see todo, "Keep tick distinct from polling").
+        A killed or crashed worker can exit without writing a settled state,
+        leaving a stale RUNNING record that wedges ``--watch`` forever. We
+        cross-check each RUNNING task via ``_is_task_alive`` and mark orphans
+        FAILED — recovery then requires a deliberate ``retry``. Reaping never
+        relaunches, so it's safe on the read/poll path.
 
-        Pass *records* to reuse a snapshot the caller already read (the watch loops
-        poll a ``PollCache`` once per tick, then hand it here — no second full read).
-        A reaped record is settled in the store *and* mutated in place, so the
-        caller's snapshot reflects the new state without re-reading.
+        Pass *records* to reuse a snapshot already in hand (avoiding a second
+        full read); reaped records are mutated in place so the caller's copy
+        stays current.
         """
         from mini.runs import RunState
 
@@ -270,10 +242,12 @@ class Apparatus(ABC, Generic[V]):
         return reaped
 
     def _is_task_alive(self, rec: dict[str, Any]) -> bool:
-        """Backend probe: is this RUNNING task's worker still alive?
+        """Is this RUNNING task's worker still alive?
 
-        Default: unknown → ``True``, so a backend with no way to inspect a worker
-        never reaps a task it can't actually confirm is dead.
+        Defaults to ``True`` (unknown → alive): a backend with no liveness probe
+        never reaps a task it can't confirm is dead. False negatives (marking a
+        live task dead) are far more harmful than false positives (letting a
+        stale record linger).
         """
         return True
 

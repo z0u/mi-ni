@@ -173,7 +173,7 @@ class LocalRecordStore(RecordStore):
 class MemoStore:
     """Per-experiment content-addressed task store (the orchestration backend).
 
-    Two planes (see notes/agentic-experiments.md): records (small: state,
+    Two planes: records (small: state,
     metrics, heartbeat) live on a ``RecordStore`` control plane; results and
     tracebacks (large) live on the I/O plane. Locally both are files under
     ``data_dir``; on Modal the records go to a ``modal.Dict`` and results to the

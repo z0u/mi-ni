@@ -69,6 +69,12 @@ class LocalApparatus(Apparatus[LocalVolume]):
         return new_app
 
     @override
+    def memo_store(self) -> MemoStore:
+        from mini.memo import MemoStore
+
+        return MemoStore(self.volume.path)
+
+    @override
     def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
         for key, fn, args, hooks in batch:
             store.write_call(key, fn, args, hooks)  # stage to disk for the subprocess worker

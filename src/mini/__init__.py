@@ -3,7 +3,7 @@ from mini.progress import ProgressMessage, emit_metrics, emit_progress
 from mini.local_apparatus import LocalApparatus
 from mini.modal_apparatus import ModalApparatus
 from mini.experiment import Experiment, load_experiment
-from mini.orchestration import Ctx, Pending, tick
+from mini.orchestration import Ctx, MemoError, Pending, tick
 from mini.runs import RunState
 from mini.volume import get_data_dir
 
@@ -19,6 +19,7 @@ __all__ = [
     'load_experiment',
     'RunState',
     'Ctx',
+    'MemoError',
     'Pending',
     'tick',
 ]

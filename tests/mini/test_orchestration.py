@@ -113,12 +113,12 @@ def test_failed_is_terminal_until_retry(tmp_path: Path):
     assert (tmp_path / 'crash' / 'att_1').read_text() == '1'  # siblings untouched
 
 
-def test_single_map_sugar(tmp_path: Path):
+def test_single_map(tmp_path: Path):
     def sq(x):
         return x * x
 
-    exp = Experiment(name='sugar', fn=sq, configs=[(2,), (3,)])
-    app = LocalApparatus('sugar', data_dir=tmp_path / 'sugar')
+    exp = Experiment(name='map', main=lambda ctx: ctx.map(sq, [(2,), (3,)]))
+    app = LocalApparatus('map', data_dir=tmp_path / 'map')
     assert _drive(exp, app) == [4, 9]
 
 

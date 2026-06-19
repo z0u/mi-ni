@@ -1,10 +1,9 @@
 """
 Importable experiment definitions.
 
-An experiment is either a single sweep (``fn`` + ``configs``) or a multi-step
-orchestration (``main``) — see notes/agentic-experiments.md. It carries no
-notebook/UI state, so the CLI and the detached workers can both import it; the
-notebook becomes a *report* that reads durable results.
+An experiment is a ``main(ctx)`` orchestration. It carries no notebook/UI state,
+so the CLI and detached workers can both import it; the notebook becomes a report
+that reads durable results.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ import importlib.util
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from mini.apparatus import Apparatus
@@ -24,35 +23,25 @@ __all__ = ['Experiment', 'load_experiment']
 
 @dataclass
 class Experiment:
-    """A named experiment: a single sweep, or a multi-step orchestration.
+    """A named experiment with a memoized multi-step orchestration.
 
-    The definition carries *no* compute: the apparatus is injected at execution
+    The definition carries no compute: the apparatus is injected at execution
     (by the CLI or a notebook) — ``tick(exp, apparatus)`` — so the same module
-    runs locally or remotely without edits.
-
-    Single sweep (lowered to a one-line map)::
-
-        Experiment(name='sweep', fn=train, configs=[(1e-3,), (1e-2,)])
-
-    Multi-step (memoized; re-run to recover)::
+    runs locally or remotely without edits::
 
         def main(ctx):
             meta = ctx.run(prepare_data, role='prep')    # CPU prep
-            return ctx.map(train, [...], role='train')   # per-step compute
+            return ctx.map(train, [...], role='train')   # per-step GPU
 
         Experiment(name='pipeline', main=main, roles={'train': dict(gpu='L4')})
 
-    Roles let ``main`` stay backend-agnostic: it names a *label* and the run-edge
-    binding (the ``roles`` table, applied to whatever ``--app`` built) supplies the
-    concrete hardware. The label is intrinsic to the work (``prep`` is CPU-shaped,
-    ``train`` is GPU-shaped); the kwargs are native to the backend (``.w()``), so a
-    table written for Modal still loads locally (local ``.w()`` ignores them).
+    Roles let ``main`` stay backend-agnostic: it names a label and the
+    ``roles`` table maps that label to concrete hardware via ``.w()``. A
+    table written for Modal still loads locally (local ``.w()`` ignores kwargs).
     """
 
     name: str
-    fn: Callable[..., Any] | None = None
-    configs: Sequence[Any] | None = None
-    main: Callable[[Ctx], Any] | None = None
+    main: Callable[[Ctx], Any]
     roles: Mapping[str, dict[str, Any]] | Callable[[Apparatus], Mapping[str, Apparatus]] | None = None
 
     def resolve_roles(self, base: Apparatus) -> dict[str, Apparatus]:
@@ -70,14 +59,8 @@ class Experiment:
         return dict(self.roles(base))
 
     def orchestration(self) -> Callable[[Ctx], Any]:
-        """Return the ``main(ctx)`` DAG (single sweeps become a one-line map)."""
-        if self.main is not None:
-            return self.main
-        if self.fn is None or self.configs is None:
-            raise ValueError('Experiment needs either main=, or both fn= and configs=')
-        fn = self.fn
-        items = [c if isinstance(c, tuple) else (c,) for c in self.configs]
-        return lambda ctx: ctx.map(fn, items)
+        """Return the ``main(ctx)`` orchestration DAG."""
+        return self.main
 
 
 def load_experiment(path: str | Path) -> Experiment:
