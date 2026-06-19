@@ -10,11 +10,13 @@ notebook becomes a *report* that reads durable results.
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
 if TYPE_CHECKING:
+    from mini.apparatus import Apparatus
     from mini.orchestration import Ctx
 
 __all__ = ['Experiment', 'load_experiment']
@@ -35,16 +37,37 @@ class Experiment:
     Multi-step (memoized; re-run to recover)::
 
         def main(ctx):
-            meta = ctx.run(prepare_data)                 # CPU prep
-            return ctx.map(train, [...], on=gpu)         # per-step compute
+            meta = ctx.run(prepare_data, role='prep')    # CPU prep
+            return ctx.map(train, [...], role='train')   # per-step compute
 
-        Experiment(name='pipeline', main=main)
+        Experiment(name='pipeline', main=main, roles={'train': dict(gpu='L4')})
+
+    Roles let ``main`` stay backend-agnostic: it names a *label* and the run-edge
+    binding (the ``roles`` table, applied to whatever ``--app`` built) supplies the
+    concrete hardware. The label is intrinsic to the work (``prep`` is CPU-shaped,
+    ``train`` is GPU-shaped); the kwargs are native to the backend (``.w()``), so a
+    table written for Modal still loads locally (local ``.w()`` ignores them).
     """
 
     name: str
     fn: Callable[..., Any] | None = None
     configs: Sequence[Any] | None = None
     main: Callable[[Ctx], Any] | None = None
+    roles: Mapping[str, dict[str, Any]] | Callable[[Apparatus], Mapping[str, Apparatus]] | None = None
+
+    def resolve_roles(self, base: Apparatus) -> dict[str, Apparatus]:
+        """Bind role labels to concrete apparatus variants of *base*.
+
+        A dict maps each label to ``.w()`` kwargs applied to *base* (the common
+        case); a callable receives *base* and returns the variants directly (for
+        per-role ``before_each`` / image / volume). ``None`` → no roles.
+        """
+        if self.roles is None:
+            return {}
+        if isinstance(self.roles, Mapping):
+            table = cast('Mapping[str, Mapping[str, Any]]', self.roles)
+            return {label: base.w(**kwargs) for label, kwargs in table.items()}
+        return dict(self.roles(base))
 
     def orchestration(self) -> Callable[[Ctx], Any]:
         """Return the ``main(ctx)`` DAG (single sweeps become a one-line map)."""

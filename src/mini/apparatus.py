@@ -148,6 +148,17 @@ class Apparatus(ABC, Generic[V]):
 
         yield from _map_in_thread(self, fn, *iterables, kwargs=kwargs)
 
+    def w(self, **kwargs: Any) -> Apparatus:
+        """Return a variant of this apparatus with backend-native options applied.
+
+        Role resolution uses this to specialize one base apparatus per role
+        (``base.w(gpu='L4')``). The default ignores every option and returns
+        *self*: a backend with no extra knobs (e.g. local) runs every role on
+        the same compute, so a role table written for Modal still loads and runs
+        locally. ``ModalApparatus`` overrides this to merge ``@function`` kwargs.
+        """
+        return self
+
     @abstractmethod
     def before_each(self, hook: Callable[[], Any]) -> Apparatus:
         """

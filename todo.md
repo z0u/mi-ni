@@ -115,10 +115,22 @@ experiment:
   → subprocess per task; `ModalApparatus` → detached Modal spawn). `on=` now routes
   *compute*, not just hooks. Records went behind a `RecordStore` (local JSON /
   `modal.Dict`).
-- **Role labels for file-based experiments.** `on=apparatus` only works from a
-  notebook (which holds apparatus handles); a file experiment loaded by the CLI
-  has none. Plan: abstract *role* labels (`ctx.map(..., role='gpu')`) that the
-  driver/CLI maps to concrete apparatuses, so `main` stays backend-agnostic.
+- ~~**Role labels for file-based experiments.**~~ **Done.** `ctx.run/map(...,
+  role='gpu')` names a label; `Experiment(roles=...)` binds it. The common form is a
+  table `{label: .w()-kwargs}` applied to whatever `--app` built (`resolve_roles`);
+  a callable `(base) -> {label: apparatus}` is the escape hatch for per-role
+  `before_each`/image. Backend-native knobs stay typed in code (not CLI strings),
+  and the same table runs locally — `Apparatus.w` defaults to a no-op so local
+  ignores Modal's `gpu=`. `role=`/`on=` are mutually exclusive; an undefined role
+  raises. All roles share one volume by construction (`.w()`/`clone` keep `_volume`),
+  so heterogeneous hardware still sees the same storage. Verified live on Modal
+  (`docs/role-demo`: probe→cpu, gpu→L4).
+  - *Deferred (separate primitive):* **run presets / parameterized `main`** — bundle
+    {config overrides + role tier} under one name (`smoke` vs `full`) so the same DAG
+    runs at different sizes. This is *not* roles: batch size / steps are
+    hyperparameters (config, already swept + memoized), and since the memo key
+    excludes hardware, a size bump must change the config, not just the GPU. `main`
+    currently takes only `ctx`, so passing a preset in is the missing piece.
 - **Capture compute-environment metadata in the run/task records** (what it
   actually ran on) — separate from backend selection above.
 
