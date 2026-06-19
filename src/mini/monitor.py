@@ -30,9 +30,9 @@ from rich.progress import (
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.orchestration import tick
-from mini.runs import RunState
+from mini.runs import SETTLED, RunState
 
-__all__ = ['drive_and_watch', 'ExperimentFailed']
+__all__ = ['drive_and_watch', 'watch', 'ExperimentFailed']
 
 _COLOR = {
     RunState.RUNNING: 'cyan',
@@ -84,6 +84,49 @@ def _refresh(progress: Progress, bars: dict[str, TaskID], records: list[dict[str
         progress.update(bars[key], completed=step, total=total or None, description=desc)
 
 
+def _progress(console: Console | None) -> Progress:
+    """The shared live-bar layout (one row per task key)."""
+    return Progress(
+        TextColumn('[progress.description]{task.description}'),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console or Console(),
+    )
+
+
+def _rec_state(rec: dict[str, Any]) -> RunState:
+    return RunState(rec['state']) if rec.get('state') else RunState.PENDING
+
+
+def watch(
+    apparatus: Apparatus,
+    *,
+    poll: float = 0.5,
+    console: Console | None = None,
+) -> list[dict[str, Any]]:
+    """Render a live bar for a run this process did *not* launch, until it settles.
+
+    The read-only twin of ``drive_and_watch``: it polls the durable records and
+    reaps vanished workers, but never ``tick``s — so it never launches work. Use
+    it to watch a detached/Modal run from another process (``mini watch <name>``);
+    contrast ``run --watch``, which also drives the DAG forward.
+
+    Returns the final records once every task has settled. Lets
+    ``KeyboardInterrupt`` propagate (the caller reports; workers live on).
+    """
+    store = apparatus.memo_store()
+    with _progress(console) as progress:
+        bars: dict[str, TaskID] = {}
+        while True:
+            apparatus.reap_dead(store)  # settle vanished workers — read-only path, never relaunches
+            records = store.records()
+            _refresh(progress, bars, records)
+            if records and all(_rec_state(r) in SETTLED for r in records):
+                return records
+            time.sleep(poll)
+
+
 def drive_and_watch(
     experiment: Experiment,
     apparatus: Apparatus,
@@ -98,13 +141,7 @@ def drive_and_watch(
     ``KeyboardInterrupt`` propagate (the caller reports; detached workers live on).
     """
     store = apparatus.memo_store()
-    with Progress(
-        TextColumn('[progress.description]{task.description}'),
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        console=console or Console(),
-    ) as progress:
+    with _progress(console) as progress:
         bars: dict[str, TaskID] = {}
         while True:
             done, payload = tick(experiment, apparatus)  # advance DAG, launch missing work

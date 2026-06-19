@@ -9,6 +9,7 @@ agent (or you) can drive, poll, and gather without holding a session open:
     python -m mini run    docs/pipeline/experiment.py          # advance one wake, then return
     python -m mini retry  docs/pipeline/experiment.py          # reset FAILED/CANCELLED, then advance
     python -m mini ls                                          # experiments + task state
+    python -m mini watch  pipeline                             # live bars for a run, read-only (never ticks)
     python -m mini status pipeline                             # per-task state + metrics, by NAME
     python -m mini results pipeline                            # per-task results
     python -m mini logs   pipeline <key>                       # a failed task's traceback
@@ -201,6 +202,27 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(_memo_line(rec))
 
 
+def cmd_watch(args: argparse.Namespace) -> None:
+    """Render live bars for a run by NAME until it settles — read-only (never ticks).
+
+    The read-only twin of ``run --watch``: it renders a run this process didn't
+    launch (e.g. a detached/Modal run), polling the durable records without ever
+    advancing the DAG. Ctrl-C stops watching; the workers live on.
+    """
+    from mini.monitor import watch
+
+    apparatus = _build_apparatus(args.name, args)
+    if not apparatus.memo_store().records():
+        raise SystemExit(f'no tasks found for experiment {args.name!r} (nothing to watch — launch it with: run)')
+    try:
+        records = watch(apparatus, poll=args.poll)
+    except KeyboardInterrupt:
+        print('\n… stopped watching; tasks keep running. Re-run to resume.')
+        return
+    state = _aggregate_state([_rec_state(r) for r in records])
+    print(f'{args.name}  —  {state}  ({len(records)} tasks)')
+
+
 def cmd_results(args: argparse.Namespace) -> None:
     store = _store_for(args.name, args)
     recs = store.records()
@@ -266,6 +288,12 @@ def main() -> None:
     p.add_argument('name')
     _add_app_flag(p)
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser('watch', help='render live bars for a run by NAME, read-only (never ticks)')
+    p.add_argument('name')
+    p.add_argument('--poll', type=float, default=0.5, help='seconds between record polls while watching')
+    _add_app_flag(p)
+    p.set_defaults(func=cmd_watch)
 
     p = sub.add_parser('results', help='print per-task results, by experiment NAME')
     p.add_argument('name')

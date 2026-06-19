@@ -20,7 +20,7 @@ from rich.console import Console
 
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
-from mini.monitor import ExperimentFailed, drive_and_watch
+from mini.monitor import ExperimentFailed, drive_and_watch, watch
 from mini.orchestration import tick
 from mini.runs import RunState
 
@@ -54,6 +54,24 @@ def test_drives_multistep_to_completion(tmp_path: Path):
     app = LocalApparatus('watch_ok', max_workers=2, data_dir=tmp_path / 'watch_ok')
     payload = _watch(Experiment(name='watch_ok', main=main), app)
     assert payload == [{'lr': 0.1, 'vocab': 11}, {'lr': 0.2, 'vocab': 11}]
+
+
+def _times_ten(x):
+    return x * 10
+
+
+def test_watch_observes_a_run_it_did_not_launch(tmp_path: Path):
+    """Read-only ``watch``: another caller ``tick``s to launch the detached work;
+    ``watch`` only polls the durable records and returns once they settle. It takes
+    no experiment, so it structurally *can't* relaunch — the read-only invariant."""
+    app = LocalApparatus('watch_ro', max_workers=2, data_dir=tmp_path / 'watch_ro')
+    exp = Experiment(name='watch_ro', main=lambda ctx: ctx.map(_times_ten, [(1,), (2,)]))
+    tick(exp, app)  # launch the single stage detached, then suspend — like a separate process
+
+    records = watch(app, poll=0.05, console=_quiet())
+    assert all(RunState(r['state']) == RunState.DONE for r in records)
+    store = app.memo_store()
+    assert sorted(store.result(r['key']) for r in records) == [10, 20]
 
 
 def test_raises_on_failure_without_relaunching(tmp_path: Path):

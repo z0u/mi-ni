@@ -9,13 +9,15 @@ addressed by experiment **name**. Run `bin/mini --help` for the verb list.
 
 - **`run` / `retry` / `cancel` _tick_ the DAG** — they re-run `main` and launch
   (or stop) work. They have side effects and **cost money**.
-- **`ls` / `status` / `results` / `logs` only read** the durable store. Safe to
-  call any time; they never relaunch.
+- **`ls` / `status` / `watch` / `results` / `logs` only read** the durable store.
+  Safe to call any time; they never relaunch.
 
 So **poll with `status`, never by re-running.** `--app modal` inspects a run on
 the Modal control plane. Don't pass `--watch` in a capped/agent session —
-`--watch` blocks to completion; one plain `run` launches the next stage and
-returns at once.
+`run --watch` blocks to completion; one plain `run` launches the next stage and
+returns at once. To follow a run with a live bar *without* driving it, use the
+read-only `mini watch <name>` (renders a run another process launched — e.g. a
+detached/Modal run — and never `tick`s).
 
 ## The wake-loop
 

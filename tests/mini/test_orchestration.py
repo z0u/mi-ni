@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import MemoStore, fingerprint
@@ -198,8 +199,10 @@ def test_role_routes_to_its_apparatus(tmp_path: Path):
 
     data_dir = tmp_path / 'roles'
 
-    def roles(base: LocalApparatus) -> dict[str, LocalApparatus]:
-        # callable form: lets each role attach its own hook (local has no .w knobs)
+    def roles(base: Apparatus) -> dict[str, Apparatus]:
+        # callable form: lets each role attach its own hook (local has no .w knobs).
+        # Typed against the base Apparatus so it matches Experiment.roles' contract
+        # (the field's callable must accept any apparatus --app built, not just local).
         return {'prep': base.before_each(mark_prep), 'train': base.before_each(mark_train)}
 
     def main(ctx):
