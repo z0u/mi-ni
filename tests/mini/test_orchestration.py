@@ -152,6 +152,35 @@ def test_version_busts_cache(tmp_path: Path):
     assert len({r['key'] for r in MemoStore(tmp_path / 'ver').records()}) == 2  # distinct keys per version
 
 
+def test_prune_and_memo_hits_across_config_edits(tmp_path: Path):
+    """Editing a sweep's config set re-runs only what changed.
+
+    The fix/prune/retry contract for a `ctx.map`: re-running with a different set
+    of items leaves unchanged items as memo hits (not relaunched), runs only the
+    new/changed items, and simply stops requesting a removed item. Proven with a
+    per-arg execution counter on the volume, so a memo hit shows count == 1."""
+    counts = tmp_path / 'counts'
+    counts.mkdir()
+
+    def work(x):
+        marker = counts / str(x)  # side effect: how many times this arg actually ran
+        marker.write_text(str(int(marker.read_text()) + 1 if marker.exists() else 1))
+        return x * 10
+
+    def sweep(items):
+        return Experiment(name='prune', main=lambda ctx: ctx.map(work, [(i,) for i in items]))
+
+    data_dir = tmp_path / 'prune'  # one shared memo store across both drives
+    assert _drive(sweep([1, 2]), LocalApparatus('prune', data_dir=data_dir, max_workers=3)) == [10, 20]
+    assert {p.name for p in counts.iterdir()} == {'1', '2'}
+
+    # Drop 1, keep 2, add 3: only 3 runs; 2 is a memo hit; 1 is no longer requested.
+    assert _drive(sweep([2, 3]), LocalApparatus('prune', data_dir=data_dir, max_workers=3)) == [20, 30]
+    assert (counts / '2').read_text() == '1', 'unchanged item re-ran instead of hitting the memo'
+    assert (counts / '3').read_text() == '1', 'added item did not run exactly once'
+    assert {p.name for p in counts.iterdir()} == {'1', '2', '3'}  # 1 retained, never re-run
+
+
 def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
     """``on=`` routes a step to a different apparatus — here proven via its hooks."""
 
