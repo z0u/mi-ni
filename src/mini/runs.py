@@ -17,9 +17,27 @@ import sys
 from enum import StrEnum
 from pathlib import Path
 
-__all__ = ['RunState', 'SETTLED', 'DATA_ROOT', 'spawn_taskworker']
+__all__ = ['RunState', 'SETTLED', 'data_root', 'spawn_taskworker']
 
-DATA_ROOT = Path('.mini')
+# Markers that identify a project root, in priority order.
+_ROOT_MARKERS = ('pyproject.toml', '.git')
+
+
+def data_root() -> Path:
+    """The project's ``.mini`` store, anchored at the project root.
+
+    Every ``mini`` command shares one store regardless of cwd: we walk up from the
+    current directory for a project marker (``pyproject.toml`` / ``.git``) and put
+    ``.mini`` beside it, falling back to cwd if none is found. Resolved *lazily*
+    (per call, off the live cwd) — not frozen at import — so a process that changes
+    directory, and tests that ``chdir`` into a tmp dir, both see the right root.
+    The path is absolute, so detached workers stay correct under their own cwd.
+    """
+    cwd = Path.cwd().resolve()
+    for d in (cwd, *cwd.parents):
+        if any((d / m).exists() for m in _ROOT_MARKERS):
+            return d / '.mini'
+    return cwd / '.mini'
 
 
 class RunState(StrEnum):

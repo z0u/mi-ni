@@ -31,8 +31,25 @@ def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 30.0) -> None:
     raise AssertionError('orchestration did not complete')
 
 
+def test_data_root_anchors_at_project_root(tmp_path: Path, monkeypatch):
+    """`.mini` follows the project root (a marker dir), not the cwd, so `mini`
+    finds the same store from any subdirectory; with no marker it falls back to cwd."""
+    from mini.runs import data_root
+
+    proj = tmp_path / 'proj'
+    (proj / 'sub' / 'deep').mkdir(parents=True)
+    (proj / 'pyproject.toml').touch()  # the project marker
+    monkeypatch.chdir(proj / 'sub' / 'deep')
+    assert data_root() == proj.resolve() / '.mini'  # walked up past sub/deep to the marker
+
+    bare = tmp_path / 'bare'  # no marker anywhere above → fall back to cwd
+    bare.mkdir()
+    monkeypatch.chdir(bare)
+    assert data_root() == bare.resolve() / '.mini'
+
+
 def test_ls_and_status_surface_memo_experiments(tmp_path: Path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)  # DATA_ROOT='.mini' resolves under here
+    monkeypatch.chdir(tmp_path)  # no project marker under /tmp → store resolves under cwd
 
     def train(x):
         return x * 2

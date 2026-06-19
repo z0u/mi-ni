@@ -26,6 +26,11 @@ dependencies = [
     "wandb>=0.25.0",  # experiment tracking
 ]
 
+[project.scripts]
+# Run and monitor memoized experiments: `mini run/ls/status/watch/...`.
+# `bin/mini` wraps this so it works from any cwd without an activated venv.
+mini = "mini.__main__:main"
+
 [dependency-groups]
 # Dependencies that aren't needed remotely (e.g. in Modal)
 #

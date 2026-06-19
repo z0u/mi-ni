@@ -28,7 +28,7 @@ from mini.local_volume import LocalVolume
 from mini.memo import MemoStore
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
-from mini.runs import spawn_taskworker
+from mini.runs import data_root, spawn_taskworker
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
         self.name = name
         self.max_workers = max_workers
         self._before_hooks: list[Callable[[], Any]] = []
-        self._volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else Path(f'.mini/{name}'))
+        self._volume: LocalVolume | None = LocalVolume(Path(data_dir) if data_dir else data_root() / name)
 
     def __str__(self) -> str:
         return f'Local apparatus "{self.name}"'

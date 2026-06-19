@@ -29,7 +29,7 @@ from mini.experiment import load_experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import MemoStore
 from mini.orchestration import retry, tick
-from mini.runs import DATA_ROOT, SETTLED, RunState
+from mini.runs import SETTLED, RunState, data_root
 
 _GLYPH = {
     RunState.PENDING: '·',
@@ -72,7 +72,7 @@ def _store_for(name: str, args: argparse.Namespace) -> MemoStore:
     the apparatus so reads hit the Modal control plane (a named ``modal.Dict``).
     """
     if getattr(args, 'app', 'local') == 'local':
-        return MemoStore(DATA_ROOT / name)
+        return MemoStore(data_root() / name)
     return _build_apparatus(name, args).memo_store()
 
 
@@ -177,13 +177,13 @@ def _watch(exp, apparatus: Apparatus, poll: float) -> None:
 
 
 def cmd_ls(args: argparse.Namespace) -> None:
-    root = DATA_ROOT
+    root = data_root()
     names = sorted(p.name for p in root.glob('*') if (p / '.control' / 'memo').is_dir()) if root.exists() else []
     if not names:
         print('no experiments yet (run one with: python -m mini run <path>)')
         return
     for name in names:
-        states = [_rec_state(r) for r in MemoStore(DATA_ROOT / name).records()]
+        states = [_rec_state(r) for r in MemoStore(root / name).records()]
         agg = _aggregate_state(states)
         done = sum(s == RunState.DONE for s in states)
         print(f'{name:16} {_GLYPH.get(agg, "?")} {agg:9} {done}/{len(states)} tasks')
