@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import subprocess
 import sys
 from enum import StrEnum
 from pathlib import Path
 
-__all__ = ['RunState', 'SETTLED', 'data_root', 'spawn_taskworker']
+__all__ = ['RunState', 'SETTLED', 'compute_env', 'data_root', 'spawn_taskworker']
 
 # Markers that identify a project root, in priority order.
 _ROOT_MARKERS = ('pyproject.toml', '.git')
@@ -38,6 +39,39 @@ def data_root() -> Path:
         if any((d / m).exists() for m in _ROOT_MARKERS):
             return d / '.mini'
     return cwd / '.mini'
+
+
+def _gpu_name() -> str | None:
+    """Best-effort GPU model, dependency-free. NVIDIA exposes a per-GPU info file
+    on Linux; we don't import torch/jax just to name the card.
+    """
+    for info in Path('/proc/driver/nvidia/gpus').glob('*/information'):
+        try:
+            for line in info.read_text().splitlines():
+                if line.startswith('Model:'):
+                    return line.split(':', 1)[1].strip()
+        except OSError:
+            continue
+    return None
+
+
+def compute_env() -> dict[str, str]:
+    """A small snapshot of *what a task actually ran on*, recorded by the worker.
+
+    Captured inside the worker process (local subprocess or Modal container), so
+    it reflects the real execution environment rather than the requested backend —
+    useful when a sweep fans out across heterogeneous Modal containers. Kept tiny
+    (it rides the hot control-plane record): host, OS/arch, Python, and the GPU
+    model if one is attached.
+    """
+    env = {
+        'host': platform.node(),
+        'platform': platform.platform(),
+        'python': platform.python_version(),
+    }
+    if gpu := _gpu_name():
+        env['gpu'] = gpu
+    return env
 
 
 class RunState(StrEnum):

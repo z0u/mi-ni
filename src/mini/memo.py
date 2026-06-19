@@ -25,9 +25,9 @@ from typing import Any, Callable
 
 import cloudpickle
 
-from mini.runs import RunState, _atomic_write, _merge_json
+from mini.runs import SETTLED, RunState, _atomic_write, _merge_json
 
-__all__ = ['fingerprint', 'RecordStore', 'LocalRecordStore', 'MemoStore']
+__all__ = ['fingerprint', 'RecordStore', 'LocalRecordStore', 'MemoStore', 'PollCache']
 
 # Source under these roots is treated as an opaque, stable dependency: the
 # stdlib, installed packages, and the mini framework itself (so editing mini
@@ -241,3 +241,37 @@ class MemoStore:
 
     def read_call(self, key: str) -> tuple[Callable, tuple, list[Callable]]:
         return cloudpickle.loads(self._call(key).read_bytes())
+
+
+class PollCache:
+    """Cheap repeated polling of a ``MemoStore``'s records for large sweeps.
+
+    A settled record (``DONE``/``FAILED``/``CANCELLED``) is immutable, so once
+    seen it never needs re-reading. Each ``records`` call re-reads only the
+    unsettled subset (plus any keys not seen yet); the settled tail is served
+    from memory. On Modal every record read is a ``modal.Dict`` round-trip, so a
+    long sweep that's mostly done stops paying for the part that can't change —
+    the watch loops poll just the handful still in flight.
+
+    A reaper may settle a stale ``RUNNING`` record out from under us. That key was
+    unsettled (so not cached), and the reaper writes it through ``MemoStore``, so
+    the next ``records`` re-reads it once and caches the now-terminal record —
+    nothing stale lingers.
+    """
+
+    def __init__(self) -> None:
+        self._settled: dict[str, dict[str, Any]] = {}
+
+    def records(self, store: MemoStore) -> list[dict[str, Any]]:
+        backend = store.records_backend
+        out: list[dict[str, Any]] = []
+        for key in backend.keys():
+            if cached := self._settled.get(key):
+                out.append(cached)
+                continue
+            if (rec := backend.read(key)) is None:
+                continue
+            if rec.get('state') in SETTLED:  # StrEnum members hash as their str value
+                self._settled[key] = rec
+            out.append(rec)
+        return out

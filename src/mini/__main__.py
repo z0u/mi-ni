@@ -107,6 +107,8 @@ def _memo_line(rec: dict) -> str:
         line += f'  {_fmt_metrics(rec["metrics"])}'
     if state == RunState.RUNNING and rec.get('heartbeat_at'):
         line += f'  ♥ {_age(rec["heartbeat_at"])}'
+    if gpu := rec.get('env', {}).get('gpu'):
+        line += f'  on {gpu}'  # what it actually ran on, when not the local CPU
     if rec.get('fc_id'):
         line += f'  [{rec["fc_id"]}]'  # Modal FunctionCall id — for log lookup / liveness
     if rec.get('error'):

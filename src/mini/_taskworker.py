@@ -20,7 +20,7 @@ import cloudpickle
 from mini._queues import EndOfQueue
 from mini.memo import MemoStore
 from mini.progress import progress_context
-from mini.runs import RunState
+from mini.runs import RunState, compute_env
 from mini.volume import data_dir_context
 
 
@@ -73,7 +73,8 @@ def execute_task(
     result_dir = store.result_dir(key)
     result_dir.mkdir(parents=True, exist_ok=True)
     sink = _MemoSink(store, key)
-    store.update(key, state=RunState.RUNNING, heartbeat_at=time.time())
+    # Record what we actually ran on (host/GPU/…), captured here in the worker.
+    store.update(key, state=RunState.RUNNING, heartbeat_at=time.time(), env=compute_env())
     try:
         with data_dir_context(store.data_dir), progress_context(key, key, queue=sink, emission_interval=0.2):
             for hook in reversed(hooks):

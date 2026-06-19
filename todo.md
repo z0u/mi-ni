@@ -63,11 +63,15 @@ Deferred design/work items. See [notes/agentic-experiments.md](./notes/agentic-e
   sanctioned write on the poll path is `reap_dead` (settles a vanished worker to
   terminal `FAILED`); it never *launches*, so the no-relaunch invariant holds.
 
-- **Cheap polling for large sweeps.** Cache settled (`DONE`/`FAILED`/`CANCELLED`)
-  records client-side — they're immutable — and poll only the unsettled subset.
-  Keep control-plane records small (latest scalars; history to the I/O plane).
-  With per-job keys, read only active jobs; consider a last-writer-wins run-summary
-  key for cheap top-level polling. Relevant once the control plane is a `modal.Dict`.
+- ~~**Cheap polling for large sweeps.**~~ **Done** (`mini.memo.PollCache`). The
+  watch loops (`monitor.watch` / `drive_and_watch`) poll through a `PollCache` that
+  caches settled (`DONE`/`FAILED`/`CANCELLED`) records — immutable — and re-reads
+  only the unsettled subset, so a mostly-done sweep stops paying to poll its settled
+  tail (each Modal read is a `Dict` round-trip). `reap_dead` now takes the same
+  snapshot (no second full read) and settles orphans in place. Control-plane records
+  stay small (latest scalars; history to the I/O plane). A last-writer-wins
+  run-summary key for cheap *top-level* polling is a further optimisation if the
+  per-key `keys()` listing ever dominates.
 
 - **Interactive monitor.** *Partly done* for the memo path: `mini run <exp>
   --watch` (`mini.monitor.drive_and_watch`) drives the DAG to completion with a
@@ -131,8 +135,13 @@ experiment:
     hyperparameters (config, already swept + memoized), and since the memo key
     excludes hardware, a size bump must change the config, not just the GPU. `main`
     currently takes only `ctx`, so passing a preset in is the missing piece.
-- **Capture compute-environment metadata in the run/task records** (what it
-  actually ran on) — separate from backend selection above.
+- ~~**Capture compute-environment metadata in the run/task records**~~ **Done**
+  (`mini.runs.compute_env`). The worker stamps each record with what it *actually*
+  ran on — host, OS/arch, Python, and the GPU model when one is attached — captured
+  inside the worker process (local subprocess / Modal container), so a sweep fanned
+  across heterogeneous Modal containers shows each task's real hardware. It rides
+  the hot control-plane record under `env` (kept tiny); `status` surfaces `on <GPU>`
+  for remote tasks. Separate from backend *selection* (the apparatus).
 
 ## CLI / ergonomics
 

@@ -235,7 +235,7 @@ class Apparatus(ABC, Generic[V]):
     def _stop_task(self, rec: dict[str, Any]) -> None:
         """Backend-specific: stop one in-flight task. Default: nothing to stop."""
 
-    def reap_dead(self, store: MemoStore) -> list[str]:
+    def reap_dead(self, store: MemoStore, records: list[dict[str, Any]] | None = None) -> list[str]:
         """Settle RUNNING tasks whose worker has vanished (→ FAILED); return their keys.
 
         A worker killed or hard-crashed — OOM, SIGKILL, a segfault, a closed
@@ -246,11 +246,16 @@ class Apparatus(ABC, Generic[V]):
         mark the orphans FAILED. FAILED is terminal, so recovery is a deliberate
         ``retry`` — same as any other failure. Reaping never *relaunches*, so it's
         safe on the read/poll path (see todo, "Keep tick distinct from polling").
+
+        Pass *records* to reuse a snapshot the caller already read (the watch loops
+        poll a ``PollCache`` once per tick, then hand it here — no second full read).
+        A reaped record is settled in the store *and* mutated in place, so the
+        caller's snapshot reflects the new state without re-reading.
         """
         from mini.runs import RunState
 
         reaped: list[str] = []
-        for rec in store.records():
+        for rec in (store.records() if records is None else records):
             if rec.get('state') != RunState.RUNNING or self._is_task_alive(rec):
                 continue
             # Re-read before settling: a worker writes its final state *then* exits,
@@ -258,7 +263,9 @@ class Apparatus(ABC, Generic[V]):
             # re-read closes the gap between our records() snapshot and the probe.
             if store.state(rec['key']) != RunState.RUNNING:
                 continue
-            store.update(rec['key'], state=RunState.FAILED, error='worker vanished (killed/crashed, no result written)')
+            error = 'worker vanished (killed/crashed, no result written)'
+            store.update(rec['key'], state=RunState.FAILED, error=error)
+            rec['state'], rec['error'] = RunState.FAILED, error  # keep the caller's snapshot current
             reaped.append(rec['key'])
         return reaped
 

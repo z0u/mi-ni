@@ -29,6 +29,7 @@ from rich.progress import (
 
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
+from mini.memo import PollCache
 from mini.orchestration import tick
 from mini.runs import SETTLED, RunState
 
@@ -116,11 +117,12 @@ def watch(
     ``KeyboardInterrupt`` propagate (the caller reports; workers live on).
     """
     store = apparatus.memo_store()
+    cache = PollCache()  # serve the settled tail from memory; poll only what's in flight
     with _progress(console) as progress:
         bars: dict[str, TaskID] = {}
         while True:
-            apparatus.reap_dead(store)  # settle vanished workers — read-only path, never relaunches
-            records = store.records()
+            records = cache.records(store)
+            apparatus.reap_dead(store, records)  # settle vanished workers — read-only path, never relaunches
             _refresh(progress, bars, records)
             if records and all(_rec_state(r) in SETTLED for r in records):
                 return records
@@ -145,13 +147,17 @@ def drive_and_watch(
         bars: dict[str, TaskID] = {}
         while True:
             done, payload = tick(experiment, apparatus)  # advance DAG, launch missing work
-            _refresh(progress, bars, store.records())
+            # A tick can launch new keys and reset retried ones, so the cache for
+            # this stage starts fresh — only the settled tail *within* a poll loop
+            # is immutable, which is where the cheap re-reads pay off.
+            cache = PollCache()
+            _refresh(progress, bars, cache.records(store))
             if done:
                 return payload
             # Read-only poll until the in-flight set settles — no re-ticking.
             while True:
-                apparatus.reap_dead(store)  # settle vanished workers so a kill can't wedge the drain
-                records = store.records()
+                records = cache.records(store)
+                apparatus.reap_dead(store, records)  # settle vanished workers so a kill can't wedge the drain
                 _refresh(progress, bars, records)
                 if not any(r.get('state') == RunState.RUNNING for r in records):
                     break

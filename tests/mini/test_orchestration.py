@@ -137,6 +137,41 @@ def test_metrics_recorded_on_task(tmp_path: Path):
     assert any(r.get('metrics', {}).get('v') == 5.0 for r in recs)
 
 
+def test_env_recorded_on_task(tmp_path: Path):
+    """The worker stamps each record with *what it ran on* (host/OS/Python)."""
+    _drive(*_setup('env', lambda ctx: ctx.map(lambda x: x, [(5,)]), tmp_path))
+    (rec,) = MemoStore(tmp_path / 'env').records()
+    env = rec['env']
+    assert env['host'] and env['platform'] and env['python']
+
+
+def test_poll_cache_reads_settled_records_once(tmp_path: Path):
+    """``PollCache`` serves the immutable settled tail from memory: a key is read
+    from the backend exactly once after it settles, then never again."""
+    from mini.memo import PollCache
+    from mini.runs import RunState
+
+    store = MemoStore(tmp_path / 'pc')
+    store.records_backend.write('a', {'key': 'a', 'state': RunState.RUNNING})
+    store.records_backend.write('b', {'key': 'b', 'state': RunState.DONE})
+
+    reads: list[str] = []
+    inner = store.records_backend.read
+    store.records_backend.read = lambda k: reads.append(k) or inner(k)  # count backend reads
+
+    cache = PollCache()
+    cache.records(store)  # a: RUNNING (re-read), b: DONE (cached)
+    cache.records(store)  # a re-read again; b served from cache
+    assert reads.count('b') == 1 and reads.count('a') == 2
+
+    store.records_backend.write('a', {'key': 'a', 'state': RunState.FAILED})  # a settles
+    reads.clear()
+    states = {r['key']: r['state'] for r in cache.records(store)}  # picks up FAILED, caches it
+    cache.records(store)
+    assert states['a'] == RunState.FAILED
+    assert reads.count('a') == 1  # read once on settle, then cached — no re-read
+
+
 def test_version_busts_cache(tmp_path: Path):
     def t(x):
         return x

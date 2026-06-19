@@ -37,6 +37,14 @@ cheap, stateless call against durable state:
 Re-running is cheap: completed steps are memo hits, so a `run` only advances the
 un-run pieces.
 
+Watching a big sweep is cheap too: the watch loops cache settled
+(`DONE`/`FAILED`/`CANCELLED`) records — they're immutable — and re-read only the
+tasks still in flight, so a mostly-done sweep stops paying to poll its settled
+tail (on Modal each record read is a `Dict` round-trip). Each task also records
+**what it actually ran on** (host/OS/Python, and the GPU when one is attached);
+`status` shows `on <GPU>` for remote tasks, and the full snapshot is on the
+record under `env`.
+
 ## Recovery
 
 `FAILED` and `CANCELLED` are **terminal by design** — a plain `run` will **not**
