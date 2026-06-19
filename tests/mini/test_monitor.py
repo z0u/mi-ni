@@ -110,6 +110,31 @@ def test_reap_dead_settles_a_killed_worker(tmp_path: Path):
         os.waitpid(pid, 0)  # reap the zombie we created
 
 
+def test_drive_stops_on_cancelled_instead_of_spinning(tmp_path: Path):
+    """A CANCELLED task is terminal: ``drive_and_watch`` must stop (raise), not
+    busy-loop ticking a DAG that can never progress (nothing RUNNING, no FAILED)."""
+    app = LocalApparatus('watch_cancel', data_dir=tmp_path / 'watch_cancel')
+    exp = Experiment(name='watch_cancel', main=lambda ctx: ctx.map(_sleeper, [(1,)]))
+    tick(exp, app)  # launch detached
+    store = app.memo_store()
+
+    pid = None
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if (recs := store.records()) and recs[0].get('pid') and recs[0].get('state') == RunState.RUNNING:
+            pid = recs[0]['pid']
+            break
+        time.sleep(0.05)
+    assert pid, 'worker never started'
+
+    assert app.cancel(store)  # marks CANCELLED + SIGTERMs the worker
+    with pytest.raises(ExperimentFailed) as exc:
+        _watch(exp, app)  # must not hang
+    assert RunState(exc.value.failed[0]['state']) == RunState.CANCELLED
+    with suppress(ChildProcessError):
+        os.waitpid(pid, 0)
+
+
 def test_watch_surfaces_a_killed_worker(tmp_path: Path):
     """The wedge fix end-to-end: a worker killed *while watching* settles FAILED
     via ``reap_dead``, so the drain raises instead of waiting on it forever."""

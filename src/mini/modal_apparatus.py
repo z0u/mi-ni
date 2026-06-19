@@ -193,10 +193,12 @@ class ModalApparatus(Apparatus[ModalVolume]):
             name = app.name
             self.app = app
         self.modal_fn_kwargs: dict[str, Any] = {
-            'max_containers': 1,
             # Don't let Modal silently retry failures — surface them immediately.
             'retries': 0,
         }
+        # `max_containers` is deliberately *not* a global default: the detached memo
+        # path wants to fan out (unbounded unless `--max-containers`/`.w()` caps it),
+        # while the blocking `amap` path defaults to 1 — applied in `_build_modal_fn`.
         self._before_hooks: list[Callable[[], Any]] = []
         self._volume: ModalVolume | None = ModalVolume(name)
         self._memo_fn: modal.Function | None = None
@@ -263,13 +265,14 @@ class ModalApparatus(Apparatus[ModalVolume]):
         cloudpickled call. The Volume is mounted so the worker writes results to
         the same path the client reads back from.
 
-        The ``max_containers=1`` default (sensible for the blocking ``amap``)
-        would serialise a detached sweep through one container, so it's dropped
-        here — a fanned-out ``ctx.map`` should parallelise. Pass an explicit
-        ``.w(max_containers=N)`` to cap concurrency.
+        A detached sweep should parallelise, so there's *no* ``max_containers``
+        default here — it's unbounded unless the caller sets one
+        (``--max-containers`` / ``.w(max_containers=N)``), which now passes through
+        to cap concurrency/cost. Only ``startup_timeout`` (a client-side knob, not a
+        ``@function`` kwarg) is dropped.
         """
         if self._memo_fn is None:
-            drop = {'startup_timeout', 'max_containers'}
+            drop = {'startup_timeout'}
             fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k not in drop}
             fn_kwargs['image'] = self._ensure_image()
             if isinstance(self._volume, ModalVolume):
@@ -399,6 +402,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
 
         Return ``(modal_function, startup_timeout)``.
         """
+        # The blocking/interactive path defaults to one container (the memo path is
+        # unbounded); set it here now that it's no longer a global default.
         max_containers = self.modal_fn_kwargs.get('max_containers', 1)
         emission_interval = max_containers / 10.0
         wrapped_fn = _wrap_for_modal(
@@ -412,6 +417,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
             commit_volume=(self._volume._modal_volume if isinstance(self._volume, ModalVolume) else None),
         )
         fn_kwargs: dict[str, Any] = {**self.modal_fn_kwargs}
+        fn_kwargs.setdefault('max_containers', 1)  # interactive default; memo path stays unbounded
         fn_kwargs['image'] = self._ensure_image()
         startup_timeout: float = fn_kwargs.pop('startup_timeout', STARTUP_TIMEOUT_SECONDS)
         if isinstance(self._volume, ModalVolume):

@@ -13,7 +13,7 @@ from typing import Any
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
-from mini.memo import MemoStore, fingerprint
+from mini.memo import LocalRecordStore, MemoStore, fingerprint
 from mini.orchestration import retry, tick
 from mini.runs import RunState
 
@@ -145,31 +145,40 @@ def test_env_recorded_on_task(tmp_path: Path):
     assert env['host'] and env['platform'] and env['python']
 
 
+class _CountingStore(LocalRecordStore):
+    """A ``LocalRecordStore`` that records which keys were read, to assert the
+    cache stops re-reading the settled tail."""
+
+    def __init__(self, root: Path):
+        super().__init__(root)
+        self.reads: list[str] = []
+
+    def read(self, key: str) -> dict[str, Any] | None:
+        self.reads.append(key)
+        return super().read(key)
+
+
 def test_poll_cache_reads_settled_records_once(tmp_path: Path):
     """``PollCache`` serves the immutable settled tail from memory: a key is read
     from the backend exactly once after it settles, then never again."""
     from mini.memo import PollCache
-    from mini.runs import RunState
 
-    store = MemoStore(tmp_path / 'pc')
-    store.records_backend.write('a', {'key': 'a', 'state': RunState.RUNNING})
-    store.records_backend.write('b', {'key': 'b', 'state': RunState.DONE})
-
-    reads: list[str] = []
-    inner = store.records_backend.read
-    store.records_backend.read = lambda k: reads.append(k) or inner(k)  # count backend reads
+    backend = _CountingStore(tmp_path / 'pc')
+    store = MemoStore(tmp_path / 'pc', records=backend)
+    backend.write('a', {'key': 'a', 'state': RunState.RUNNING})
+    backend.write('b', {'key': 'b', 'state': RunState.DONE})
 
     cache = PollCache()
     cache.records(store)  # a: RUNNING (re-read), b: DONE (cached)
     cache.records(store)  # a re-read again; b served from cache
-    assert reads.count('b') == 1 and reads.count('a') == 2
+    assert backend.reads.count('b') == 1 and backend.reads.count('a') == 2
 
-    store.records_backend.write('a', {'key': 'a', 'state': RunState.FAILED})  # a settles
-    reads.clear()
+    backend.write('a', {'key': 'a', 'state': RunState.FAILED})  # a settles
+    backend.reads.clear()
     states = {r['key']: r['state'] for r in cache.records(store)}  # picks up FAILED, caches it
     cache.records(store)
     assert states['a'] == RunState.FAILED
-    assert reads.count('a') == 1  # read once on settle, then cached — no re-read
+    assert backend.reads.count('a') == 1  # read once on settle, then cached — no re-read
 
 
 def test_version_busts_cache(tmp_path: Path):

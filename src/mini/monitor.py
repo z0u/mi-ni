@@ -44,17 +44,19 @@ _COLOR = {
 
 
 class ExperimentFailed(Exception):
-    """The watched DAG can't progress because one or more tasks have FAILED.
+    """The watched DAG can't progress because a task settled without completing.
 
-    ``FAILED`` is terminal — ``tick`` won't relaunch it — so we stop and surface
-    it rather than spin. The failure may be a thrown task or a worker the watch
-    *reaped* as dead (``Apparatus.reap_dead``). Recover with ``mini retry``.
+    ``FAILED``/``CANCELLED`` are terminal — ``tick`` won't relaunch them — so a
+    DAG that depends on one can never finish. We stop and surface it rather than
+    spin (``tick`` would keep raising ``Pending`` with nothing left in flight).
+    The blocker may be a thrown task, a worker the watch *reaped* as dead
+    (``Apparatus.reap_dead``), or a cancelled one. Recover with ``mini retry``.
     """
 
     def __init__(self, failed: list[dict[str, Any]]):
         self.failed = failed
-        keys = ', '.join(r['key'] for r in failed)
-        super().__init__(f'{len(failed)} task(s) failed: {keys}')
+        keys = ', '.join(f'{r["key"]} ({r.get("state")})' for r in failed)
+        super().__init__(f'{len(failed)} task(s) settled without completing: {keys}')
 
 
 def _fmt_metrics(metrics: dict[str, float]) -> str:
@@ -162,5 +164,8 @@ def drive_and_watch(
                 if not any(r.get('state') == RunState.RUNNING for r in records):
                     break
                 time.sleep(poll)
-            if failed := [r for r in records if r.get('state') == RunState.FAILED]:
-                raise ExperimentFailed(failed)
+            # Any terminal-but-not-DONE task (FAILED *or* CANCELLED) blocks the DAG:
+            # tick won't relaunch it, so without this we'd spin forever (no RUNNING
+            # to drain, no progress to make).
+            if blocked := [r for r in records if _rec_state(r) in (RunState.FAILED, RunState.CANCELLED)]:
+                raise ExperimentFailed(blocked)
