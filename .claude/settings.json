@@ -4,9 +4,11 @@
         "network": {
             "allowedDomains": [
                 "*.pytorch.org",
+                "storage.googleapis.com", // JAX
                 "modal.com",
                 "*.modal.com",
-                "*.modal.run"
+                "*.modal.run", // API
+                "*.modal-storage.com" // Volumes
             ]
         }
     },

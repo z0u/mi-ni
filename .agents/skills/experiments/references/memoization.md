@@ -12,7 +12,7 @@ key = fingerprint(source(fn) + source(project fns/classes fn calls, transitively
 
 - **Source, not bytes.** Hashing `cloudpickle.dumps(fn)` is tempting (it captures
   by-value dependencies) but its bytes differ across processes — and every agent
-  wake is a fresh process, so it would miss the cache *every wake*. The source
+  wake is a fresh process, so it would miss the cache _every wake_. The source
   fingerprint is deterministic across processes.
 - **Transitive over your own code.** It includes the source of the project
   functions and classes `fn` references, so editing a helper your task calls
@@ -24,7 +24,7 @@ key = fingerprint(source(fn) + source(project fns/classes fn calls, transitively
   re-run without editing code.
 
 Why not key on inputs alone? Because after you fix a bug, pure input-keying
-returns the *stale, buggy* result — the opposite of what the loop needs. Source
+returns the _stale, buggy_ result — the opposite of what the loop needs. Source
 fingerprinting re-runs exactly the code that changed.
 
 ### Maximise cache hits: pass narrow inputs
@@ -42,6 +42,7 @@ into a task's inputs so the same inputs really do produce the same result.
 
 ## Fix / prune / retry
 
+<!-- prettier-ignore -->
 | You want to… | Do this | What re-runs |
 | --- | --- | --- |
 | Fix a bug in a step | Edit the fn, `mini run` | That step (new source key); siblings stay hits |
@@ -65,7 +66,7 @@ carries the last error line for a quick scan in `status`.
 
 ### Known sharp edge: a failed item blocks its `map`
 
-Today `ctx.map` raises `Pending` until *every* item is `DONE`. A settled `FAILED`
+Today `ctx.map` raises `Pending` until _every_ item is `DONE`. A settled `FAILED`
 item no longer relaunches (good) but still blocks the map from returning (so the
 steps after it can't proceed until you `retry` or prune it). Partial-results
 handling (`allow_partial=`) is a planned addition; for now, resolve a failed item
