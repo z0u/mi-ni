@@ -12,9 +12,7 @@ handshake fails with ``CERTIFICATE_VERIFY_FAILED: self-signed certificate in
 certificate chain`` even though ``pip``/``requests`` work fine.
 
 The fix: build a combined bundle (certifi **plus** the system CAs) and point
-``certifi.where()`` at it. We only ever *add* trust anchors — certifi's set is
-always included — so this can't weaken verification below certifi's baseline. In
-an environment with no extra system CAs it's a no-op.
+``certifi.where()`` at it.
 """
 
 from __future__ import annotations
