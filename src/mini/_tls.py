@@ -90,5 +90,5 @@ def ensure_grpc_trusts_system_ca() -> None:
     except OSError:
         return
 
-    certifi.where = lambda: str(out)  # type: ignore[assignment]
+    certifi.where = lambda: str(out)  # type: ignore
     log.debug('Pointed certifi at combined CA bundle for gRPC TLS: %s', out)

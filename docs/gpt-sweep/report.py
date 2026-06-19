@@ -137,7 +137,7 @@ def _(curves):
     # Bold the best (lowest) architecture in each LR column.
     def _row(lr: str) -> str:
         vals = {a: min(curves[f'{a}|{lr}']) for a in ARCHS if curves.get(f'{a}|{lr}')}
-        best = min(vals, key=vals.get) if vals else None
+        best = min(vals, key=lambda a: vals[a]) if vals else None
         cells = ' | '.join(f'**{_cell(a, lr)}**' if a == best else _cell(a, lr) for a in ARCHS)
         return f'| {lr} | {cells} |'
 
