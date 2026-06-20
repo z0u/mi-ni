@@ -20,6 +20,7 @@ architecture below and re-running launches only the new cells.
 
 from __future__ import annotations
 
+from experiment.corpus import prepare_data
 from mini import Ctx, Experiment, get_data_dir
 
 # Axes of the sweep.
@@ -29,37 +30,6 @@ ARCH_CFGS = [
     ('nGPT', dict(architecture='ngpt', ngpt_variant='full')),
     ('nGPT (scalar)', dict(architecture='ngpt', ngpt_variant='crude')),
 ]
-
-
-def download_pride_and_prejudice():
-    """Download Pride and Prejudice from the Gutenberg HuggingFace dataset."""
-    import ftfy
-    import pandas as pd
-
-    from experiment.config import DatasetMetadata
-
-    url = 'https://huggingface.co/api/datasets/larenwell/book-gutenberg-train/parquet/default/train/0.parquet'
-    df = pd.read_parquet(url, columns=['text'])
-    text = df.iloc[0]['text']
-    text, explanation = ftfy.fix_and_explain(text)
-    return text, DatasetMetadata(
-        title='Pride and Prejudice',
-        author='Jane Austen',
-        url=url,
-        fixes=explanation or [],
-        total_chars=len(text),
-    )
-
-
-def prepare_data():
-    """Download, tokenize, and save training data to the volume; return the corpus metadata."""
-    from experiment.compute.data_pipelines import save_data
-    from experiment.data.preparation import tokenize_data
-
-    data_dir = get_data_dir()
-    data, metadata = tokenize_data([download_pride_and_prejudice()])
-    save_data(data, metadata, data_dir)
-    return metadata
 
 
 def _make_config(lr_float: float, arch_kwargs: dict):

@@ -17,6 +17,7 @@ with app.setup(hide_code=True):
         TokenizerConfig,
         TrainingConfig,
     )
+    from experiment.corpus import prepare_data
     from experiment.utils import align
     from mini import LocalApparatus, ModalApparatus, get_data_dir  # noqa: F401
     from mini.logging import SimpleLoggingConfig
@@ -152,41 +153,6 @@ def _():
     is a fast no-op.
     """)
     return
-
-
-@app.function(hide_code=True)
-def download_pride_and_prejudice():
-    """Download Pride and Prejudice from the Gutenberg HuggingFace dataset."""
-    import ftfy
-    import pandas as pd
-
-    from experiment.config import DatasetMetadata
-
-    url = 'https://huggingface.co/api/datasets/larenwell/book-gutenberg-train/parquet/default/train/0.parquet'
-    df = pd.read_parquet(url, columns=['text'])
-    text = df.iloc[0]['text']
-    text, explanation = ftfy.fix_and_explain(text)
-    metadata = DatasetMetadata(
-        title='Pride and Prejudice',
-        author='Jane Austen',
-        url=url,
-        fixes=explanation or [],
-        total_chars=len(text),
-    )
-    return text, metadata
-
-
-@app.function(hide_code=True)
-def prepare_data():
-    """Download, tokenize, and save training data to the volume."""
-    from experiment.compute.data_pipelines import save_data
-    from experiment.data.preparation import tokenize_data
-
-    data_dir = get_data_dir()
-    sources = [download_pride_and_prejudice()]
-    data, metadata = tokenize_data(sources)
-    save_data(data, metadata, data_dir)
-    return metadata
 
 
 @app.cell(hide_code=True)
