@@ -377,6 +377,46 @@ def _(continuations, gen_metadata):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
+    ## Publishing the model
+
+    The trained checkpoint is a *large asset*: too big to commit to Git LFS, and
+    the Modal volume that holds it isn't a public host. We push it to the
+    [Hugging Face Hub](https://huggingface.co/docs/hub) instead — a public,
+    versioned, CDN-backed store — using `HFStore`. We pulled the corpus *from* the
+    Hub at the top of this notebook; now we publish the weights back to it.
+
+    Set `HF_TOKEN` and run interactively to publish. The returned `resolve` URL
+    is a stable, public link, so a report can reference the weights by URL with
+    nothing in LFS. (This step is skipped during headless export.)
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+async def _(app, is_headless):
+    import os
+    import tempfile
+
+    from mini import HFStore
+
+    mo.stop(
+        is_headless or not os.environ.get('HF_TOKEN'),
+        mo.md('_Set `HF_TOKEN` and run interactively to publish the checkpoint._'),
+    )
+
+    store = HFStore('z0u/mi-ni-artifacts')  # a public dataset repo
+    with tempfile.TemporaryDirectory() as tmp:
+        local_ckpt = f'{tmp}/checkpoint.eqx'
+        await app.volume.download('model/checkpoint.eqx', local_ckpt)
+        checkpoint_url = store.publish(local_ckpt, 'nanogpt/checkpoint.eqx')
+
+    mo.md(f'Published checkpoint → [`{checkpoint_url}`]({checkpoint_url})')
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
     ## References
 
     Karpathy, A. (2022). nanoGPT [Computer software]. GitHub.

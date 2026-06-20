@@ -9,6 +9,7 @@ dependencies = [
     "datasets>=3.0.0",  # Hugging Face Datasets
     "equinox>=0.13",  # neural networks as JAX pytrees
     "ftfy>=6.3.1",  # text cleaning for NLP tasks
+    "huggingface-hub>=0.27",  # publish artifacts to the HF Hub (HFStore)
     "imageio-ffmpeg>=0.6.0",  # for video support in matplotlib
     "jax>=0.6",  # accelerated array computing and program transformation
     "jaxtyping>=0.2.38",

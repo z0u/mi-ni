@@ -123,6 +123,35 @@ Typically, you would store _data_ rather than code in LFS:
 
 </details>
 
+<details>
+<summary>Publishing large artifacts (Hugging Face Hub)</summary>
+
+Git LFS is fine for the small notebook HTML, but it's a poor home for heavy data
+(model weights, datasets, video): the free tier is tiny, bandwidth is metered
+against every Pages serve, and it's read-only from cloud agents. Modal volumes
+aren't a public host either — they're compute-attached storage.
+
+For data you want to *publish*, use [`HFStore`](src/mini/publish.py), a thin
+wrapper over the [Hugging Face Hub](https://huggingface.co/docs/hub): public,
+versioned, CDN-backed, and writable with just a token (so an agent can publish
+too). It's a sink, not a `Volume` — you push finished artifacts to it and link
+them from notebooks by URL:
+
+```py
+from mini import HFStore
+
+store = HFStore('z0u/mi-ni-artifacts')                 # a public dataset repo
+url = store.publish('out/loss.mp4', 'gpt/loss.mp4')    # → CDN resolve URL
+mo.Html(f'<video src="{url}" controls></video>')       # nothing in LFS
+```
+
+Set `HF_TOKEN` (create one at <https://huggingface.co/settings/tokens>). Locally,
+export it in your shell; for Claude Code on the web, add it as a secret in the
+environment config. See the publishing section in the [nanoGPT notebook](docs/gpt.py)
+for a worked example.
+
+</details>
+
 [dc]: https://containers.dev
 [Modal]: https://modal.com
 [uv]: https://astral.sh/uv
