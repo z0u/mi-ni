@@ -7,6 +7,7 @@ agent (or you) can drive, poll, and gather without holding a session open:
 
     python -m mini run    docs/pipeline/experiment.py --watch  # drive a DAG to completion (live bar)
     python -m mini run    docs/pipeline/experiment.py          # advance one wake, then return
+    python -m mini run    docs/pipeline/experiment.py --budget 2h  # auto-cancel the run past a wall-clock budget
     python -m mini retry  docs/pipeline/experiment.py          # reset FAILED/CANCELLED, then advance
     python -m mini ls                                          # experiments + task state
     python -m mini watch  pipeline                             # live bars for a run, read-only (never ticks)
@@ -28,8 +29,9 @@ from mini.apparatus import Apparatus
 from mini.experiment import load_experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import MemoStore
-from mini.orchestration import TaskFailed, retry, tick
+from mini.orchestration import BudgetExpired, TaskFailed, retry, tick
 from mini.runs import SETTLED, RunState, data_root
+from utils.time import duration
 
 _GLYPH = {
     RunState.PENDING: '·',
@@ -82,6 +84,31 @@ def _fmt_metrics(metrics: dict[str, float]) -> str:
 
 def _age(ts: float | None) -> str:
     return f'{time.time() - ts:.0f}s ago' if ts else '—'
+
+
+def _arm_budget(store: MemoStore, args: argparse.Namespace) -> None:
+    """Stamp a wall-clock (cost) budget into the run's control plane.
+
+    ``--budget 30m`` bounds the *whole* detached sweep: a forgotten or wedged run
+    settles CANCELLED once the deadline passes, enforced opportunistically by any
+    later ``status`` / ``watch`` / ``--watch`` poll. Passing the flag (re)arms the
+    deadline relative to now — so it also re-arms a ``retry`` past an expired
+    budget — while plain re-runs that advance a multi-step DAG inherit the
+    existing deadline (no flag → no change).
+    """
+    if not (budget := getattr(args, 'budget', None)):
+        return
+    store.set_meta(budget=budget, deadline_at=time.time() + duration(budget))
+
+
+def _budget_suffix(store: MemoStore) -> str:
+    """A short ``budget 30m, 12m left`` / ``budget 30m, expired`` tag for status."""
+    meta = store.meta()
+    if not (deadline := meta.get('deadline_at')):
+        return ''
+    remaining = deadline - time.time()
+    when = f'{remaining:.0f}s left' if remaining > 0 else 'expired'
+    return f'budget {meta.get("budget", "?")}, {when}'
 
 
 def _aggregate_state(states: list[RunState]) -> RunState:
@@ -143,8 +170,17 @@ def cmd_retry(args: argparse.Namespace) -> None:
 
 def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
     """Drive one wake (or to completion with ``--watch``) and report."""
+    store = apparatus.memo_store()
+    _arm_budget(store, args)
     if args.watch:
         _watch(exp, apparatus, poll=args.poll)
+        return
+    if store.budget_expired():  # over budget — settle in-flight work, don't launch a new stage
+        cancelled = apparatus.enforce_budget(store)
+        print(f'{exp.name}:')
+        for rec in store.records():
+            print(_memo_line(rec))
+        print(f'⊘ wall-clock budget elapsed — cancelled {len(cancelled)} in-flight task(s); run settled CANCELLED')
         return
     try:
         done, payload = tick(exp, apparatus)
@@ -171,6 +207,9 @@ def _watch(exp, apparatus: Apparatus, poll: float) -> None:
         payload = drive_and_watch(exp, apparatus, poll=poll)
     except KeyboardInterrupt:
         print('\n… stopped watching; tasks keep running. Re-run the same command to resume.')
+        return
+    except BudgetExpired as e:  # intentional teardown at the deadline, not a failure
+        print(f'⊘ {e}; run settled CANCELLED')
         return
     except (ExceptionGroup, TaskFailed) as e:
         raised = e.exceptions if isinstance(e, BaseExceptionGroup) else (e,)
@@ -200,11 +239,15 @@ def cmd_status(args: argparse.Namespace) -> None:
     apparatus = _build_apparatus(args.name, args)
     store = apparatus.memo_store()
     apparatus.reap_dead(store)  # a worker that died mid-run shouldn't read as RUNNING forever
+    apparatus.enforce_budget(store)  # a forgotten over-budget run settles CANCELLED when polled
     recs = store.records()
     if not recs:
         raise SystemExit(f'no tasks found for experiment {args.name!r}')
     state = _aggregate_state([_rec_state(r) for r in recs])
-    print(f'{args.name}  —  {state}  ({len(recs)} tasks)')
+    header = f'{args.name}  —  {state}  ({len(recs)} tasks)'
+    if suffix := _budget_suffix(store):
+        header += f'  ·  {suffix}'
+    print(header)
     for rec in recs:
         print(_memo_line(rec))
 
@@ -271,6 +314,12 @@ def main() -> None:
         p.add_argument('--workers', type=int, default=1, help='local worker threads / task concurrency')
         p.add_argument('--gpu', default=None, help='Modal GPU type, e.g. L4, A100 (--app modal)')
         p.add_argument('--timeout', type=int, default=None, help='per-task timeout in seconds (--app modal)')
+        p.add_argument(
+            '--budget',
+            default=None,
+            help='wall-clock (cost) budget for the whole run, e.g. 30m, 2h; '
+            'a forgotten/wedged detached run settles CANCELLED once it elapses',
+        )
         p.add_argument(
             '--max-containers',
             type=int,

@@ -71,6 +71,33 @@ calls it. Three rules keep the blast radius bounded:
 
 `cancel` is also the cost-control lever: stop in-flight work you no longer want.
 
+## Wall-clock budget (auto-teardown)
+
+A detached run outlives the process that launched it, so a forgotten or wedged
+run can burn money (Modal) or hold local resources **indefinitely**. Bound the
+whole sweep with a wall-clock budget:
+
+```
+bin/mini run <exp> --budget 2h          # the run may not outlive 2 hours
+bin/mini run <exp> --app modal --budget 30m
+```
+
+`--budget` stamps a `deadline_at` into the run's control plane at launch (a
+sidecar on the same store — local JSON / Modal `Dict` — so no new infra). There's
+no supervising process to fire a timer, so enforcement is **opportunistic**: any
+process that already touches the store — `status`, `watch`, the `--watch`
+driver — cancels in-flight tasks (→ `CANCELLED`) once the deadline passes, via the
+same `cancel` path. A driver also refuses to launch a *new* stage past the
+deadline. So a budgeted run that goes unattended settles cleanly the next time
+anything polls it; `status` shows `budget 2h, 12m left` (or `expired`).
+
+The budget is **run-level**, complementing the per-task `--timeout` (Modal's
+function timeout, which bounds one task). Passing `--budget` again re-arms the
+deadline relative to now (so you can `retry` past an expired budget); a plain
+re-run to advance a multi-step DAG inherits the existing deadline. This is
+distinct from `cancel` (manual, immediate) — the budget is the unattended
+backstop.
+
 ## Escalation contract
 
 Attempt only a **local, obvious** fix on a terminal task (typo, bad path, wrong

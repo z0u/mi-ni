@@ -30,7 +30,7 @@ from rich.progress import (
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.memo import PollCache
-from mini.orchestration import tick
+from mini.orchestration import BudgetExpired, tick
 from mini.runs import SETTLED, RunState
 
 __all__ = ['drive_and_watch', 'watch']
@@ -107,6 +107,7 @@ def watch(
     with _progress(console) as progress:
         bars: dict[str, TaskID] = {}
         while True:
+            apparatus.enforce_budget(store)  # tear down a run past its wall-clock budget (→ CANCELLED)
             records = cache.records(store)
             apparatus.reap_dead(store, records)  # settle vanished workers — read-only path, never relaunches
             _refresh(progress, bars, records)
@@ -134,6 +135,10 @@ def drive_and_watch(
     with _progress(console) as progress:
         bars: dict[str, TaskID] = {}
         while True:
+            if store.budget_expired():  # don't launch a new stage past the deadline
+                cancelled = apparatus.enforce_budget(store)
+                _refresh(progress, bars, store.records())
+                raise BudgetExpired(cancelled)
             done, payload = tick(experiment, apparatus)  # advance DAG, launch missing work
             # A tick can launch new keys and reset retried ones, so the cache for
             # this stage starts fresh — only the settled tail *within* a poll loop
@@ -144,6 +149,9 @@ def drive_and_watch(
                 return payload
             # Read-only poll until the in-flight set settles — no re-ticking.
             while True:
+                if cancelled := apparatus.enforce_budget(store):  # over budget — tear down in-flight tasks
+                    _refresh(progress, bars, store.records())
+                    raise BudgetExpired(cancelled)
                 records = cache.records(store)
                 apparatus.reap_dead(store, records)  # settle vanished workers so a kill can't wedge the drain
                 _refresh(progress, bars, records)

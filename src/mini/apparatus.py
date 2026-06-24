@@ -208,6 +208,20 @@ class Apparatus(ABC, Generic[V]):
                 cancelled.append(rec['key'])
         return cancelled
 
+    def enforce_budget(self, store: MemoStore) -> list[str]:
+        """Tear the run down if its wall-clock (cost) budget has elapsed; return cancelled keys.
+
+        A detached run has no supervising process, so a forgotten or wedged sweep
+        can burn money on Modal — or hold local resources — indefinitely. A budget
+        stamps a ``deadline_at`` into the control plane at launch; any process that
+        already polls the store (``status`` / ``watch`` / the ``--watch`` driver)
+        calls this to enforce it *opportunistically*, settling in-flight tasks
+        CANCELLED via the existing ``cancel`` path (local SIGTERM / Modal
+        ``FunctionCall.cancel``). A no-op before the deadline, or when no budget is
+        set, so it's safe to call on every read/poll path.
+        """
+        return self.cancel(store) if store.budget_expired() else []
+
     def _stop_task(self, rec: dict[str, Any]) -> None:
         """Backend-specific: stop one in-flight task. Default: nothing to stop."""
 
