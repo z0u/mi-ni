@@ -51,6 +51,7 @@ bin/mini watch  pipeline                            # ...or follow it live (read
 - [Dev container][dc] for a consistent environment, both locally and in [Codespaces][codespaces]
 - ML stack ([JAX, Equinox, Pandas, etc.](pyproject.toml))
 - Modern package management with [uv]
+- Resilient sweeps: a failed cell needn't wedge the run — `ctx.map(..., allow_partial=True)` returns the results that succeeded, gaps marked, so downstream steps still run
 - Pre-configured for good engineering practices: tests, linting, type-checking (optional!)
 </details>
 

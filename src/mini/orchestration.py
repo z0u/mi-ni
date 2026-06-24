@@ -14,13 +14,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from mini.memo import MemoStore, fingerprint
-from mini.runs import RunState
+from mini.runs import SETTLED, RunState
 
 if TYPE_CHECKING:
     from mini.apparatus import Apparatus
     from mini.experiment import Experiment
 
-__all__ = ['MemoError', 'Pending', 'Ctx', 'tick', 'retry']
+__all__ = ['MemoError', 'Pending', 'MISSING', 'Ctx', 'tick', 'retry']
 
 
 class MemoError(Exception):
@@ -29,6 +29,39 @@ class MemoError(Exception):
 
 class Pending(MemoError):
     """Raised to suspend the current wake until in-flight tasks finish."""
+
+
+class _Missing:
+    """Sentinel for a ``map`` cell that produced no result.
+
+    ``ctx.map(..., allow_partial=True)`` returns this in the position of any task
+    that settled ``FAILED``/``CANCELLED``, so results stay index-aligned with the
+    inputs — downstream code commonly ``zip``s configs with results, and dropping
+    cells would misalign that. It is a *falsey* singleton distinct from ``None``
+    (which tasks may legitimately return), so both idioms work::
+
+        present = [r for r in results if r]        # drop the gaps
+        ok = [(c, r) for c, r in zip(cfgs, results) if r is not MISSING]
+    """
+
+    _instance: _Missing | None = None
+
+    def __new__(cls) -> _Missing:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return '<missing>'
+
+    def __reduce__(self) -> tuple:
+        return (_Missing, ())  # round-trips to the same singleton through (cloud)pickle
+
+
+MISSING = _Missing()
 
 
 class Ctx:
@@ -104,10 +137,27 @@ class Ctx:
         version: str | None = None,
         on: Apparatus | None = None,
         role: str | None = None,
+        allow_partial: bool = False,
     ) -> list[Any]:
+        """Fan out *fn* over *items*, suspending until the results are ready.
+
+        Launches every missing item in one batch, then raises ``Pending`` while
+        any task is still in flight. By default the map is all-or-nothing: a task
+        that settles ``FAILED``/``CANCELLED`` is terminal (``tick`` won't relaunch
+        it), so it blocks the map — and anything downstream — until ``retry``.
+
+        With ``allow_partial=True`` the map still waits for in-flight tasks, but
+        once everything has *settled* it returns instead of blocking on failures:
+        the result list stays index-aligned with *items*, with ``MISSING`` in the
+        position of each failed/cancelled cell. This lets the pipeline's later
+        steps run on the subset that succeeded.
+        """
         app = self._route(on, role)
         results: list[Any] = []
         batch: list[tuple[str, Callable, tuple, list]] = []
+        # `self.pending` holds only truly in-flight keys (settled-but-failed cells
+        # don't go here under allow_partial). Ctx is rebuilt each tick and the first
+        # incomplete step raises, so this stays a clean per-tick view across steps.
         for raw in items:
             args = raw if isinstance(raw, tuple) else (raw,)
             key, state, to_launch = self._classify(fn, args, version, app)
@@ -115,8 +165,11 @@ class Ctx:
                 batch.append(to_launch)
             if state == RunState.DONE:
                 results.append(self.store.result(key))
-            else:
+            elif allow_partial and state in SETTLED:  # terminal, not DONE -> FAILED/CANCELLED
+                results.append(MISSING)
+            else:  # in flight (or, without allow_partial, a failure we still block on)
                 self.pending.append(key)
+                results.append(MISSING)  # placeholder; discarded — we suspend below
         if batch:  # one spawn for the whole fan-out
             app.spawn_tasks(self.store, batch)
         if self.pending:

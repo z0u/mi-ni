@@ -113,6 +113,81 @@ def test_failed_is_terminal_until_retry(tmp_path: Path):
     assert (tmp_path / 'crash' / 'att_1').read_text() == '1'  # siblings untouched
 
 
+def test_allow_partial_returns_sentinel_for_failed_cell(tmp_path: Path):
+    """``allow_partial=True`` lets a map settle with a failed cell instead of
+    blocking forever: the result stays index-aligned with the inputs, with
+    ``MISSING`` where a task failed, so a downstream reduce can run on the rest."""
+    from mini.orchestration import MISSING
+
+    def train(x):
+        if x == 2:
+            raise RuntimeError('bad region')
+        return x * 10
+
+    def main(ctx):
+        results = ctx.map(train, [(1,), (2,), (3,)], allow_partial=True)
+        present = [r for r in results if r is not MISSING]
+        return {'results': results, 'best': max(present)}
+
+    out = _drive(*_setup('partial', main, tmp_path))
+    assert out['results'] == [10, MISSING, 30]  # index-aligned; gap where x=2 failed
+    assert out['best'] == 30  # downstream computation ran on the surviving subset
+
+
+def test_allow_partial_still_waits_for_in_flight(tmp_path: Path):
+    """Partial is not best-effort: it waits for running tasks to settle before
+    returning, so a slow-but-fine cell still lands a real result (not a gap)."""
+
+    def train(x):
+        if x == 2:
+            raise RuntimeError('nope')
+        time.sleep(0.3)  # outlives the first wake; must be awaited, not skipped
+        return x * 10
+
+    def main(ctx):
+        return ctx.map(train, [(1,), (2,), (3,)], allow_partial=True)
+
+    from mini.orchestration import MISSING
+
+    assert _drive(*_setup('partwait', main, tmp_path)) == [10, MISSING, 30]
+
+
+def test_strict_map_still_blocks_on_failure(tmp_path: Path):
+    """Without ``allow_partial`` a failed cell is still terminal and blocks the
+    map — the default all-or-nothing contract is unchanged."""
+
+    def train(x):
+        if x == 2:
+            raise RuntimeError('boom')
+        return x
+
+    exp, app = _setup('strict', lambda ctx: ctx.map(train, [(1,), (2,), (3,)]), tmp_path)
+    store = app.memo_store()
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        done, _ = tick(exp, app)
+        assert not done, 'strict map completed despite a failed cell'
+        if any(r.get('state') == RunState.FAILED for r in store.records()):
+            break
+        time.sleep(0.1)
+    done, _ = tick(exp, app)
+    assert not done  # still blocked after the failure settles
+
+
+def test_missing_sentinel_is_falsey_singleton_and_pickles(tmp_path: Path):
+    """``MISSING`` is a falsey singleton distinct from ``None``, and survives a
+    (cloud)pickle round-trip as the *same* object — so ``r is MISSING`` holds in a
+    downstream task that receives a partial result over the wire."""
+    import pickle
+
+    from mini import MISSING
+
+    assert not MISSING and MISSING is not None
+    assert bool(MISSING) is False
+    assert pickle.loads(pickle.dumps(MISSING)) is MISSING
+    assert repr(MISSING) == '<missing>'
+
+
 def test_single_map(tmp_path: Path):
     def sq(x):
         return x * x
