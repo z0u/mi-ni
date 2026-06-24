@@ -36,15 +36,27 @@ class TaskFailed(MemoError):
 
     ``ctx.run`` raises this directly; ``ctx.map`` (without ``allow_partial``) raises
     an ``ExceptionGroup`` of them — one per failed cell — so a strict fan-out
-    surfaces *every* failure at once rather than the first. The worker's stored
-    traceback rides along in ``.error`` (and the message), and ``except* TaskFailed``
-    handles the group ergonomically. Recover with ``mini retry``.
+    surfaces *every* failure at once rather than the first. ``except* TaskFailed``
+    handles the group ergonomically.
+
+    This is a *report* of a past failure, not the failure itself: the task ran in a
+    detached worker that has already exited, so the original exception object is
+    gone. The worker's stored traceback rides along in ``.error`` (and the message),
+    and ``.exc_type`` carries the original exception's fully-qualified type name (a
+    plain string, so triage works even when the driver can't import the worker's
+    libraries) — bucket a fan-out's failures by kind without parsing tracebacks::
+
+        except* TaskFailed as eg:
+            oom = [e for e in eg.exceptions if 'OutOfMemory' in e.exc_type]
+
+    Recover with ``mini retry``.
     """
 
-    def __init__(self, key: str, state: RunState, error: str = ''):
+    def __init__(self, key: str, state: RunState, error: str = '', exc_type: str = ''):
         self.key = key
         self.state = state
         self.error = error
+        self.exc_type = exc_type
         head = f'{key} settled {state}'
         super().__init__(f'{head}\n{error}' if error and error != '(no logs)' else head)
 
@@ -132,8 +144,8 @@ class Ctx:
         return key, state, to_launch
 
     def _task_failed(self, key: str, state: RunState) -> TaskFailed:
-        """Build a ``TaskFailed`` for a settled-but-not-DONE key, with its stored traceback."""
-        return TaskFailed(key, state, self.store.error(key))
+        """Build a ``TaskFailed`` for a settled-but-not-DONE key, with its stored traceback + type."""
+        return TaskFailed(key, state, self.store.error(key), self.store.record(key).get('exc_type', ''))
 
     def run[R](
         self,

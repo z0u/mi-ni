@@ -84,12 +84,18 @@ def execute_task(
         if commit is not None:
             commit()
         store.update(key, state=RunState.DONE, heartbeat_at=time.time())
-    except Exception:
+    except Exception as exc:
         tb = traceback.format_exc()
         (result_dir / 'error.txt').write_text(tb)
         if commit is not None:
             commit()
-        store.update(key, state=RunState.FAILED, error=tb.strip().splitlines()[-1], heartbeat_at=time.time())
+        store.update(
+            key,
+            state=RunState.FAILED,
+            error=tb.strip().splitlines()[-1],
+            exc_type=f'{type(exc).__module__}.{type(exc).__qualname__}',
+            heartbeat_at=time.time(),
+        )
 
 
 def run_task(data_dir: Path, key: str) -> None:
