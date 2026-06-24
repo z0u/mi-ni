@@ -27,12 +27,19 @@ import cloudpickle
 
 from mini.runs import SETTLED, RunState, _atomic_write, _merge_json
 
-__all__ = ['fingerprint', 'RecordStore', 'LocalRecordStore', 'MemoStore', 'PollCache']
+__all__ = ['fingerprint', 'RecordStore', 'LocalRecordStore', 'MemoStore', 'PollCache', 'META_KEY']
 
 # Source under these roots is treated as an opaque, stable dependency: the
 # stdlib, installed packages, and the mini framework itself (so editing mini
 # doesn't invalidate every experiment's cache).
 _MINI_DIR = str(Path(__file__).parent.resolve())
+
+# Reserved control-plane key for run-level metadata (the wall-clock budget /
+# deadline). It rides the same record store as the task records — a sidecar, so a
+# detached run carries its budget with no new infra — but is excluded from
+# ``records()`` so it never reads as a task or skews the aggregate state. A task
+# fingerprint is ``{name}-{hex12}``, so ``__run__`` can never collide with one.
+META_KEY = '__run__'
 
 
 def _is_project_source(obj: Any) -> bool:
@@ -213,7 +220,34 @@ class MemoStore:
         self.records_backend.merge(key, fields)
 
     def records(self) -> list[dict[str, Any]]:
-        return [rec for key in self.records_backend.keys() if (rec := self.records_backend.read(key))]
+        return [
+            rec for key in self.records_backend.keys() if key != META_KEY and (rec := self.records_backend.read(key))
+        ]
+
+    def meta(self) -> dict[str, Any]:
+        """Run-level metadata (the wall-clock budget / ``deadline_at``), or ``{}``.
+
+        Stored under the reserved ``META_KEY`` so it shares the run's control plane
+        (local JSON / Modal ``Dict``) without ever surfacing as a task.
+        """
+        return self.records_backend.read(META_KEY) or {}
+
+    def set_meta(self, **fields: Any) -> None:
+        """Merge run-level metadata (e.g. ``deadline_at``) into the reserved record."""
+        self.records_backend.merge(META_KEY, fields)
+
+    def deadline(self) -> float | None:
+        """The run's wall-clock deadline (epoch seconds), or ``None`` if unbudgeted."""
+        return self.meta().get('deadline_at')
+
+    def budget_expired(self) -> bool:
+        """Whether a budget is set *and* its deadline has passed.
+
+        The gate both for tearing a run down (cancel in-flight tasks) and for
+        refusing to launch new work past the deadline.
+        """
+        d = self.deadline()
+        return d is not None and time.time() >= d
 
     def reset(self, key: str) -> None:
         """Clear a record back to un-run (state → None) so the next tick reruns it.
@@ -266,6 +300,8 @@ class PollCache:
         backend = store.records_backend
         out: list[dict[str, Any]] = []
         for key in backend.keys():
+            if key == META_KEY:  # run-level metadata, not a task
+                continue
             if cached := self._settled.get(key):
                 out.append(cached)
                 continue

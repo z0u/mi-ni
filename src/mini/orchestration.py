@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from mini.apparatus import Apparatus
     from mini.experiment import Experiment
 
-__all__ = ['MemoError', 'Pending', 'TaskFailed', 'MISSING', 'Ctx', 'tick', 'retry']
+__all__ = ['MemoError', 'Pending', 'TaskFailed', 'BudgetExpired', 'MISSING', 'Ctx', 'tick', 'retry']
 
 
 class MemoError(Exception):
@@ -29,6 +29,20 @@ class MemoError(Exception):
 
 class Pending(MemoError):
     """Raised to suspend the current wake until in-flight tasks finish."""
+
+
+class BudgetExpired(MemoError):
+    """The run blew its wall-clock (cost) budget — in-flight tasks were cancelled.
+
+    Raised by the ``--watch`` driver when it tears a run down at its deadline, so
+    the caller can report the teardown distinctly from a task *failure*: the run
+    settled CANCELLED on purpose, not because anything went wrong. Carries the
+    keys it cancelled (may be empty if the deadline passed between stages).
+    """
+
+    def __init__(self, cancelled: list[str]):
+        self.cancelled = cancelled
+        super().__init__(f'wall-clock budget elapsed — cancelled {len(cancelled)} in-flight task(s)')
 
 
 class TaskFailed(MemoError):
