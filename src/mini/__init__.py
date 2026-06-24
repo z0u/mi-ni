@@ -4,7 +4,7 @@ from mini.local_apparatus import LocalApparatus
 from mini.modal_apparatus import ModalApparatus
 from mini.experiment import Experiment, load_experiment
 from mini.orchestration import MISSING, Ctx, MemoError, Pending, TaskFailed, tick
-from mini.publish import HFStore
+from mini.publish import HFStore, artifacts_repo
 from mini.runs import RunState
 from mini.volume import get_data_dir
 
@@ -17,6 +17,7 @@ __all__ = [
     'emit_metrics',
     'get_data_dir',
     'HFStore',
+    'artifacts_repo',
     'Experiment',
     'load_experiment',
     'RunState',

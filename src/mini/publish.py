@@ -28,7 +28,7 @@ from typing import Literal
 
 from mini.volume import PathLike
 
-__all__ = ['HFStore', 'RepoType']
+__all__ = ['HFStore', 'RepoType', 'artifacts_repo']
 
 RepoType = Literal['dataset', 'model', 'space']
 
@@ -39,6 +39,34 @@ _URL_PREFIX: dict[RepoType, str] = {
     'dataset': 'https://huggingface.co/datasets/{repo_id}/resolve/{rev}/{path}',
     'space': 'https://huggingface.co/spaces/{repo_id}/resolve/{rev}/{path}',
 }
+
+
+def artifacts_repo() -> str:
+    """The configured published-artifacts repo, e.g. ``'z0u/mi-ni-pub'``.
+
+    Resolves ``$HF_ARTIFACTS_REPO`` first — handy in CI, or in remote compute
+    where there's no checkout — then ``[tool.mini] artifacts_repo`` in the
+    nearest ``pyproject.toml`` (walking up from cwd). Committing it there keeps
+    collaborators publishing to *one shared repo* rather than each to their own
+    namespace, and lets the Pages build resolve the same URLs the reports embed.
+    """
+    if repo := os.environ.get('HF_ARTIFACTS_REPO'):
+        return repo
+    if (pyproject := _find_pyproject()) is not None:
+        import tomllib
+
+        mini = tomllib.loads(pyproject.read_text()).get('tool', {}).get('mini', {})
+        if repo := mini.get('artifacts_repo'):
+            return repo
+    raise RuntimeError(
+        'No artifacts repo configured. Set $HF_ARTIFACTS_REPO, or [tool.mini] '
+        'artifacts_repo in pyproject.toml (a public HF dataset repo you can write to).'
+    )
+
+
+def _find_pyproject() -> Path | None:
+    cwd = Path.cwd().resolve()
+    return next((p for d in (cwd, *cwd.parents) if (p := d / 'pyproject.toml').is_file()), None)
 
 
 class HFStore:
@@ -79,6 +107,15 @@ class HFStore:
         self._created = False
         self._token = token or os.environ.get('HF_TOKEN') or os.environ.get('HUGGINGFACE_TOKEN')
         self._api = HfApi(token=self._token)
+
+    @classmethod
+    def from_config(cls, **kwargs) -> HFStore:
+        """An :class:`HFStore` for the project's configured :func:`artifacts_repo`.
+
+        The front door for reports: ``HFStore.from_config().publish(…)`` writes to
+        the shared repo named in ``pyproject.toml`` without hard-coding it.
+        """
+        return cls(artifacts_repo(), **kwargs)
 
     def url(self, remote_path: PathLike, *, revision: str | None = None) -> str:
         """

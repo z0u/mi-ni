@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mini.publish import HFStore
+from mini.publish import HFStore, artifacts_repo
 
 
 @pytest.fixture
@@ -164,3 +164,42 @@ def test_fetch_directory(api, tmp_path):
 
     assert dl.call_args.kwargs['allow_patterns'] == ['nanogpt/run-1/*']
     assert (dst / 'a.txt').read_text() == 'a'
+
+
+# ---------------------------------------------------------------------------
+# config resolution — artifacts_repo() / from_config()
+# ---------------------------------------------------------------------------
+
+
+def test_artifacts_repo_from_env(monkeypatch):
+    monkeypatch.setenv('HF_ARTIFACTS_REPO', 'me/from-env')
+    assert artifacts_repo() == 'me/from-env'
+
+
+def test_artifacts_repo_from_pyproject(monkeypatch, tmp_path):
+    monkeypatch.delenv('HF_ARTIFACTS_REPO', raising=False)
+    (tmp_path / 'pyproject.toml').write_text('[tool.mini]\nartifacts_repo = "me/from-toml"\n')
+    monkeypatch.chdir(tmp_path)
+    assert artifacts_repo() == 'me/from-toml'
+
+
+def test_artifacts_repo_env_wins_over_pyproject(monkeypatch, tmp_path):
+    (tmp_path / 'pyproject.toml').write_text('[tool.mini]\nartifacts_repo = "me/from-toml"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('HF_ARTIFACTS_REPO', 'me/from-env')
+    assert artifacts_repo() == 'me/from-env'
+
+
+def test_artifacts_repo_missing_raises(monkeypatch, tmp_path):
+    monkeypatch.delenv('HF_ARTIFACTS_REPO', raising=False)
+    (tmp_path / 'pyproject.toml').write_text('[project]\nname = "x"\n')  # no [tool.mini]
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(RuntimeError, match='No artifacts repo'):
+        artifacts_repo()
+
+
+def test_from_config_uses_resolved_repo(api, monkeypatch):
+    monkeypatch.setenv('HF_ARTIFACTS_REPO', 'me/pub')
+    store = HFStore.from_config()
+    assert store.repo_id == 'me/pub'
+    assert store.url('a.png') == 'https://huggingface.co/datasets/me/pub/resolve/main/a.png'
