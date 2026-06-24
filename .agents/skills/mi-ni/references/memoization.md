@@ -81,8 +81,8 @@ sentinel in each failed/cancelled position:
 from mini import MISSING
 
 results = ctx.map(train, configs, allow_partial=True)   # [r0, MISSING, r2, ...]
-ok = [(c, r) for c, r in zip(configs, results) if r is not MISSING]
-best = min((r for _, r in ok), key=lambda r: r['val_loss'])
+ok = [(c, r) for c, r in zip(configs, results, strict=True) if r is not MISSING]
+best = min(((c, r) for c, r in ok), key=lambda r: r['val_loss'])
 ```
 
 `MISSING` is a falsey singleton distinct from `None` (which a task may legitimately
