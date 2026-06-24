@@ -64,16 +64,20 @@ fix should be intentional. Recovery takes one of:
 The traceback lives on the I/O plane (`mini logs <name> <key>`); the record
 carries the last error line for a quick scan in `status`.
 
-### A failed item blocks its `map` — unless you allow partials
+### A failed item fails its `map` — unless you allow partials
 
-By default `ctx.map` raises `Pending` until _every_ item is `DONE`. A settled
-`FAILED` item no longer relaunches (good) but still blocks the map from returning,
-so the steps after it can't proceed until you `retry` or prune it. That's the
-right default when every cell matters.
+By default `ctx.map` raises `Pending` until _every_ item has settled. Once the
+fan-out settles, any item that settled `FAILED`/`CANCELLED` makes the map raise an
+**`ExceptionGroup` of `TaskFailed`** — all of them at once, so you see every
+failure, not just the first. (`ctx.run`, being a single step, raises a bare
+`TaskFailed`.) The group carries each worker's stored traceback; handle it with
+`except* TaskFailed`. That's the right default when every cell matters — and since
+a settled failure won't relaunch, raising is how the DAG gives up instead of
+spinning. Recover with `retry`.
 
 When some failures are expected — a bad hyperparameter region, an OOM at the
 extreme, a preempted container — pass **`allow_partial=True`**. The map still
-waits for in-flight tasks to settle, but then returns instead of blocking on the
+waits for in-flight tasks to settle, but then returns instead of raising on the
 failures. The result list stays index-aligned with the inputs, with the `MISSING`
 sentinel in each failed/cancelled position:
 
@@ -82,7 +86,7 @@ from mini import MISSING
 
 results = ctx.map(train, configs, allow_partial=True)   # [r0, MISSING, r2, ...]
 ok = [(c, r) for c, r in zip(configs, results, strict=True) if r is not MISSING]
-best = min(((c, r) for c, r in ok), key=lambda r: r['val_loss'])
+best = min(ok, key=lambda cr: cr[1]['val_loss'])
 ```
 
 `MISSING` is a falsey singleton distinct from `None` (which a task may legitimately

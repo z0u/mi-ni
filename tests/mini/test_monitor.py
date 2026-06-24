@@ -20,8 +20,8 @@ from rich.console import Console
 
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
-from mini.monitor import ExperimentFailed, drive_and_watch, watch
-from mini.orchestration import tick
+from mini.monitor import drive_and_watch, watch
+from mini.orchestration import TaskFailed, tick
 from mini.runs import RunState
 
 
@@ -80,9 +80,10 @@ def test_raises_on_failure_without_relaunching(tmp_path: Path):
 
     app = LocalApparatus('watch_fail', max_workers=2, data_dir=tmp_path / 'watch_fail')
     exp = Experiment(name='watch_fail', main=lambda ctx: ctx.map(boom, [(1,), (2,)]))
-    with pytest.raises(ExperimentFailed) as exc:
+    with pytest.raises(ExceptionGroup) as exc:
         _watch(exp, app)
-    assert len(exc.value.failed) == 2  # both surfaced, not busy-looped
+    assert len(exc.value.exceptions) == 2  # both surfaced together, not busy-looped
+    assert all(isinstance(e, TaskFailed) for e in exc.value.exceptions)
 
 
 def test_reap_dead_settles_a_killed_worker(tmp_path: Path):
@@ -128,9 +129,9 @@ def test_drive_stops_on_cancelled_instead_of_spinning(tmp_path: Path):
     assert pid, 'worker never started'
 
     assert app.cancel(store)  # marks CANCELLED + SIGTERMs the worker
-    with pytest.raises(ExperimentFailed) as exc:
+    with pytest.raises(ExceptionGroup) as exc:
         _watch(exp, app)  # must not hang
-    assert RunState(exc.value.failed[0]['state']) == RunState.CANCELLED
+    assert exc.value.exceptions[0].state == RunState.CANCELLED
     with suppress(ChildProcessError):
         os.waitpid(pid, 0)
 
@@ -165,6 +166,6 @@ def test_watch_surfaces_a_killed_worker(tmp_path: Path):
     os.killpg(pid, signal.SIGKILL)
     watcher.join(timeout=15)
     assert not watcher.is_alive(), 'watch wedged on the dead worker'
-    assert isinstance(captured.get('exc'), ExperimentFailed)
+    assert isinstance(captured.get('exc'), ExceptionGroup)
     with suppress(ChildProcessError):
         os.waitpid(pid, 0)

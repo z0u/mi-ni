@@ -30,10 +30,10 @@ from rich.progress import (
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.memo import PollCache
-from mini.orchestration import MemoError, tick
+from mini.orchestration import tick
 from mini.runs import SETTLED, RunState
 
-__all__ = ['drive_and_watch', 'watch', 'ExperimentFailed']
+__all__ = ['drive_and_watch', 'watch']
 
 _COLOR = {
     RunState.RUNNING: 'cyan',
@@ -41,22 +41,6 @@ _COLOR = {
     RunState.FAILED: 'red',
     RunState.CANCELLED: 'yellow',
 }
-
-
-class ExperimentFailed(MemoError):
-    """The watched DAG can't progress because a task settled without completing.
-
-    ``FAILED``/``CANCELLED`` are terminal — ``tick`` won't relaunch them — so a
-    DAG that depends on one can never finish. We stop and surface it rather than
-    spin (``tick`` would keep raising ``Pending`` with nothing left in flight).
-    The blocker may be a thrown task, a worker the watch *reaped* as dead
-    (``Apparatus.reap_dead``), or a cancelled one. Recover with ``mini retry``.
-    """
-
-    def __init__(self, failed: list[dict[str, Any]]):
-        self.failed = failed
-        keys = ', '.join(f'{r["key"]} ({r.get("state")})' for r in failed)
-        super().__init__(f'{len(failed)} task(s) settled without completing: {keys}')
 
 
 def _fmt_metrics(metrics: dict[str, float]) -> str:
@@ -140,9 +124,11 @@ def drive_and_watch(
 ) -> Any:
     """Drive *experiment* to completion on *apparatus*, rendering a live bar.
 
-    Returns the orchestration's payload on completion. Raises ``ExperimentFailed``
-    if a task settles FAILED (so we don't relaunch it on the next tick), and lets
-    ``KeyboardInterrupt`` propagate (the caller reports; detached workers live on).
+    Returns the orchestration's payload on completion. Propagates ``TaskFailed``
+    (or an ``ExceptionGroup`` of them) raised by ``tick`` when a depended-on task
+    has settled terminally — ``tick`` won't relaunch it, so re-ticking surfaces the
+    failure rather than spinning. Lets ``KeyboardInterrupt`` propagate too (the
+    caller reports; detached workers live on).
     """
     store = apparatus.memo_store()
     with _progress(console) as progress:
@@ -164,8 +150,7 @@ def drive_and_watch(
                 if not any(r.get('state') == RunState.RUNNING for r in records):
                     break
                 time.sleep(poll)
-            # Any terminal-but-not-DONE task (FAILED *or* CANCELLED) blocks the DAG:
-            # tick won't relaunch it, so without this we'd spin forever (no RUNNING
-            # to drain, no progress to make).
-            if blocked := [r for r in records if _rec_state(r) in (RunState.FAILED, RunState.CANCELLED)]:
-                raise ExperimentFailed(blocked)
+            # Loop back to re-tick. Any terminal-but-not-DONE task (FAILED/CANCELLED)
+            # the DAG depends on makes the re-tick raise (TaskFailed / ExceptionGroup)
+            # rather than spin — tick won't relaunch it. A failed task nothing awaits
+            # is harmless: the re-tick just progresses past it.
