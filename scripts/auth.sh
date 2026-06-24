@@ -29,6 +29,19 @@ if uv run wandb status 2>/dev/null | grep -q '"api_key": null'; then
 fi
 echo "✅ WandB authenticated"
 
+# Hugging Face — fine-grained token scoped to just the artifacts dataset repo,
+# for publishing figures/media/data (see mini.HFStore). Reads $HF_TOKEN, so in
+# cloud agents (where it's injected as a secret) this is already a no-op.
+if ! uv run hf auth whoami &>/dev/null; then
+    repo="$(basename "$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel)")"
+    show_url "https://huggingface.co/settings/tokens/new?tokenType=fineGrained&tokenName=${repo}+agent"
+    echo "Make a public dataset repo for published artifacts (e.g. <your-hf-user>/${repo}-pub), then scope this token to it with 'Write' access. Generate and paste the token."
+    read -rsp 'Token: ' hf_token
+    echo
+    uv run hf auth login --token "$hf_token"
+fi
+echo "✅ Hugging Face authenticated"
+
 # Claude Code
 if ! claude auth status &>/dev/null; then
     claude auth login
