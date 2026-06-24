@@ -11,7 +11,7 @@ re-run.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Literal, Sequence, overload
 
 from mini.memo import MemoStore, fingerprint
 from mini.runs import SETTLED, RunState
@@ -113,14 +113,14 @@ class Ctx:
             state = RunState.RUNNING
         return key, state, to_launch
 
-    def run(
+    def run[R](
         self,
-        fn: Callable,
+        fn: Callable[..., R],
         *args: Any,
         version: str | None = None,
         on: Apparatus | None = None,
         role: str | None = None,
-    ) -> Any:
+    ) -> R:
         app = self._route(on, role)
         key, state, to_launch = self._classify(fn, args, version, app)
         if to_launch is not None:
@@ -130,15 +130,36 @@ class Ctx:
         self.pending.append(key)
         raise Pending(f'waiting on {key}')
 
-    def map(
+    @overload
+    def map[R](
         self,
-        fn: Callable,
+        fn: Callable[..., R],
+        items: Sequence[Any],
+        version: str | None = None,
+        on: Apparatus | None = None,
+        role: str | None = None,
+        allow_partial: Literal[False] = False,
+    ) -> list[R]: ...
+    @overload
+    def map[R](
+        self,
+        fn: Callable[..., R],
+        items: Sequence[Any],
+        version: str | None = None,
+        on: Apparatus | None = None,
+        role: str | None = None,
+        *,
+        allow_partial: Literal[True],
+    ) -> list[R | _Missing]: ...
+    def map[R](
+        self,
+        fn: Callable[..., R],
         items: Sequence[Any],
         version: str | None = None,
         on: Apparatus | None = None,
         role: str | None = None,
         allow_partial: bool = False,
-    ) -> list[Any]:
+    ) -> list[R] | list[R | _Missing]:
         """Fan out *fn* over *items*, suspending until the results are ready.
 
         Launches every missing item in one batch, then raises ``Pending`` while
