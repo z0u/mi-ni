@@ -49,8 +49,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --lint)      o_lint=true ;;
     --format)    o_format=true ;;
-    --typecheck) o_typecheck=true ;;
-    --test)      o_test=true ;;
+    --type|--types|--typecheck) o_typecheck=true ;;
+    --test|--tests)      o_test=true ;;
     --fix)       o_fix=true ;;
     --help|-h)
       show_usage
