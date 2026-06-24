@@ -97,6 +97,36 @@ def test_enforce_budget_tears_down_an_over_budget_run(tmp_path: Path):
     _reap(pid)  # the worker took the SIGTERM
 
 
+def test_budget_is_scoped_per_experiment(tmp_path: Path):
+    """Enforcing one experiment's budget must not touch a *different* experiment.
+
+    Each experiment has its own control plane (a per-name dir locally, a
+    ``mini-cp-<name>`` Dict on Modal), so the reserved ``META_KEY`` and the
+    ``cancel`` that ``enforce_budget`` triggers are scoped to a single run — a
+    concurrently-running, unbudgeted experiment is left strictly alone.
+    """
+    over = LocalApparatus('budget-over', data_dir=tmp_path / 'budget-over')
+    other = LocalApparatus('budget-other', data_dir=tmp_path / 'budget-other')
+    tick(_slow_exp('budget-over'), over)  # both launch a long-running detached worker
+    tick(_slow_exp('budget-other'), other)
+    over_store, other_store = over.memo_store(), other.memo_store()
+    (over_rec,), (other_rec,) = over_store.records(), other_store.records()
+    over_store.set_meta(budget='0s', deadline_at=time.time() - 1)  # only this one is over budget
+
+    cancelled = over.enforce_budget(over_store)
+
+    assert cancelled == [over_rec['key']]  # the budgeted run is torn down
+    assert RunState(over_store.records()[0]['state']) == RunState.CANCELLED
+    # The other experiment is untouched: still RUNNING, and no budget leaked onto it.
+    assert RunState(other_store.records()[0]['state']) == RunState.RUNNING
+    assert other_store.deadline() is None
+    assert other.enforce_budget(other_store) == []  # unbudgeted → never tears down
+
+    _reap(over_rec['pid'])
+    other.cancel(other_store)  # clean up the survivor
+    _reap(other_rec['pid'])
+
+
 def test_arm_budget_arms_then_inherits(tmp_path: Path):
     """``--budget`` (re)arms relative to now; a plain re-run inherits the deadline."""
     from mini.__main__ import _arm_budget
