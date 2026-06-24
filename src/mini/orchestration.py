@@ -11,16 +11,16 @@ re-run.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Literal, Sequence, overload
 
 from mini.memo import MemoStore, fingerprint
-from mini.runs import RunState
+from mini.runs import SETTLED, RunState
 
 if TYPE_CHECKING:
     from mini.apparatus import Apparatus
     from mini.experiment import Experiment
 
-__all__ = ['MemoError', 'Pending', 'Ctx', 'tick', 'retry']
+__all__ = ['MemoError', 'Pending', 'TaskFailed', 'MISSING', 'Ctx', 'tick', 'retry']
 
 
 class MemoError(Exception):
@@ -29,6 +29,57 @@ class MemoError(Exception):
 
 class Pending(MemoError):
     """Raised to suspend the current wake until in-flight tasks finish."""
+
+
+class TaskFailed(MemoError):
+    """A task settled FAILED/CANCELLED — terminal, so the DAG can't progress past it.
+
+    ``ctx.run`` raises this directly; ``ctx.map`` (without ``allow_partial``) raises
+    an ``ExceptionGroup`` of them — one per failed cell — so a strict fan-out
+    surfaces *every* failure at once rather than the first. The worker's stored
+    traceback rides along in ``.error`` (and the message), and ``except* TaskFailed``
+    handles the group ergonomically. Recover with ``mini retry``.
+    """
+
+    def __init__(self, key: str, state: RunState, error: str = ''):
+        self.key = key
+        self.state = state
+        self.error = error
+        head = f'{key} settled {state}'
+        super().__init__(f'{head}\n{error}' if error and error != '(no logs)' else head)
+
+
+class _Missing:
+    """Sentinel for a ``map`` cell that produced no result.
+
+    ``ctx.map(..., allow_partial=True)`` returns this in the position of any task
+    that settled ``FAILED``/``CANCELLED``, so results stay index-aligned with the
+    inputs — downstream code commonly ``zip``s configs with results, and dropping
+    cells would misalign that. It is a *falsey* singleton distinct from ``None``
+    (which tasks may legitimately return), so both idioms work::
+
+        present = [r for r in results if r]        # drop the gaps
+        ok = [(c, r) for c, r in zip(cfgs, results) if r is not MISSING]
+    """
+
+    _instance: _Missing | None = None
+
+    def __new__(cls) -> _Missing:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return '<missing>'
+
+    def __reduce__(self) -> tuple:
+        return (_Missing, ())  # round-trips to the same singleton through (cloud)pickle
+
+
+MISSING = _Missing()
 
 
 class Ctx:
@@ -80,34 +131,81 @@ class Ctx:
             state = RunState.RUNNING
         return key, state, to_launch
 
-    def run(
+    def _task_failed(self, key: str, state: RunState) -> TaskFailed:
+        """Build a ``TaskFailed`` for a settled-but-not-DONE key, with its stored traceback."""
+        return TaskFailed(key, state, self.store.error(key))
+
+    def run[R](
         self,
-        fn: Callable,
+        fn: Callable[..., R],
         *args: Any,
         version: str | None = None,
         on: Apparatus | None = None,
         role: str | None = None,
-    ) -> Any:
+    ) -> R:
         app = self._route(on, role)
         key, state, to_launch = self._classify(fn, args, version, app)
         if to_launch is not None:
             app.spawn_tasks(self.store, [to_launch])
         if state == RunState.DONE:
             return self.store.result(key)
+        if state in SETTLED:  # terminal, not DONE -> FAILED/CANCELLED; surface rather than suspend
+            raise self._task_failed(key, state)
         self.pending.append(key)
         raise Pending(f'waiting on {key}')
 
-    def map(
+    @overload
+    def map[R](
         self,
-        fn: Callable,
+        fn: Callable[..., R],
         items: Sequence[Any],
         version: str | None = None,
         on: Apparatus | None = None,
         role: str | None = None,
-    ) -> list[Any]:
+        allow_partial: Literal[False] = False,
+    ) -> list[R]: ...
+    @overload
+    def map[R](
+        self,
+        fn: Callable[..., R],
+        items: Sequence[Any],
+        version: str | None = None,
+        on: Apparatus | None = None,
+        role: str | None = None,
+        *,
+        allow_partial: Literal[True],
+    ) -> list[R | _Missing]: ...
+    def map[R](
+        self,
+        fn: Callable[..., R],
+        items: Sequence[Any],
+        version: str | None = None,
+        on: Apparatus | None = None,
+        role: str | None = None,
+        allow_partial: bool = False,
+    ) -> list[R] | list[R | _Missing]:
+        """Fan out *fn* over *items*, suspending until the results are ready.
+
+        Launches every missing item in one batch, then raises ``Pending`` while
+        any task is still in flight. By default the map is all-or-nothing: once the
+        fan-out has *settled*, any cell that settled ``FAILED``/``CANCELLED`` raises
+        — all of them together, as an ``ExceptionGroup`` of ``TaskFailed`` (so you
+        see every failure, not just the first). ``tick`` won't relaunch a terminal
+        cell, so this is the DAG giving up rather than spinning; ``retry`` heals it.
+
+        With ``allow_partial=True`` the map still waits for in-flight tasks, but
+        once everything has settled it returns instead of raising: the result list
+        stays index-aligned with *items*, with ``MISSING`` in the position of each
+        failed/cancelled cell. This lets the pipeline's later steps run on the
+        subset that succeeded.
+        """
         app = self._route(on, role)
         results: list[Any] = []
         batch: list[tuple[str, Callable, tuple, list]] = []
+        failed: list[tuple[str, RunState]] = []
+        # `self.pending` holds only truly in-flight keys; settled-but-failed cells go
+        # to `failed`. Ctx is rebuilt each tick and the first incomplete step raises,
+        # so this stays a clean per-tick view across steps.
         for raw in items:
             args = raw if isinstance(raw, tuple) else (raw,)
             key, state, to_launch = self._classify(fn, args, version, app)
@@ -115,12 +213,21 @@ class Ctx:
                 batch.append(to_launch)
             if state == RunState.DONE:
                 results.append(self.store.result(key))
-            else:
+            elif state in SETTLED:  # terminal, not DONE -> FAILED/CANCELLED
+                failed.append((key, state))
+                results.append(MISSING)  # keep index alignment; returned only under allow_partial
+            else:  # in flight
                 self.pending.append(key)
+                results.append(MISSING)  # placeholder; discarded — we suspend below
         if batch:  # one spawn for the whole fan-out
             app.spawn_tasks(self.store, batch)
-        if self.pending:
+        if self.pending:  # wait for in-flight tasks first, regardless of allow_partial
             raise Pending(f'{len(self.pending)} task(s) in flight')
+        if failed and not allow_partial:  # everything settled — surface the failures together
+            raise ExceptionGroup(
+                f'{len(failed)} of {len(items)} task(s) failed',
+                [self._task_failed(key, state) for key, state in failed],
+            )
         return results
 
 
@@ -128,9 +235,11 @@ def tick(experiment: Experiment, apparatus: Apparatus) -> tuple[bool, Any]:
     """Run one wake of an experiment's orchestration on *apparatus*.
 
     Returns ``(done, payload)``: ``(True, result)`` if the DAG completed, or
-    ``(False, reason)`` if it suspended waiting on in-flight tasks. Steps can
-    override the apparatus per call via ``ctx.run(..., on=)`` / ``ctx.map(...,
-    on=)``.
+    ``(False, reason)`` if it suspended waiting on in-flight tasks. Propagates
+    ``TaskFailed`` (or an ``ExceptionGroup`` of them, from a strict ``map``) when a
+    step the DAG depends on has settled terminally — the run can't progress without
+    a ``retry``. Steps can override the apparatus per call via ``ctx.run(...,
+    on=)`` / ``ctx.map(..., on=)``.
     """
     store = apparatus.memo_store()
     ctx = Ctx(store, apparatus, experiment.resolve_roles(apparatus))

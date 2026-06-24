@@ -64,13 +64,35 @@ fix should be intentional. Recovery takes one of:
 The traceback lives on the I/O plane (`mini logs <name> <key>`); the record
 carries the last error line for a quick scan in `status`.
 
-### Known sharp edge: a failed item blocks its `map`
+### A failed item fails its `map` — unless you allow partials
 
-Today `ctx.map` raises `Pending` until _every_ item is `DONE`. A settled `FAILED`
-item no longer relaunches (good) but still blocks the map from returning (so the
-steps after it can't proceed until you `retry` or prune it). Partial-results
-handling (`allow_partial=`) is a planned addition; for now, resolve a failed item
-before the map's downstream can run.
+By default `ctx.map` raises `Pending` until _every_ item has settled. Once the
+fan-out settles, any item that settled `FAILED`/`CANCELLED` makes the map raise an
+**`ExceptionGroup` of `TaskFailed`** — all of them at once, so you see every
+failure, not just the first. (`ctx.run`, being a single step, raises a bare
+`TaskFailed`.) The group carries each worker's stored traceback; handle it with
+`except* TaskFailed`. That's the right default when every cell matters — and since
+a settled failure won't relaunch, raising is how the DAG gives up instead of
+spinning. Recover with `retry`.
+
+When some failures are expected — a bad hyperparameter region, an OOM at the
+extreme, a preempted container — pass **`allow_partial=True`**. The map still
+waits for in-flight tasks to settle, but then returns instead of raising on the
+failures. The result list stays index-aligned with the inputs, with the `MISSING`
+sentinel in each failed/cancelled position:
+
+```python
+from mini import MISSING
+
+results = ctx.map(train, configs, allow_partial=True)   # [r0, MISSING, r2, ...]
+ok = [(c, r) for c, r in zip(configs, results, strict=True) if r is not MISSING]
+best = min(ok, key=lambda cr: cr[1]['val_loss'])
+```
+
+`MISSING` is a falsey singleton distinct from `None` (which a task may legitimately
+return), so `r is MISSING` and `[r for r in results if r]` both work. The failed
+cells are still terminal — `retry` reruns them, and the next wake fills their real
+results — `allow_partial` just unblocks the map's downstream in the meantime.
 
 ## Reading results without re-running
 

@@ -28,7 +28,7 @@ from mini.apparatus import Apparatus
 from mini.experiment import load_experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import MemoStore
-from mini.orchestration import retry, tick
+from mini.orchestration import TaskFailed, retry, tick
 from mini.runs import SETTLED, RunState, data_root
 
 _GLYPH = {
@@ -146,14 +146,17 @@ def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
     if args.watch:
         _watch(exp, apparatus, poll=args.poll)
         return
-    done, payload = tick(exp, apparatus)
+    try:
+        done, payload = tick(exp, apparatus)
+    except ExceptionGroup, TaskFailed:  # a depended-on task settled terminally
+        done, payload = False, None
     records = apparatus.memo_store().records()
     print(f'{exp.name}:')
     for rec in records:
         print(_memo_line(rec))
     if done:
         print(f'✓ complete: {payload}')
-    elif failed := [r for r in records if _rec_state(r) == RunState.FAILED]:
+    elif failed := [r for r in records if _rec_state(r) in (RunState.FAILED, RunState.CANCELLED)]:
         print(f'✗ {len(failed)} task(s) failed (terminal) — fix, then: python -m mini retry {args.path}')
         print(f'   see a traceback with:  python -m mini logs {exp.name} <key>')
     else:
@@ -162,17 +165,19 @@ def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
 
 def _watch(exp, apparatus: Apparatus, poll: float) -> None:
     """Drive an orchestration to completion with a live bar (the ``--watch`` path)."""
-    from mini.monitor import ExperimentFailed, drive_and_watch
+    from mini.monitor import drive_and_watch
 
     try:
         payload = drive_and_watch(exp, apparatus, poll=poll)
     except KeyboardInterrupt:
         print('\n… stopped watching; tasks keep running. Re-run the same command to resume.')
         return
-    except ExperimentFailed as e:
-        print(f'✗ {e}')
-        for rec in e.failed:
-            print(f'  ✗ {rec["key"]}  !! {rec.get("error", "")}')
+    except (ExceptionGroup, TaskFailed) as e:
+        raised = e.exceptions if isinstance(e, BaseExceptionGroup) else (e,)
+        failures = [tf for tf in raised if isinstance(tf, TaskFailed)]
+        print(f'✗ {len(failures)} task(s) settled without completing:')
+        for tf in failures:
+            print(f'  ✗ {tf.key} ({tf.state})')
         print(f'inspect a traceback with:  python -m mini logs {exp.name} <key>')
         raise SystemExit(1) from e
     print(f'✓ complete: {payload}')

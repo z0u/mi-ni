@@ -10,11 +10,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import LocalRecordStore, MemoStore, fingerprint
-from mini.orchestration import retry, tick
+from mini.orchestration import TaskFailed, retry, tick
 from mini.runs import RunState
 
 
@@ -72,8 +74,9 @@ def test_prep_runs_once_across_wakes(tmp_path: Path):
 
 
 def test_failed_is_terminal_until_retry(tmp_path: Path):
-    """A thrown task settles FAILED and does *not* auto-relaunch; an explicit
-    ``retry`` resets it so the next drive reruns just that task and completes."""
+    """A thrown task settles FAILED and does *not* auto-relaunch: the strict map
+    keeps raising on every wake. An explicit ``retry`` resets it so the next drive
+    reruns just that task and completes."""
 
     def train(x):
         from mini import get_data_dir
@@ -91,16 +94,21 @@ def test_failed_is_terminal_until_retry(tmp_path: Path):
     exp, app = _setup('crash', main, tmp_path)
     store = app.memo_store()
 
-    # Drive until task 2 settles FAILED (siblings DONE), then keep ticking: FAILED
-    # is terminal, so it is never relaunched and the map stays blocked.
+    # Drive until the map surfaces the failure (task 2 throws; 1 & 3 succeed).
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        tick(exp, app)
-        if any(r.get('state') == RunState.FAILED for r in store.records()):
+        try:
+            tick(exp, app)
+        except ExceptionGroup:
             break
         time.sleep(0.1)
+    else:
+        raise AssertionError('map never surfaced the failure')
+    # FAILED is terminal: re-ticking keeps raising, never relaunches.
     for _ in range(3):
-        tick(exp, app)
+        with pytest.raises(ExceptionGroup) as exc:
+            tick(exp, app)
+        assert all(isinstance(e, TaskFailed) for e in exc.value.exceptions)
         time.sleep(0.1)
     states = {r['key']: r.get('state') for r in store.records()}
     assert sum(s == RunState.FAILED for s in states.values()) == 1  # not relaunched
@@ -111,6 +119,84 @@ def test_failed_is_terminal_until_retry(tmp_path: Path):
     assert _drive(exp, app) == [10, 20, 30]
     assert (tmp_path / 'crash' / 'att_2').read_text() == '2'  # ran again on retry
     assert (tmp_path / 'crash' / 'att_1').read_text() == '1'  # siblings untouched
+
+
+def test_allow_partial_returns_sentinel_for_failed_cell(tmp_path: Path):
+    """``allow_partial=True`` lets a map settle with a failed cell instead of
+    blocking forever: the result stays index-aligned with the inputs, with
+    ``MISSING`` where a task failed, so a downstream reduce can run on the rest."""
+    from mini.orchestration import MISSING
+
+    def train(x):
+        if x == 2:
+            raise RuntimeError('bad region')
+        return x * 10
+
+    def main(ctx):
+        results = ctx.map(train, [(1,), (2,), (3,)], allow_partial=True)
+        present = [r for r in results if r is not MISSING]
+        return {'results': results, 'best': max(present)}
+
+    out = _drive(*_setup('partial', main, tmp_path))
+    assert out['results'] == [10, MISSING, 30]  # index-aligned; gap where x=2 failed
+    assert out['best'] == 30  # downstream computation ran on the surviving subset
+
+
+def test_allow_partial_still_waits_for_in_flight(tmp_path: Path):
+    """Partial is not best-effort: it waits for running tasks to settle before
+    returning, so a slow-but-fine cell still lands a real result (not a gap)."""
+
+    def train(x):
+        if x == 2:
+            raise RuntimeError('nope')
+        time.sleep(0.3)  # outlives the first wake; must be awaited, not skipped
+        return x * 10
+
+    def main(ctx):
+        return ctx.map(train, [(1,), (2,), (3,)], allow_partial=True)
+
+    from mini.orchestration import MISSING
+
+    assert _drive(*_setup('partwait', main, tmp_path)) == [10, MISSING, 30]
+
+
+def test_strict_map_surfaces_failures_as_group(tmp_path: Path):
+    """Without ``allow_partial`` failed cells are terminal: once the fan-out has
+    settled, the map raises an ``ExceptionGroup`` of ``TaskFailed`` — *all* the
+    failures at once, after waiting for the slower siblings to settle too."""
+
+    def train(x):
+        if x in (2, 3):
+            raise RuntimeError('boom')
+        return x
+
+    exp, app = _setup('strict', lambda ctx: ctx.map(train, [(1,), (2,), (3,)]), tmp_path)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            done, _ = tick(exp, app)
+        except ExceptionGroup as eg:
+            assert len(eg.exceptions) == 2  # both failing cells, surfaced together
+            assert all(isinstance(e, TaskFailed) for e in eg.exceptions)
+            assert {e.state for e in eg.exceptions} == {RunState.FAILED}
+            return
+        assert not done, 'strict map completed despite a failed cell'
+        time.sleep(0.1)
+    raise AssertionError('strict map never surfaced its failures')
+
+
+def test_missing_sentinel_is_falsey_singleton_and_pickles(tmp_path: Path):
+    """``MISSING`` is a falsey singleton distinct from ``None``, and survives a
+    (cloud)pickle round-trip as the *same* object — so ``r is MISSING`` holds in a
+    downstream task that receives a partial result over the wire."""
+    import pickle
+
+    from mini import MISSING
+
+    assert not MISSING and MISSING is not None
+    assert bool(MISSING) is False
+    assert pickle.loads(pickle.dumps(MISSING)) is MISSING
+    assert repr(MISSING) == '<missing>'
 
 
 def test_single_map(tmp_path: Path):
