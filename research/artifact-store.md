@@ -1,5 +1,7 @@
 # Content-addressed artifacts: a design sketch
 
+By Claude Opus 4.8
+
 This builds on the [bucket benchmark](./hf-buckets.md) and the handles-not-paths
 frame from our threads. It's a sketch, not a spec: I want to show how a
 content-addressed `Store` slots into the *current* `memo` / `Ctx` / `Volume`

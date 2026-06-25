@@ -1,5 +1,7 @@
 # Hugging Face buckets as experiment storage
 
+By Claude Opus 4.8
+
 A quick feasibility study, not a decision. I measured I/O latency for Hugging
 Face buckets and compared them to a Modal Volume, to see whether a
 `HFBucketVolume` could sit behind an `Apparatus`. The numbers look workable, but
