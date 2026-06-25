@@ -220,8 +220,12 @@ def _hf_store_secret() -> modal.Secret | None:
     shared bucket. Absent, the worker falls back to the Volume-backed store.
     """
     bucket = os.environ.get(STORE_BUCKET_ENV)
-    token = os.environ.get('HF_TOKEN')
-    if not (bucket and token):
+    if not bucket:
+        return None
+    from huggingface_hub import get_token
+
+    token = os.environ.get('HF_TOKEN') or get_token()  # env, or the cached `hf auth login`
+    if not token:
         return None
     return modal.Secret.from_dict({STORE_BUCKET_ENV: bucket, 'HF_TOKEN': token})
 

@@ -82,10 +82,14 @@ changes:
   local report or another experiment `get`s it back — no shared Volume. The local
   dir demotes to a warm cache (`.mini/store-cache/hf`).
 
-`mini run --app modal` forwards `MINI_STORE_BUCKET` + `HF_TOKEN` into the worker
-(via a Modal Secret), so the remote step writes to the same bucket. Bucket I/O
-needs `*.xethub.hf.co` (and `*.cdn.hf.co` for serving) on the network egress
-allow-list. Add `HF_TOKEN` to your auth the way you add Modal/WandB.
+`mini run --app modal` forwards the bucket + token into the worker (via a Modal
+Secret), so the remote step writes to the same bucket. Bucket I/O needs
+`*.xethub.hf.co` (and `*.cdn.hf.co` for serving) on the network egress allow-list.
+
+Auth: `./go auth` logs you into Hugging Face alongside Modal/WandB (a fine-grained
+token with read+write to the bucket). The token is cached by `hf`; the store and
+the Modal Secret both pick it up from there, so you don't need `HF_TOKEN` exported
+— only `MINI_STORE_BUCKET` set to select the bucket.
 
 ## Publishing to the web
 
