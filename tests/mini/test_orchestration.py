@@ -177,11 +177,12 @@ def test_strict_map_surfaces_failures_as_group(tmp_path: Path):
             done, _ = tick(exp, app)
         except ExceptionGroup as eg:
             assert len(eg.exceptions) == 2  # both failing cells, surfaced together
-            assert all(isinstance(e, TaskFailed) for e in eg.exceptions)
-            assert {e.state for e in eg.exceptions} == {RunState.FAILED}
+            failures = [e for e in eg.exceptions if isinstance(e, TaskFailed)]
+            assert len(failures) == 2  # all of them are TaskFailed
+            assert {e.state for e in failures} == {RunState.FAILED}
             # the original exception's type rides along as a string, so a caller can
             # bucket failures by kind without importing the worker's libraries
-            assert {e.exc_type for e in eg.exceptions} == {'builtins.RuntimeError'}
+            assert {e.exc_type for e in failures} == {'builtins.RuntimeError'}
             return
         assert not done, 'strict map completed despite a failed cell'
         time.sleep(0.1)

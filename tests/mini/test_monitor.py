@@ -131,7 +131,9 @@ def test_drive_stops_on_cancelled_instead_of_spinning(tmp_path: Path):
     assert app.cancel(store)  # marks CANCELLED + SIGTERMs the worker
     with pytest.raises(ExceptionGroup) as exc:
         _watch(exp, app)  # must not hang
-    assert exc.value.exceptions[0].state == RunState.CANCELLED
+    failure = exc.value.exceptions[0]
+    assert isinstance(failure, TaskFailed)
+    assert failure.state == RunState.CANCELLED
     with suppress(ChildProcessError):
         os.waitpid(pid, 0)
 

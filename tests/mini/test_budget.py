@@ -143,7 +143,7 @@ def test_arm_budget_arms_then_inherits(tmp_path: Path):
     time.sleep(0.01)
     _arm_budget(store, argparse.Namespace(budget='2h'))  # explicit flag re-arms
     assert store.deadline() != first
-    assert abs(store.deadline() - (time.time() + 7200)) < 5
+    assert abs(store.deadline() - (time.time() + 7200)) < 5  # ty:ignore[unsupported-operator]
 
 
 def test_watch_driver_tears_down_over_budget_run(tmp_path: Path):
