@@ -24,6 +24,7 @@ src/mini/
 
 - **Author** a memoized experiment — the `main(ctx)` DAG, repo layout, and cache-friendly design: [authoring.md](./references/authoring.md). Key internals in [memoization.md](./references/memoization.md).
 - **Run & monitor** one from the CLI — the wake-loop, recovery, hotfix safety, and how to delegate/schedule a long run: [running.md](./references/running.md).
+- **Store & share large outputs** — return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish figures to a URL: [storage.md](./references/storage.md).
 
 To keep cost down, delegate launching and babysitting to the `experiment-monitor` subagent (it escalates to `experiment-doctor`); see running.md.
 

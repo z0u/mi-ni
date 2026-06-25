@@ -100,7 +100,8 @@ def _(artifacts, means, result):
         im = ax.imshow(grid, aspect='auto', cmap='RdBu', vmin=-0.3, vmax=0.3)
         ax.set(xlabel='neuron', ylabel='layer', yticks=range(len(means)), title='Mean activation per neuron')
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        fig.tight_layout()
+        # No tight_layout(): the base style enables constrained_layout, which
+        # handles the colorbar; calling both clashes the layout engines.
         return fig
 
     html = _plot()

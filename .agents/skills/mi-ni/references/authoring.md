@@ -52,6 +52,25 @@ re-run" loop fast and honest:
   passing `version='v2'`. Editing a project helper a task calls also invalidates
   it; library/framework churn does not.
 
+## Returning large outputs
+
+A step's result holds the *small* thing (metrics, a handle). For *large* bytes —
+an activation cache, an eval dump, a figure — don't return a volume `Path` (it
+pickles a location that may evaporate). `put` them into the content-addressed
+store and return the `Artifact` handle instead:
+
+```python
+from mini.store import put
+
+def extract(cfg) -> dict:
+    art = put(get_data_dir() / 'acts', name='activations')  # handle, not a path
+    return {'cfg': cfg.id, 'activations': art}
+```
+
+The store is **project-scoped**, so one experiment can hand an artifact to
+another by name (`set_ref`/`get_ref`) with no recompute. Full semantics — trees,
+publishing figures to a URL, the Modal caveat — in [storage.md](./storage.md).
+
 ## Routing steps to compute
 
 Compute is an execution choice, not part of the definition. A file experiment

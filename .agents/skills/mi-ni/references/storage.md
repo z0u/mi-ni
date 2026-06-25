@@ -1,0 +1,98 @@
+# Artifacts and the content-addressed store
+
+A memo result is the *small* thing — a dict of metrics, a handle. The *large*
+bytes a step produces (an activation cache, an eval dump, a figure) belong in the
+**artifact store**, not in the result and not as a bare volume `Path`.
+
+Returning a `Path` pickles a *location* into the result, and that location lives
+in a volume that may have evaporated by the time another process, another
+experiment, or a report reads the result back. Instead, a step `put`s its bytes
+and returns an `Artifact` — a small, location-free handle (a sha, a size, a
+name).
+
+```python
+from mini import get_data_dir
+from mini.store import put, get, get_ref, set_ref, publish
+
+def extract(cfg) -> dict:
+    cache = get_data_dir() / 'acts'
+    run_model(cfg, into=cache)
+    art = put(cache, name='activations')   # hashed into the store; handle returned
+    return {'cfg': cfg.id, 'activations': art}
+```
+
+`put`/`get` resolve an **ambient store** the worker enters around the step — the
+same pattern as `get_data_dir()`. They work inside any step with no plumbing;
+outside a step (a notebook/report), get the store from the apparatus:
+`store = LocalApparatus(NAME).store()` and call `store.get(...)` directly.
+
+## Why a handle, not a path
+
+- **Durable results.** A handle carries no location, so the result pickles
+  durably and resolves from anywhere that can reach the store.
+- **Stable downstream keys.** Passing a `Path` into the next step fingerprints it
+  by location; passing an `Artifact` fingerprints it by *content*, so a
+  consumer's memo key only moves when the bytes actually change.
+- **Dedup for free.** Blobs are keyed by content (`cas/<sha256>`), so identical
+  bytes coincide and `put` is idempotent (hash first, skip if present).
+
+## Files and trees
+
+`put(bytes | Path, name=...)`. A directory becomes a **tree** artifact: each file
+is its own blob (so a directory of many small shards dedups per-file and resolves
+one shard without pulling the set), and the handle carries the manifest. `name`
+is the logical name — carry the extension; it sets the served media type.
+
+`get(art, dest)` materializes a file to `dest`, or a tree into the directory
+`dest` (children resolve concurrently). Reach for a tree when random access or
+partial dedup matters; otherwise a single file is fine.
+
+## The store is project-scoped (sharing across experiments)
+
+Unlike the memo store and volume (one per experiment), the artifact store is
+**one per project** — it sits a `store/` beside the experiment volumes. So an
+artifact one experiment produces is visible to every experiment in the project,
+content-addressed.
+
+A small mutable **ref** layer names views over the immutable blobs (the git
+objects-and-refs split). That's how one experiment hands an asset to another by a
+stable name, without the consumer knowing the producer's memo key:
+
+```python
+# producer experiment
+set_ref(f'activations/{dataset}', art)
+
+# consumer experiment — no recompute, no shared volume
+art = get_ref(f'activations/{dataset}')
+local = get(art, get_data_dir() / 'acts-in')
+```
+
+See `docs/acts` (producer) and `docs/probe` (consumer) for a runnable pair.
+
+> **Note — Modal.** The artifact CAS rides the experiment's Modal Volume, so
+> cross-experiment sharing on Modal currently works only within one experiment's
+> Volume; a project-scoped Volume (issue #22) lifts that. Locally, sharing is
+> project-wide today.
+
+## Publishing to the web
+
+`publish(art, path)` exposes a blob at a named, extensioned path and returns a
+URL — for reports and figures that need to render in a browser (the extension
+drives the served `Content-Type`). It's deliberately separate from `put` and the
+only outward-facing verb, so persisting a result never publishes it as a side
+effect. Do it in the **report**, where assets go out:
+
+```python
+url = store.publish(fig_png, f'reports/{exp}/loss.png')
+```
+
+`LocalStore` returns a `file://` URL (the published view lives under the project
+store). A web-reachable backend (a Hugging Face bucket) returns an `https://`
+resolve URL for the same handle — not yet implemented; see `todo.md`.
+
+## Checkpoints are different
+
+Mid-step checkpoints (periodic state for crash-resume) are *not* step outputs:
+they're mutable and superseded, and resume finds "the latest for this step" by a
+stable name, not a content hash. Keep those on the volume (`get_data_dir()`), not
+in the CAS.
