@@ -8,7 +8,10 @@
                 "modal.com",
                 "*.modal.com",
                 "*.modal.run",
-                "*.modal-storage.com"
+                "*.modal-storage.com",
+                "huggingface.co",
+                "*.xethub.hf.co",
+                "*.cdn.hf.co"
             ]
         }
     },
