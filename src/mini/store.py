@@ -45,6 +45,7 @@ import contextvars
 import hashlib
 import json
 import mimetypes
+import os
 import shutil
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
@@ -65,7 +66,13 @@ __all__ = [
     'set_ref',
     'get_ref',
     'store_root_for',
+    'default_store',
+    'STORE_BUCKET_ENV',
 ]
+
+# Env var naming the project's Hugging Face bucket. Set it (alongside HF_TOKEN)
+# to make the durable/publish tier the shared bucket; unset, the store is local.
+STORE_BUCKET_ENV = 'MINI_STORE_BUCKET'
 
 _CHUNK = 1 << 20  # 1 MiB streaming-hash chunk
 
@@ -282,6 +289,23 @@ def store_root_for(data_dir: Path | str) -> Path:
     under its own cwd lands on the same store.
     """
     return Path(data_dir).parent / 'store'
+
+
+def default_store(root: Path | str) -> Store:
+    """The project store for a given local *root* — bucket-backed if configured.
+
+    When ``MINI_STORE_BUCKET`` is set the durable store is the shared Hugging Face
+    bucket (with *root* demoted to a local warm cache); otherwise it's a
+    :class:`LocalStore` rooted at *root*. One switch flips every put/get/publish —
+    in a step, a report, or a worker — from on-disk to shared-and-web-reachable.
+    """
+    root = Path(root)
+    bucket = os.environ.get(STORE_BUCKET_ENV)
+    if bucket:
+        from mini.hf_store import HFStore
+
+        return HFStore(bucket, cache=LocalStore(root.parent / 'store-cache' / 'hf'))
+    return LocalStore(root)
 
 
 class LocalStore(Store):

@@ -23,7 +23,7 @@ from mini._queues import EndOfQueue
 from mini.memo import MemoStore
 from mini.progress import progress_context
 from mini.runs import RunState, compute_env
-from mini.store import LocalStore, Store, store_context, store_root_for
+from mini.store import Store, default_store, store_context, store_root_for
 from mini.volume import data_dir_context
 
 
@@ -116,9 +116,10 @@ def run_task(data_dir: Path, key: str) -> None:
     """Local subprocess entry: read the staged call from disk and run it."""
     store = MemoStore(data_dir)
     fn, args, hooks = store.read_call(key)
-    # Project-scoped artifact store sits beside the experiment's data dir, so a
-    # blob put here resolves from any experiment in the project (and from reports).
-    artifacts = LocalStore(store_root_for(data_dir))
+    # Project-scoped artifact store sits beside the experiment's data dir (or the
+    # shared HF bucket, if MINI_STORE_BUCKET is set), so a blob put here resolves
+    # from any experiment in the project (and from reports).
+    artifacts = default_store(store_root_for(data_dir))
     execute_task(store, key, fn, args, hooks, artifacts=artifacts)
 
 

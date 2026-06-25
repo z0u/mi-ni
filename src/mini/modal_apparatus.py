@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import secrets
 import time
 from contextlib import asynccontextmanager, nullcontext
@@ -34,7 +35,7 @@ from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
 from mini.runs import data_root
-from mini.store import Artifact, LocalStore, Store
+from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, default_store
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -211,6 +212,20 @@ class ModalVolumeStore(Store):
         )
 
 
+def _hf_store_secret() -> modal.Secret | None:
+    """A Modal Secret carrying the HF bucket config into the worker, if configured.
+
+    When ``MINI_STORE_BUCKET`` (and ``HF_TOKEN``) are set locally, forward them into
+    the remote container's env so the worker's ``default_store`` resolves to the
+    shared bucket. Absent, the worker falls back to the Volume-backed store.
+    """
+    bucket = os.environ.get(STORE_BUCKET_ENV)
+    token = os.environ.get('HF_TOKEN')
+    if not (bucket and token):
+        return None
+    return modal.Secret.from_dict({STORE_BUCKET_ENV: bucket, 'HF_TOKEN': token})
+
+
 def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, mount_point: str) -> None:
     """Remote entry: run one memoized call on Modal and persist its result/state.
 
@@ -224,16 +239,16 @@ def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, m
     from mini._taskworker import execute_task
     from mini.memo import MemoStore
     from mini.modal_apparatus import ModalRecordStore
-    from mini.store import LocalStore
+    from mini.store import default_store
 
     fn, args, hooks = _cp.loads(blob)
     store = MemoStore(Path(mount_point), records=ModalRecordStore.from_name(dict_name))
     volume = _modal.Volume.from_name(volume_name)
-    # The artifact CAS lives *under* the mounted Volume (so the worker's blobs are
-    # committed with the result and the client can read them back). It rides the
-    # experiment's Volume, so cross-experiment sharing on Modal waits on the
-    # project-scoped Volume (#22); within an experiment, put/get work end to end.
-    artifacts = LocalStore(Path(mount_point) / 'store')
+    # With MINI_STORE_BUCKET set (passed in via a Modal Secret), put/get hit the
+    # shared HF bucket — so another experiment, local or remote, reads these bytes
+    # back with no shared Volume. Otherwise the CAS rides *under* the mounted
+    # Volume (committed with the result), per-experiment until #22's project Volume.
+    artifacts = default_store(Path(mount_point) / 'store')
     execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts)
 
 
@@ -327,11 +342,15 @@ class ModalApparatus(Apparatus[ModalVolume]):
 
     @override
     def store(self) -> Store:
-        """Read artifacts back off the Volume, warm-caching into a local checkout.
+        """The artifact store for reads on the client (reports, ``ctx`` resolves).
 
-        The cache is project-scoped on the client (``.mini/store-cache/<app>``);
-        the source of truth is ``store/`` on this experiment's Modal Volume.
+        With ``MINI_STORE_BUCKET`` set, that's the shared HF bucket the worker
+        wrote to — so artifacts read back the same everywhere, no Volume needed.
+        Otherwise it's a read-through over this experiment's Modal Volume,
+        warm-caching into a local checkout (``.mini/store-cache/<app>``).
         """
+        if os.environ.get(STORE_BUCKET_ENV):
+            return default_store(data_root() / 'store')
         assert self.app.name  # guaranteed by __init__ (a named App is required)
         cache = LocalStore(data_root() / 'store-cache' / self.app.name)
         return ModalVolumeStore(self.volume, cache)
@@ -358,6 +377,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
                     **fn_kwargs.get('volumes', {}),
                     str(self._volume.path): self._volume._modal_volume,
                 }
+            if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
+                fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), secret]
             self._memo_fn = self.app.function(serialized=True, **fn_kwargs)(_modal_task_entry)
         return self._memo_fn
 

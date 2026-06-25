@@ -178,9 +178,9 @@ class Apparatus(ABC, Generic[V]):
         Both the apparatus (here, for reports) and the worker enter this around a
         step, so ``mini.store.put`` / ``get`` resolve against the same store.
         """
-        from mini.store import LocalStore, store_root_for
+        from mini.store import default_store, store_root_for
 
-        return LocalStore(store_root_for(self.volume.path))
+        return default_store(store_root_for(self.volume.path))
 
     @abstractmethod
     def memo_store(self) -> MemoStore:

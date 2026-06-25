@@ -69,10 +69,23 @@ local = get(art, get_data_dir() / 'acts-in')
 
 See `docs/acts` (producer) and `docs/probe` (consumer) for a runnable pair.
 
-> **Note — Modal.** The artifact CAS rides the experiment's Modal Volume, so
-> cross-experiment sharing on Modal currently works only within one experiment's
-> Volume; a project-scoped Volume (issue #22) lifts that. Locally, sharing is
-> project-wide today.
+## Choosing the backend (local vs. Hugging Face bucket)
+
+One env var picks the durable backend; nothing in experiment or report code
+changes:
+
+- **Unset** → `LocalStore`, a `cas/<sha>` tree on disk under `.mini/store`. The
+  boring default; no network. Project-wide sharing works *locally*.
+- **`MINI_STORE_BUCKET=<namespace>/<bucket>`** (plus `HF_TOKEN`) → `HFStore`, the
+  same layout over a Xet-backed Hugging Face bucket. Now the durable store is
+  shared across *machines and backends*: a Modal worker `put`s a blob, and a
+  local report or another experiment `get`s it back — no shared Volume. The local
+  dir demotes to a warm cache (`.mini/store-cache/hf`).
+
+`mini run --app modal` forwards `MINI_STORE_BUCKET` + `HF_TOKEN` into the worker
+(via a Modal Secret), so the remote step writes to the same bucket. Bucket I/O
+needs `*.xethub.hf.co` (and `*.cdn.hf.co` for serving) on the network egress
+allow-list. Add `HF_TOKEN` to your auth the way you add Modal/WandB.
 
 ## Publishing to the web
 
@@ -87,8 +100,13 @@ url = store.publish(fig_png, f'reports/{exp}/loss.png')
 ```
 
 `LocalStore` returns a `file://` URL (the published view lives under the project
-store). A web-reachable backend (a Hugging Face bucket) returns an `https://`
-resolve URL for the same handle — not yet implemented; see `todo.md`.
+store). With `MINI_STORE_BUCKET` set, `HFStore` returns a real `https://` resolve
+URL for the same handle — the publish is a server-side copy *by xet hash* (no
+bytes moved) to an extensioned path, and the bucket serves it with a
+`Content-Type` from that extension. The bucket is **public**, so `publish` is the
+deliberate outward step; the durable CAS only goes public because we share one
+bucket for now (a separate private store + public publish bucket is a later
+split — see `todo.md`).
 
 ## Checkpoints are different
 

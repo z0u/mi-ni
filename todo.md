@@ -2,29 +2,51 @@
 
 ## Artifact store / sharing (#13, #22) — follow-ups
 
-The content-addressed artifact store (`mini.store`) landed with `LocalStore`,
-project-scoped sharing, named refs, and `publish` (see
-`.agents/skills/mi-ni/references/storage.md`). Deferred, in rough priority order:
+The content-addressed artifact store (`mini.store`) landed with `LocalStore` +
+`HFStore`, project-scoped sharing, named refs, and `publish` (see
+`.agents/skills/mi-ni/references/storage.md`). `HFStore` is selected by
+`MINI_STORE_BUCKET`; the Modal worker gets it via a forwarded Secret, so
+cross-experiment artifact sharing works on Modal **without** a shared Volume.
+Deferred, in rough priority order:
 
-- **`HFStore` — web-reachable publish (#13 publish tier).** `publish` currently
-  returns a `file://` URL from `LocalStore`. A Hugging Face bucket backend would
-  return an `https://` resolve URL for the same handle (extension drives
-  `Content-Type`), moving large report assets off Git LFS. Blocked on: adding
-  `huggingface_hub` (not installed) + the bucket egress allow-list
-  (`*.xethub.hf.co`, `*.cdn.hf.co`); the bucket-vs-dataset-repo choice is still
-  open (see `research/artifact-store.md`). Keep `HFStore` backend-swappable so the
-  publish tier and a future durable working store can collapse onto one bucket.
+- **Separate publish bucket / private durable store.** We use one public bucket
+  for both durable CAS and published views (HF free tier = one bucket). `publish`
+  is a separate verb, so pointing it at a second (public) bucket while the CAS
+  goes private is a small change when wanted.
 
-- **Project-scoped Modal Volume (#22).** The artifact CAS rides the experiment's
-  Modal Volume, so cross-experiment sharing on Modal only works within one
-  experiment's Volume today (locally it's already project-wide). Repointing the
-  Volume from experiment-name to project-id is the #22 working-store change — but
-  it drags the control-plane cascade with it: `cancel`/`retry`/budget teardown and
-  the `__run__` metadata must become **per-experiment tag-scoped** (a shared store
-  spans all experiments, so an un-scoped `cancel` would settle every experiment's
-  tasks). Rewrite `test_budget.py::test_budget_is_scoped_per_experiment` to assert
-  tag-scoping rather than per-store isolation. This is the large, risky half;
-  landed separately on purpose.
+- **Versioned publish tier.** A bucket gives immutable *content* (via `cas/<sha>`
+  views) but not immutable *names with history*. If we ever need to cite a frozen
+  figure, the cheap option is an append-only ref log (`refs/<name>/<run-id>`) over
+  the same bucket before reaching for a dataset repo. (Open question from
+  `research/artifact-store.md`: bucket vs. dataset repo.)
+
+- **Streaming → promote-to-hash.** For chunk-by-chunk writers (Zarr, activation
+  dumps), stream to a working path hashing incrementally, then server-side
+  copy-by-xet-hash each chunk to `cas/<sha>` and assemble the tree. The seam is
+  there (`HFStore` already copies by xet hash for `publish`); not built yet.
+
+- **Modal gotcha — stale serialized worker.** A long-lived detached app can serve
+  a previously-serialized `_modal_task_entry` (so store-wiring edits don't take
+  until its containers drain). Surfaced while testing: a fresh app name or
+  stopping the app fixes it. General to the memo worker, not the store; worth a
+  note in running.md and maybe a deploy-version bump on worker-code change.
+
+- **Interactive `amap` store wiring.** The blocking notebook path
+  (`app.map`/`arun`) enters `data_dir_context` but not `store_context`, so
+  `mini.store.put`/`get` only work on the memoized path. Wire it through
+  `_wrap_for_local`/`_wrap_for_modal` if notebooks want artifacts directly.
+
+- **Project-scoped Modal Volume (#22).** With HF backing the store, artifacts no
+  longer *need* a shared Volume. The #22 volume change is now only for sharing
+  *non-artifact* volume bytes (raw working files via `get_data_dir()`, checkpoints)
+  and for memo-level compute dedup — and it still drags the control-plane cascade
+  with it: `cancel`/`retry`/budget teardown and the `__run__` metadata must become
+  **per-experiment tag-scoped** (a shared store spans all experiments, so an
+  un-scoped `cancel` would settle every experiment's tasks). Rewrite
+  `test_budget.py::test_budget_is_scoped_per_experiment` to assert tag-scoping.
+  Recommendation (see PR discussion): consider keeping Volumes isolated and
+  treating the artifact store as the sharing surface, so this cascade stays
+  optional.
 
 - **Implicit memo-level dedup (#22).** Today cross-experiment reuse is *explicit*
   (a named ref handed off via the shared store). The implicit version — experiment
