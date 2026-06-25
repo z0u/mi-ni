@@ -78,6 +78,31 @@ def test_role_demo_runs_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert set(out) == {'probe', 'gpu'}  # both keys produced via distinct role-labelled steps
 
 
+def test_cross_experiment_artifact_reuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """``acts`` publishes an activation cache; ``probe`` (a *separate* experiment)
+    resolves the same bytes from the project-scoped store — no recompute, no shared
+    volume. The acceptance test for #13/#22's artifact-sharing half."""
+    monkeypatch.chdir(tmp_path)  # both experiments anchor .mini (and .mini/store) here
+
+    acts = _drive(load_experiment(REPO / 'docs/acts/experiment.py'), LocalApparatus('acts'))
+    probe = _drive(load_experiment(REPO / 'docs/probe/experiment.py'), LocalApparatus('probe'))
+
+    # B read A's exact bytes: its recorded source sha is A's artifact sha.
+    assert probe['source_sha'] == acts['artifact'].sha256
+    assert probe['n_layers'] == acts['shards']
+
+    # The two experiments kept separate volumes but one shared store: B never ran
+    # A's extraction (its only task is the probe), and the blobs live under .mini/store.
+    probe_fns = {r.get('fn') for r in LocalApparatus('probe').memo_store().records()}
+    assert probe_fns == {'probe_activations'}  # no extract_activations recompute
+    assert (tmp_path / '.mini' / 'store' / 'cas').is_dir()
+
+    # The handle resolves from a fresh client (a report would do exactly this).
+    store = LocalApparatus('probe').store()
+    cache = store.get(acts['artifact'], tmp_path / 'check')
+    assert len(list(cache.glob('*.npy'))) == acts['shards']
+
+
 def test_interactive_apparatus_sweep_pattern():
     """The interactive pattern: drive an ``Apparatus`` directly (notebook-style) —
     fan a sweep out with ``.map`` and reduce to the best config. No memo store/CLI."""

@@ -33,6 +33,8 @@ from mini.modal_volume import ModalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
+from mini.runs import data_root
+from mini.store import Artifact, LocalStore, Store
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -150,6 +152,65 @@ class ModalMemoStore(MemoStore):
             return '(no logs)'
 
 
+class ModalVolumeStore(Store):
+    """Client-side artifact :class:`~mini.store.Store` that reads blobs off the Volume.
+
+    The remote worker writes the CAS *under* the mounted Volume (``store/cas/<sha>``)
+    and commits it; this reads those blobs back from the client (a report, or
+    ``ctx.run`` resolving a handle into the next step) with no running function,
+    caching each blob into a local :class:`~mini.store.LocalStore` so a re-read is
+    free. Read-only: producing artifacts happens *in* a step (on the worker), and a
+    report that wants to publish a Modal-produced asset resolves it here, then
+    ``put``/``publish``es through the local project store.
+    """
+
+    def __init__(self, volume: ModalVolume, cache: Any):
+        self._volume = volume
+        self._cache = cache  # a LocalStore checkout cache (warm copies, keyed by sha)
+
+    def _read_volume_bytes(self, rel: str) -> bytes:
+        return b''.join(self._volume._modal_volume.read_file(rel))
+
+    def has(self, sha256: str) -> bool:
+        if self._cache.has(sha256):
+            return True
+        try:
+            self._read_volume_bytes(f'store/cas/{sha256}')
+            return True
+        except FileNotFoundError, modal.exception.NotFoundError:
+            return False
+
+    def _read_blob(self, sha256: str, dest: Path) -> None:
+        import shutil
+
+        blob = self._cache._blob_path(sha256)
+        if not blob.exists():  # pull once into the warm cache, then serve locally
+            data = self._read_volume_bytes(f'store/cas/{sha256}')
+            self._cache.cas.mkdir(parents=True, exist_ok=True)
+            tmp = blob.with_name(f'{sha256}.tmp')
+            tmp.write_bytes(data)
+            tmp.replace(blob)
+        shutil.copyfile(blob, dest)
+
+    def _read_ref(self, name: str) -> str | None:
+        try:
+            return self._read_volume_bytes(f'store/refs/{name}.json').decode()
+        except FileNotFoundError, modal.exception.NotFoundError:
+            return None
+
+    def _write_blob(self, sha256: str, src: Path) -> None:
+        raise NotImplementedError('ModalVolumeStore is read-only on the client; put() runs inside a step')
+
+    def _write_ref(self, name: str, payload: str) -> None:
+        raise NotImplementedError('ModalVolumeStore is read-only on the client; set_ref() runs inside a step')
+
+    def publish(self, art: Artifact, path: str) -> str:
+        raise NotImplementedError(
+            'publish a Modal-produced asset by resolving it (get) into a local path, '
+            'then put()/publish() through the local project store'
+        )
+
+
 def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, mount_point: str) -> None:
     """Remote entry: run one memoized call on Modal and persist its result/state.
 
@@ -163,11 +224,17 @@ def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, m
     from mini._taskworker import execute_task
     from mini.memo import MemoStore
     from mini.modal_apparatus import ModalRecordStore
+    from mini.store import LocalStore
 
     fn, args, hooks = _cp.loads(blob)
     store = MemoStore(Path(mount_point), records=ModalRecordStore.from_name(dict_name))
     volume = _modal.Volume.from_name(volume_name)
-    execute_task(store, key, fn, args, hooks, commit=volume.commit)
+    # The artifact CAS lives *under* the mounted Volume (so the worker's blobs are
+    # committed with the result and the client can read them back). It rides the
+    # experiment's Volume, so cross-experiment sharing on Modal waits on the
+    # project-scoped Volume (#22); within an experiment, put/get work end to end.
+    artifacts = LocalStore(Path(mount_point) / 'store')
+    execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts)
 
 
 class ModalApparatus(Apparatus[ModalVolume]):
@@ -257,6 +324,17 @@ class ModalApparatus(Apparatus[ModalVolume]):
     @override
     def memo_store(self) -> MemoStore:
         return ModalMemoStore(self.volume, ModalRecordStore.from_name(self._dict_name))
+
+    @override
+    def store(self) -> Store:
+        """Read artifacts back off the Volume, warm-caching into a local checkout.
+
+        The cache is project-scoped on the client (``.mini/store-cache/<app>``);
+        the source of truth is ``store/`` on this experiment's Modal Volume.
+        """
+        assert self.app.name  # guaranteed by __init__ (a named App is required)
+        cache = LocalStore(data_root() / 'store-cache' / self.app.name)
+        return ModalVolumeStore(self.volume, cache)
 
     def _memo_worker(self) -> modal.Function:
         """Register (once) and return the generic remote worker for memo tasks.

@@ -17,10 +17,13 @@ from typing import Any, Callable
 
 import cloudpickle
 
+from contextlib import nullcontext
+
 from mini._queues import EndOfQueue
 from mini.memo import MemoStore
 from mini.progress import progress_context
 from mini.runs import RunState, compute_env
+from mini.store import LocalStore, Store, store_context, store_root_for
 from mini.volume import data_dir_context
 
 
@@ -59,6 +62,7 @@ def execute_task(
     args: tuple,
     hooks: list,
     commit: Callable[[], None] | None = None,
+    artifacts: Store | None = None,
 ) -> None:
     """Run one memoized call and persist its result/state — backend-agnostic.
 
@@ -69,6 +73,12 @@ def execute_task(
     *commit* is called after the result/error is written to the I/O plane and
     *before* the record flips to DONE/FAILED — so a poller never sees a settled
     state whose artifact hasn't been committed yet (the Modal Volume needs this).
+
+    *artifacts* binds the content-addressed :class:`~mini.store.Store` as ambient
+    for ``mini.store.put`` / ``get`` inside the step. Because ``put`` uploads
+    synchronously, by the time the result is written its handles already resolve —
+    so the existing write → commit → DONE order extends from "the volume flushed"
+    to "the referenced blobs are durable" for free.
     """
     result_dir = store.result_dir(key)
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -76,7 +86,11 @@ def execute_task(
     # Record what we actually ran on (host/GPU/…), captured here in the worker.
     store.update(key, state=RunState.RUNNING, heartbeat_at=time.time(), env=compute_env())
     try:
-        with data_dir_context(store.data_dir), progress_context(key, key, queue=sink, emission_interval=0.2):
+        with (
+            data_dir_context(store.data_dir),
+            store_context(artifacts) if artifacts is not None else nullcontext(),
+            progress_context(key, key, queue=sink, emission_interval=0.2),
+        ):
             for hook in reversed(hooks):
                 hook()
             result = fn(*args)
@@ -102,7 +116,10 @@ def run_task(data_dir: Path, key: str) -> None:
     """Local subprocess entry: read the staged call from disk and run it."""
     store = MemoStore(data_dir)
     fn, args, hooks = store.read_call(key)
-    execute_task(store, key, fn, args, hooks)
+    # Project-scoped artifact store sits beside the experiment's data dir, so a
+    # blob put here resolves from any experiment in the project (and from reports).
+    artifacts = LocalStore(store_root_for(data_dir))
+    execute_task(store, key, fn, args, hooks, artifacts=artifacts)
 
 
 def main() -> None:
