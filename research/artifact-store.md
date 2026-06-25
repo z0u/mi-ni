@@ -69,10 +69,17 @@ whole.
 ```python
 class Store(Protocol):
     def has(self, sha256: str) -> bool: ...
-    def put(self, data: bytes | Path, *, name: str) -> Artifact: ...
-    def get(self, art: Artifact, dest: Path) -> Path: ...      # materialize
-    def publish(self, art: Artifact, path: str) -> str: ...    # named view -> URL
+    def put(self, data: bytes | Path, *, name: str) -> Artifact: ...   # immutable blob
+    def get(self, art: Artifact, dest: Path) -> Path: ...             # materialize
+    def publish(self, art: Artifact, path: str) -> str: ...           # named view -> URL
+    def set_ref(self, name: str, art: Artifact) -> None: ...          # mutable name -> sha
+    def get_ref(self, name: str) -> Artifact | None: ...
 ```
+
+The `cas/<sha>` blobs are immutable; `set_ref`/`get_ref` are a small mutable layer
+of names over them (the git objects-and-refs split). One ref layer covers three
+needs that recur below: checkpoint pointers, the cross-experiment by-name lookup,
+and `publish`'s named views.
 
 Swappable the way the apparatus is: `LocalStore` (a `cas/<sha256>` tree on disk,
 the boring default), `HFBucketStore` (the same layout in a bucket), an `R2Store`
@@ -168,6 +175,19 @@ separate from `put` and explicitly public-scoped, so the durable CAS can be
 private while only deliberately published views are world-readable. Don't let
 public exposure become a side effect of persisting a result.
 
+This revises a decision in flight. Issue #13 left it open whether a public bucket
+exposes a direct, CDN-backed file URL, and PR #21 picked a *dataset repo* for the
+publish tier on the assumption it doesn't ("a bucket exposes no public file
+URL"). The benchmark settles that question the other way, so the decisive reason
+for a repo is gone. What's left is narrower and real: a repo keeps git history and
+lets you pin a citation to `/resolve/<commit-sha>/`. A bucket is mutable with no
+history — but serving a content-addressed path (`cas/<sha>` through a named view)
+gives immutable *content* without git, so the residual trade is permanence and the
+dataset-viewer ecosystem versus running one backend instead of two. I'd let #21
+land as a working primitive but make `HFStore` backend-swappable (repo or bucket),
+so the publish tier and the deferred L2 working store can later collapse onto a
+single bucket rather than splitting across a repo and a bucket.
+
 ## Cross-experiment reuse needs one more thing
 
 Handles are necessary but not sufficient for the "corpus prepared three times"
@@ -184,10 +204,48 @@ already name-independent: resolve DONE results through a shared,
 content-addressed result store keyed by fingerprint, with the per-experiment
 `MemoStore` demoted to a run's control plane (progress, heartbeats, the in-flight
 set). A step checks the shared store first; a hit anywhere means skip-and-resolve.
-I'd make this opt-in per step at first (`ctx.run(prepare, shared=True)`), because
-a global memo namespace raises trust questions — one experiment's bug shouldn't
-silently poison another's cache — that want more thought than the storage layer
-does.
+
+Issue #22 takes this further than I'd first proposed, and I think it's right. I'd
+floated opt-in-per-step (`shared=True`) out of caution about a global namespace;
+#22 instead scopes the store to the *project* and tags records by experiment. That
+answers my own worry: one project is one trust domain, so cross-experiment cache
+poisoning is just your own bug to fix. The opt-in caution really belongs at the
+cross-*project* boundary, not within a project. The cost #22 names is genuine and
+sits in the control plane, not the CAS: `cancel`, `retry`, and budget teardown
+must become tag-scoped, or a single `mini status` on an over-budget experiment
+cancels every experiment's in-flight tasks. Worth solving alongside the storage
+change, since they land together.
+
+## Checkpoints are a different category
+
+Mid-task checkpoints — the periodic state a long step writes so it can resume
+after a hard crash — are not step outputs, and shouldn't enter the handle graph.
+They're mutable and superseded on the next write, so content-addressing them pays
+the per-op floor repeatedly and churns the CAS with blobs obsolete minutes later.
+The giveaway is that resume needs to find "the latest checkpoint for this step" by
+a stable *name*, not by a hash you only learn after writing it.
+
+So checkpoints want the volume, not the CAS — with one correction. mini commits
+the Modal volume once at the step boundary (`execute_task` is called with
+`commit=volume.commit`), not mid-task, so a hard kill can lose everything written
+since the last background flush. If a checkpoint is expensive to recompute, call
+`volume.commit()` explicitly right after writing it rather than trusting
+auto-commit timing. Volume-based resume then works whenever the same durable named
+volume is re-mounted, which covers crash-and-retry in the same project on the same
+backend (and, under #22's project-scoped volume, across experiments in the
+project).
+
+It breaks in exactly the case this whole design exists for: a cross-process
+handoff where the volume isn't shared — close the laptop, an agent resumes in the
+Cloud, or local hands off to Modal. There the checkpoint has to live in the
+durable store. That points at a gap in the sketch above: the store wants a small
+*mutable ref layer* (`name → sha`) over the immutable `cas/<sha>` blobs — the git
+objects-and-refs split. One ref layer serves three needs: a `refs/checkpoints/<step>`
+pointer that resume overwrites, the named `publish` views, and the
+cross-experiment by-name lookup. A checkpoint becomes an explicit
+`checkpoint(path, name)` that updates a ref, distinct from the immutable `put`.
+Xet's chunk dedup makes each upload incremental rather than a full copy, but the
+latency floor still says: keep the cadence coarse, and default to the volume.
 
 ## What I'd build first
 
@@ -199,19 +257,25 @@ does.
    Claude Code Cloud actually safe.
 3. `publish` for reports and figures; move large assets off LFS, split small/large
    at the Git boundary.
-4. Shared-scope memo resolution for cross-experiment compute reuse, once we've
-   decided how much to trust a shared namespace.
+4. Project-scoped memo resolution for cross-experiment compute reuse (issue #22),
+   with the control-plane operations tag-scoped so budget teardown can't cancel a
+   sibling experiment's tasks.
 
 ## Open questions
 
-The trust model for shared memoization is the big one: opt-in per step versus
-global, and how a poisoned or stale entry gets invalidated across experiments
-that didn't produce it. Garbage collection is the next — a CAS only grows, and
-buckets bill per TB, so we need refcounting from live memos plus a sweep
-(mutability at least makes the delete cheap). Smaller: whether `Store` should be
-async to match `Volume`, or stay sync inside steps and lean on `hf_xet`'s internal
-parallelism; and the exact on-disk manifest format for `tree` artifacts.
+The trust model for shared memoization is the big one, though #22 narrows it: with
+project scoping the question moves to the cross-*project* boundary — how a poisoned
+or stale entry would be invalidated across projects that didn't produce it.
+Garbage collection is the next, and it's already issue #15 — a CAS only grows, and
+buckets bill per TB, so we need refcounting from live memos plus a sweep. The
+backend matters here: a bucket has server-side `rm`, while a Modal `Dict` (the
+control plane) has only `clear()`, no per-key delete, which shapes what tag-scoped
+cleanup can do. Smaller: whether `Store` should be async to match `Volume`, or stay
+sync inside steps and lean on `hf_xet`'s internal parallelism; and the exact
+on-disk manifest format for `tree` artifacts.
 
+These connect to work in flight: #13 (publish tiers), #21 (`HFStore`, the publish
+primitive), #22 (project-scoped store and cross-experiment reuse), and #15 (GC).
 If this shape looks right, the obvious next step is a real `Store` protocol plus
 `LocalStore` and the `put`/`get` contextvar wiring — step 1 above — which is
 self-contained and testable without any bucket at all.
