@@ -230,9 +230,7 @@ class Store(ABC):
 
     def _put_tree(self, src: Path, *, name: str) -> Artifact:
         children = tuple(
-            self._put_file(p, name=str(p.relative_to(src).as_posix()))
-            for p in sorted(src.rglob('*'))
-            if p.is_file()
+            self._put_file(p, name=str(p.relative_to(src).as_posix())) for p in sorted(src.rglob('*')) if p.is_file()
         )
         sha = _tree_sha(children)
         size = sum(c.size for c in children)

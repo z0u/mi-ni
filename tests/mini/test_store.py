@@ -46,9 +46,7 @@ def test_content_type_explicit_overrides_guess():
 
 
 def test_artifact_round_trips_through_dict():
-    tree = Artifact(
-        'root', 6, 'acts', kind='tree', children=(Artifact('a', 4, 'a.bin'), Artifact('b', 2, 'sub/b.bin'))
-    )
+    tree = Artifact('root', 6, 'acts', kind='tree', children=(Artifact('a', 4, 'a.bin'), Artifact('b', 2, 'sub/b.bin')))
     assert Artifact.from_dict(tree.to_dict()) == tree
 
 

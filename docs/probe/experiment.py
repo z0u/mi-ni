@@ -32,9 +32,7 @@ def probe_activations(dataset: str) -> dict:
 
     art = get_ref(f'activations/{dataset}')
     if art is None:
-        raise FileNotFoundError(
-            f'no activation cache published for {dataset!r} — run docs/acts/experiment.py first'
-        )
+        raise FileNotFoundError(f'no activation cache published for {dataset!r} — run docs/acts/experiment.py first')
 
     # Pull the shared tree into this step's volume (a warm checkout); the bytes
     # come from the project store, not from a recomputed prep.

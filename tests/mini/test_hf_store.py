@@ -55,7 +55,7 @@ def test_put_get_round_trips_over_the_bucket(hf):
     from mini.hf_store import HFStore
     from mini.store import LocalStore
 
-    fresh = HFStore(BUCKET, cache=LocalStore(Path(store._cache.root).parent / 'cache2'))
+    fresh = HFStore(store.bucket, cache=LocalStore(Path(store._cache.root).parent / 'cache2'))
     out = fresh.get(art, Path(store._cache.root).parent / 'out.txt')
     assert out.read_bytes() == data
 
