@@ -177,18 +177,19 @@ separate from `put` and explicitly public-scoped, so the durable CAS can be
 private while only deliberately published views are world-readable. Don't let
 public exposure become a side effect of persisting a result.
 
-This revises a decision in flight. Issue #13 left it open whether a public bucket
-exposes a direct, CDN-backed file URL, and PR #21 picked a *dataset repo* for the
-publish tier on the assumption it doesn't ("a bucket exposes no public file
-URL"). The benchmark settles that question the other way, so the decisive reason
-for a repo is gone. What's left is narrower and real: a repo keeps git history and
-lets you pin a citation to `/resolve/<commit-sha>/`. A bucket is mutable with no
-history — but serving a content-addressed path (`cas/<sha>` through a named view)
-gives immutable *content* without git, so the residual trade is permanence and the
-dataset-viewer ecosystem versus running one backend instead of two. I'd let #21
-land as a working primitive but make `HFStore` backend-swappable (repo or bucket),
-so the publish tier and the deferred L2 working store can later collapse onto a
-single bucket rather than splitting across a repo and a bucket.
+This reopens a question worth getting right. The publish tier could live in a
+Hugging Face *dataset repo* or in a bucket, and one tempting case for a repo rests
+on the belief that a bucket exposes no public, CDN-backed file URL. The benchmark
+contradicts that belief: a named view over `cas/<sha>` serves with the correct
+`Content-Type` from a public bucket, so that particular reason for a repo falls
+away. What's left is narrower and real. A repo keeps git history and lets you pin a
+citation to `/resolve/<commit-sha>/`. A bucket is mutable with no history, but
+serving a content-addressed path (`cas/<sha>` through a named view) gives immutable
+*content* without git, so the residual trade is permanence and the dataset-viewer
+ecosystem against running one backend instead of two. Rather than commit now, I'd
+keep `HFStore` backend-swappable (repo or bucket), so the publish tier and the
+deferred working store can later collapse onto a single bucket instead of splitting
+across the two.
 
 ## Cross-experiment reuse needs one more thing
 
@@ -207,16 +208,17 @@ content-addressed result store keyed by fingerprint, with the per-experiment
 `MemoStore` demoted to a run's control plane (progress, heartbeats, the in-flight
 set). A step checks the shared store first; a hit anywhere means skip-and-resolve.
 
-Issue #22 takes this further than I'd first proposed, and I think it's right. I'd
-floated opt-in-per-step (`shared=True`) out of caution about a global namespace;
-#22 instead scopes the store to the *project* and tags records by experiment. That
-answers my own worry: one project is one trust domain, so cross-experiment cache
-poisoning is just your own bug to fix. The opt-in caution really belongs at the
-cross-*project* boundary, not within a project. The cost #22 names is genuine and
-sits in the control plane, not the CAS: `cancel`, `retry`, and budget teardown
-must become tag-scoped, or a single `mini status` on an over-budget experiment
-cancels every experiment's in-flight tasks. Worth solving alongside the storage
-change, since they land together.
+There are two ways to scope that shared lookup, and I've come around to the broader
+one. The cautious version is opt-in per step (a `shared=True` flag), out of worry
+about a global namespace. The broader version scopes the store to the whole
+*project* and tags each record by experiment. Project scoping answers the worry:
+one project is one trust domain, so cross-experiment cache poisoning is just your
+own bug to fix, and the opt-in caution really belongs at the cross-*project*
+boundary instead. The cost is genuine, and it sits in the control plane rather than
+the CAS: `cancel`, `retry`, and budget teardown have to become tag-scoped, or a
+single `mini status` on an over-budget experiment cancels every experiment's
+in-flight tasks. Worth solving alongside the storage change, since they land
+together.
 
 ## Checkpoints are a different category
 
@@ -234,7 +236,7 @@ since the last background flush. If a checkpoint is expensive to recompute, call
 `volume.commit()` explicitly right after writing it rather than trusting
 auto-commit timing. Volume-based resume then works whenever the same durable named
 volume is re-mounted, which covers crash-and-retry in the same project on the same
-backend (and, under #22's project-scoped volume, across experiments in the
+backend (and, under a project-scoped volume, across experiments in the
 project).
 
 It breaks in exactly the case this whole design exists for: a cross-process
@@ -259,25 +261,23 @@ latency floor still says: keep the cadence coarse, and default to the volume.
    Claude Code Cloud actually safe.
 3. `publish` for reports and figures; move large assets off LFS, split small/large
    at the Git boundary.
-4. Project-scoped memo resolution for cross-experiment compute reuse (issue #22),
-   with the control-plane operations tag-scoped so budget teardown can't cancel a
-   sibling experiment's tasks.
+4. Project-scoped memo resolution for cross-experiment compute reuse, with the
+   control-plane operations tag-scoped so budget teardown can't cancel a sibling
+   experiment's tasks.
 
 ## Open questions
 
-The trust model for shared memoization is the big one, though #22 narrows it: with
-project scoping the question moves to the cross-*project* boundary — how a poisoned
-or stale entry would be invalidated across projects that didn't produce it.
-Garbage collection is the next, and it's already issue #15 — a CAS only grows, and
-buckets bill per TB, so we need refcounting from live memos plus a sweep. The
-backend matters here: a bucket has server-side `rm`, while a Modal `Dict` (the
-control plane) has only `clear()`, no per-key delete, which shapes what tag-scoped
-cleanup can do. Smaller: whether `Store` should be async to match `Volume`, or stay
-sync inside steps and lean on `hf_xet`'s internal parallelism; and the exact
-on-disk manifest format for `tree` artifacts.
+The trust model for shared memoization is the big one. Project scoping narrows it:
+the question then moves to the cross-*project* boundary, where a poisoned or stale
+entry would have to be invalidated across projects that didn't produce it. Garbage
+collection is next. A CAS only grows, and buckets bill per TB, so we need
+refcounting from live memos plus a sweep. The backend matters here: a bucket has
+server-side `rm`, while a Modal `Dict` (the control plane) has only `clear()`, no
+per-key delete, which shapes what tag-scoped cleanup can do. Smaller: whether
+`Store` should be async to match `Volume`, or stay sync inside steps and lean on
+`hf_xet`'s internal parallelism; and the exact on-disk manifest format for `tree`
+artifacts.
 
-These connect to work in flight: #13 (publish tiers), #21 (`HFStore`, the publish
-primitive), #22 (project-scoped store and cross-experiment reuse), and #15 (GC).
 If this shape looks right, the obvious next step is a real `Store` protocol plus
-`LocalStore` and the `put`/`get` contextvar wiring — step 1 above — which is
+`LocalStore` and the `put`/`get` contextvar wiring, step 1 above, which is
 self-contained and testable without any bucket at all.
