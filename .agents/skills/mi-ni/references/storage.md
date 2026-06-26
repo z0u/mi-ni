@@ -100,24 +100,29 @@ the bucket). `hf` caches it; the store and the Modal Secret read it from there, 
 
 ## Publishing to the web
 
-`publish(art, path)` exposes a blob at a named, extensioned path and returns a
-URL — for reports and figures that need to render in a browser (the extension
-drives the served `Content-Type`). It's deliberately separate from `put` and the
-only outward-facing verb, so persisting a result never publishes it as a side
-effect. Do it in the **report**, where assets go out:
+`publish(art, path)` is the store's outward-facing verb: it exposes a blob at a
+named, extensioned path and returns a URL (the extension drives the served
+`Content-Type`). It's deliberately separate from `put`, so persisting a result
+never publishes it as a side effect.
 
 ```python
-url = store.publish(fig_png, f'reports/{exp}/loss.png')
+url = store.publish(art, f'reports/{exp}/loss.png')
 ```
 
 `LocalStore` returns a `file://` URL (the published view lives under the project
 store). With `MINI_STORE_BUCKET` set, `HFStore` returns a real `https://` resolve
-URL for the same handle — the publish is a server-side copy *by xet hash* (no
-bytes moved) to an extensioned path, and the bucket serves it with a
-`Content-Type` from that extension. The bucket is **public**, so `publish` is the
-deliberate outward step; the durable CAS only goes public because we share one
-bucket for now (a separate private store + public publish bucket is a later
-split — see `todo.md`).
+URL for the same handle — a server-side copy *by xet hash* (no bytes moved) to an
+extensioned path, served with a `Content-Type` from that extension. The bucket is
+**public**, so `publish` is the deliberate outward step; the durable CAS only goes
+public because we share one bucket for now (a private store + public publish bucket
+is a later split — see `todo.md`).
+
+**Reports don't call `publish` directly.** A report externalizes its figures and
+data through `mini.vis` (`use_publisher(report_bundle(__file__))` — see
+[vis.md](./vis.md)), which writes content-addressed files referenced by *relative*
+URLs. `scripts/build_site.py` then `publish`es those to the bucket and inserts one
+`<base href>` so the relative URLs resolve there — one HTML that works both opened
+locally and served from Pages.
 
 ## Checkpoints are different
 
