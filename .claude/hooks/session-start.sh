@@ -70,8 +70,11 @@ uv sync --all-groups --no-group cuda >/dev/null 2>&1 || log 'uv sync failed; ven
 #    but the web image lacks: fd, fzf, bat. (rg is already present; gh is
 #    omitted because this network policy blocks the GitHub API — use the GitHub
 #    MCP tools instead.) Debian packages the binaries as fdfind/batcat to avoid
-#    name clashes, so symlink the names CLAUDE.md actually uses.
-if ! { command -v fd && command -v bat && command -v fzf; } >/dev/null 2>&1; then
+#    name clashes, so symlink the names CLAUDE.md actually uses. The whole hook
+#    is web-only (guarded above), but gate on apt-get too so this degrades
+#    cleanly should the cloud base image ever not be Debian-based.
+if command -v apt-get >/dev/null 2>&1 \
+    && ! { command -v fd && command -v bat && command -v fzf; } >/dev/null 2>&1; then
     log 'installing fd, fzf, bat'
     if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         fd-find fzf bat >/dev/null 2>&1; then

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 #
-# PreToolUse hook: run CI's checks before a `git push` so failures surface here
-# instead of after a CI round-trip. Mirrors .github/workflows/lint-check.yml.
+# PreToolUse hook: run CI's fast checks before a `git push` so failures surface
+# here instead of after a CI round-trip. Mirrors the lint/format/type steps of
+# .github/workflows/lint-check.yml.
 #
-#   - lint + format + ty (fast) BLOCK the push on failure: the push is stopped
-#     and the failures are fed back so they can be fixed in the same flow.
-#   - tests run too, but only WARN: the push proceeds and the failure is
-#     surfaced next to the tool result (additionalContext), to be fixed before
-#     merge rather than gating every push on a ~1 min suite.
+# Only lint + format + ty run here — they're seconds, and they're the usual CI
+# tripwire (e.g. ty over tests/). Tests are intentionally left to CI: this hook
+# is synchronous, so running the suite would stall every push and scale badly on
+# a large repo. When a session is watching the PR, CI test failures get picked
+# up there instead.
 #
 # Soft by design — it never wedges a productive push:
 #   - bypass entirely with `git push --no-verify`;
@@ -21,7 +22,9 @@ payload="$(cat)"
 command -v jq >/dev/null 2>&1 || exit 0
 cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')"
 
-# Only gate `git push`; let everything else through untouched.
+# The PreToolUse matcher only scopes us to the Bash tool (it matches tool names,
+# not the command), so the `git push` filtering has to happen here. Let
+# everything else through untouched.
 case "$cmd" in
     *'git push'*) ;;
     *) exit 0 ;;
@@ -39,8 +42,8 @@ cd "$project" 2>/dev/null || exit 0
 # running). Better to let the push through than to block on a half-built env.
 [[ -x .venv/bin/ty && -x .venv/bin/ruff ]] || exit 0
 
-# --- Fast checks: block on failure -----------------------------------------
-# These are seconds, and they're the usual CI tripwire (e.g. ty over tests/).
+# Fast checks: block the push on failure, feeding the errors back so they can be
+# fixed in the same flow. Tests stay in CI (a watching session catches those).
 if ! fast_out="$(./go check --lint --format --typecheck 2>&1)"; then
     {
         echo 'Pre-push checks failed (lint/format/ty) — CI gates on these too.'
@@ -50,16 +53,6 @@ if ! fast_out="$(./go check --lint --format --typecheck 2>&1)"; then
         echo "$fast_out"
     } >&2
     exit 2
-fi
-
-# --- Tests: warn only ------------------------------------------------------
-# The fast checks passed, so the push is going through regardless; run the suite
-# and, if it fails, attach a warning next to the push result instead of blocking.
-if ! test_out="$(./go check --test 2>&1)"; then
-    printf '%s\n\n%s\n' \
-        '⚠️ Pre-push tests FAILED — the push was allowed, but CI will gate on this. Fix before merging.' \
-        "$test_out" \
-    | jq -Rs '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: .}}'
 fi
 
 exit 0
