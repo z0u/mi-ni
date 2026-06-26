@@ -1,4 +1,4 @@
-from mini.reports import insert_base, relative_urls, stray_links
+from mini.reports import insert_base, relative_urls, rewrite_links, stray_links
 
 # Mimics a Marimo export: absolute CDN links + escaped data/asset URLs inside the JSON
 # session blob, an author markdown link, and a relative asset reference.
@@ -32,6 +32,30 @@ def test_stray_links_flags_author_links_not_assets():
 def test_stray_links_empty_when_only_assets():
     html = '<img src="_assets/a.png"><img src=\\"_assets/b.png\\"><a href="https://x/y">x</a>'
     assert stray_links(html) == []
+
+
+def test_rewrite_links_handles_plain_and_escaped():
+    # The author links from SAMPLE, mapped to absolute targets, must be replaced in
+    # both their plain and JSON-escaped (\") forms; the asset ref is left alone.
+    mapping = {
+        './experiment.py': 'https://github.com/o/r/blob/main/docs/probe/experiment.py',
+        '../acts/experiment.py': 'https://github.com/o/r/blob/main/docs/acts/experiment.py',
+    }
+    out = rewrite_links(SAMPLE, mapping)
+    assert '\\"https://github.com/o/r/blob/main/docs/probe/experiment.py\\"' in out
+    assert '\\"https://github.com/o/r/blob/main/docs/acts/experiment.py\\"' in out
+    assert 'experiment.py\\"' not in out.replace('docs/probe/experiment.py', '').replace(
+        'docs/acts/experiment.py', ''
+    )  # no original relative token survives
+    assert '_assets/abc123.png' in out  # the asset reference is untouched
+
+
+def test_rewrite_links_only_replaces_attribute_values():
+    # A bare token sitting in text (not as a quoted attribute value) is left alone.
+    html = 'see href="a/b.py" but the word a/b.py in prose stays'
+    out = rewrite_links(html, {'a/b.py': 'https://x/a/b.html'})
+    assert 'href="https://x/a/b.html"' in out
+    assert 'the word a/b.py in prose stays' in out
 
 
 def test_insert_base_adds_one_tag_in_head():

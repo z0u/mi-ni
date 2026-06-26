@@ -23,3 +23,28 @@ def plot_factory() -> plt.Figure:
 
 mo.Html(plot_factory())
 ```
+
+## Externalizing figures (reports)
+
+By default a `themed` figure inlines as a `data:` URI — fine to view, heavy for a
+report (two PNGs per figure, light + dark). To keep the report HTML light, set a
+**publisher** once in the setup cell and `themed` writes each figure out to a
+content-addressed file referenced by a relative URL instead. Figure cells don't
+change:
+
+```py
+from mini.vis import themed
+from mini.reports import use_publisher, report_bundle
+
+use_publisher(report_bundle(__file__))   # assets → this report's __marimo__/_assets/
+
+@themed(alt_text='…', name='loss-curve')  # name → loss-curve-{light,dark}.png
+def _plot(): ...
+mo.Html(_plot())
+```
+
+`name` (default: the plot function's name) is the figure's readable basename — it ends
+up in the asset filename and the saved-file name, and on a `data-asset-name` attribute
+for provenance. The publisher, the `asset_url` verb for arbitrary data blobs, and how
+the bundle reaches the web (the `<base>` switch + the relative-links rule) all live in
+[storage.md](./storage.md#report-bundles).

@@ -24,7 +24,7 @@ src/mini/
 
 - **Author** a memoized experiment — the `main(ctx)` DAG, repo layout, and cache-friendly design: [authoring.md](./references/authoring.md). Key internals in [memoization.md](./references/memoization.md).
 - **Run & monitor** one from the CLI — the wake-loop, recovery, hotfix safety, and how to delegate/schedule a long run: [running.md](./references/running.md).
-- **Store & share large outputs** — return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish figures to a URL: [storage.md](./references/storage.md).
+- **Store & share large outputs** — return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish artifacts to a URL: [storage.md](./references/storage.md). Externalizing a report's figures/assets for the web: [vis.md](./references/vis.md).
 
 To keep cost down, delegate launching and babysitting to the `experiment-monitor` subagent (it escalates to `experiment-doctor`); see running.md.
 
@@ -38,4 +38,4 @@ To keep cost down, delegate launching and babysitting to the `experiment-monitor
 
 ## Visualization helpers
 
-`mini.vis` provides utilities for figure theming, such as base styles and light/dark support. See [vis.md](./references/vis.md).
+`mini.vis` provides utilities for figure theming (base styles, light/dark support) and for externalizing a report's figures and data assets so the exported HTML stays light and publishes off Git LFS. See [vis.md](./references/vis.md).

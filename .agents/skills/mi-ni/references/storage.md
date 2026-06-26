@@ -100,24 +100,63 @@ the bucket). `hf` caches it; the store and the Modal Secret read it from there, 
 
 ## Publishing to the web
 
-`publish(art, path)` exposes a blob at a named, extensioned path and returns a
-URL — for reports and figures that need to render in a browser (the extension
-drives the served `Content-Type`). It's deliberately separate from `put` and the
-only outward-facing verb, so persisting a result never publishes it as a side
-effect. Do it in the **report**, where assets go out:
+`publish(art, path)` is the store's outward-facing verb: it exposes a blob at a
+named, extensioned path and returns a URL (the extension drives the served
+`Content-Type`). It's deliberately separate from `put`, so persisting a result
+never publishes it as a side effect.
 
 ```python
-url = store.publish(fig_png, f'reports/{exp}/loss.png')
+url = store.publish(art, f'reports/{exp}/loss.png')
 ```
 
 `LocalStore` returns a `file://` URL (the published view lives under the project
 store). With `MINI_STORE_BUCKET` set, `HFStore` returns a real `https://` resolve
-URL for the same handle — the publish is a server-side copy *by xet hash* (no
-bytes moved) to an extensioned path, and the bucket serves it with a
-`Content-Type` from that extension. The bucket is **public**, so `publish` is the
-deliberate outward step; the durable CAS only goes public because we share one
-bucket for now (a separate private store + public publish bucket is a later
-split — see `todo.md`).
+URL for the same handle — a server-side copy *by xet hash* (no bytes moved) to an
+extensioned path, served with a `Content-Type` from that extension. The bucket is
+**public**, so `publish` is the deliberate outward step; the durable CAS only goes
+public because we share one bucket for now (a private store + public publish bucket
+is a later split — see `todo.md`).
+
+**Reports don't call `publish` directly** — they go through a report bundle.
+
+## Report bundles
+
+A report is a **bundle**: one Marimo HTML document plus its heavy assets (figures,
+data blobs). `mini.reports` owns both halves — producing the assets and repointing
+them at the bucket on publish.
+
+**Produce.** Set a `Publisher` once in the report's setup cell; every `themed` figure
+then externalizes through it (figure cells are unchanged), and `asset_url` is the
+general verb for any blob a report's JS reads (a large JSON for a data browser, an
+SPA's data files):
+
+```py
+from mini.reports import use_publisher, report_bundle
+
+pub = use_publisher(report_bundle(__file__))   # assets → this report's __marimo__/_assets/
+url = pub.asset_url(points_json, name='points.json')   # -> '_assets/<sha>/points.json'
+```
+
+Each asset is written to `_assets/<sha>/<name>`: the SHA directory is the content
+address (identical bytes are written once and shared across reports), and the readable
+`name` is the leaf — so a browser "Save as" suggests that name (it takes the URL's last
+segment; the bucket sets no `Content-Disposition`). With no publisher, figures inline
+as self-contained `data:` URIs, so a no-frills export still works.
+
+**Publish.** The relative URL is the point: the *same* HTML works two ways. Opened
+locally, `_assets/…` resolves to the co-located files (offline; the figures are real
+PNGs). Published, `scripts/build_site.py` uploads `_assets/` to the bucket and inserts
+one `<base href>` in the `<head>` so the same relative URLs resolve there — no per-URL
+rewriting.
+
+Because `<base>` repoints *every* relative URL, the rule is **the only relative URLs in
+a report are its assets**. Author-written nav/source links would break against the
+bucket, so `build_site` resolves them: a link to another report or `.md` becomes its
+rendered page, a link to a source file becomes its GitHub source, and anything it can't
+place is left alone with a warning. Write natural relative links
+(`[experiment](./experiment.py)`); the absolute targets are derived from the git remote
+(override with `MINI_SITE_URL` / `MINI_SOURCE_URL`). Design notes:
+`research/reports-hfstore-migration.md`.
 
 ## Checkpoints are different
 
