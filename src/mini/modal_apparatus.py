@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import secrets
 import time
 from contextlib import asynccontextmanager, nullcontext
@@ -35,7 +34,7 @@ from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
 from mini.runs import data_root
-from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, _cas_key, default_store, store_bucket
+from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, _cas_key, _hf_token, default_store, store_bucket
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -223,9 +222,7 @@ def _hf_store_secret() -> modal.Secret | None:
     bucket = store_bucket()
     if not bucket:
         return None
-    from huggingface_hub import get_token
-
-    token = os.environ.get('HF_TOKEN') or get_token()  # env, or the cached `hf auth login`
+    token = _hf_token()  # env, or the cached `hf auth login`
     if not token:
         return None
     return modal.Secret.from_dict({STORE_BUCKET_ENV: bucket, 'HF_TOKEN': token})
@@ -349,12 +346,14 @@ class ModalApparatus(Apparatus[ModalVolume]):
     def store(self) -> Store:
         """The artifact store for reads on the client (reports, ``ctx`` resolves).
 
-        With ``MINI_STORE_BUCKET`` set, that's the shared HF bucket the worker
-        wrote to — so artifacts read back the same everywhere, no Volume needed.
-        Otherwise it's a read-through over this experiment's Modal Volume,
-        warm-caching into a local checkout (``.mini/store-cache/<app>``).
+        With a bucket configured *and* a token available, that's the shared HF
+        bucket the worker wrote to — so artifacts read back the same everywhere, no
+        Volume needed. Otherwise it's a read-through over this experiment's Modal
+        Volume, warm-caching into a local checkout (``.mini/store-cache/<app>``).
+        The token gate mirrors ``_hf_store_secret``: with no token the worker writes
+        to the Volume, so the client must read from there too (not an empty bucket).
         """
-        if store_bucket():
+        if store_bucket() and _hf_token():
             return default_store(data_root() / 'store')
         assert self.app.name  # guaranteed by __init__ (a named App is required)
         cache = LocalStore(data_root() / 'store-cache' / self.app.name)

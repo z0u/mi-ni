@@ -14,6 +14,7 @@ import pytest
 from mini.store import (
     Artifact,
     LocalStore,
+    default_store,
     get,
     get_ref,
     get_store,
@@ -182,6 +183,21 @@ def test_store_bucket_unset_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)
     assert store_bucket() is None
+
+
+def test_default_store_falls_back_to_local_without_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A configured bucket but no HF token (trying the repo, pre-`./go auth`) → local, not a crash."""
+    monkeypatch.setenv('MINI_STORE_BUCKET', 'ns/bkt')
+    monkeypatch.setattr('mini.store._hf_token', lambda: None)
+    assert isinstance(default_store(tmp_path / 'store'), LocalStore)
+
+
+def test_default_store_uses_bucket_with_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from mini.hf_store import HFStore
+
+    monkeypatch.setenv('MINI_STORE_BUCKET', 'ns/bkt')
+    monkeypatch.setattr('mini.store._hf_token', lambda: 'tok')
+    assert isinstance(default_store(tmp_path / 'store'), HFStore)
 
 
 def test_get_store_raises_outside_context():

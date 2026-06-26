@@ -44,6 +44,7 @@ from __future__ import annotations
 import contextvars
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 import shutil
@@ -77,6 +78,8 @@ __all__ = [
 STORE_BUCKET_ENV = 'MINI_STORE_BUCKET'
 
 _CHUNK = 1 << 20  # 1 MiB streaming-hash chunk
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -332,21 +335,44 @@ def store_bucket() -> str | None:
     return os.environ.get(STORE_BUCKET_ENV) or _project_config().get('store-bucket')
 
 
+def _hf_token() -> str | None:
+    """The Hugging Face token from the env or the ``hf auth login`` cache, or ``None``."""
+    if tok := os.environ.get('HF_TOKEN'):
+        return tok
+    try:
+        from huggingface_hub import get_token
+
+        return get_token()
+    except Exception:
+        return None
+
+
 def default_store(root: Path | str) -> Store:
     """The project store for a given local *root* — bucket-backed if configured.
 
-    When a bucket is configured (:func:`store_bucket`) the durable store is the
-    shared Hugging Face bucket (with *root* demoted to a local warm cache);
-    otherwise it's a :class:`LocalStore` rooted at *root*. One switch flips every
-    put/get/publish — in a step, a report, or a worker — from on-disk to
-    shared-and-web-reachable.
+    When a bucket is configured (:func:`store_bucket`) *and* a Hugging Face token is
+    available, the durable store is the shared bucket (with *root* demoted to a
+    local warm cache); otherwise it's a :class:`LocalStore` rooted at *root*. One
+    switch flips every put/get/publish — in a step, a report, or a worker — from
+    on-disk to shared-and-web-reachable.
+
+    A configured bucket with *no* token (someone trying the repo in Codespaces, or
+    a fresh checkout before ``./go auth``) falls back to the local store with a
+    warning rather than failing mid-run — the bucket name travels with the repo,
+    but using it needs auth the trier doesn't have yet.
     """
     root = Path(root)
     bucket = store_bucket()
-    if bucket:
+    if bucket and (token := _hf_token()):
         from mini.hf_store import HFStore
 
-        return HFStore(bucket, cache=LocalStore(root.parent / 'store-cache' / 'hf'))
+        return HFStore(bucket, cache=LocalStore(root.parent / 'store-cache' / 'hf'), token=token)
+    if bucket:
+        log.warning(
+            'store-bucket %r is configured but no Hugging Face token was found — using the local '
+            'store instead. Run `./go auth` (or set HF_TOKEN) to read/write the shared bucket.',
+            bucket,
+        )
     return LocalStore(root)
 
 

@@ -62,9 +62,14 @@ class HFStore(Store):
     # -- existence / cache ----------------------------------------------------
 
     def _remote_has(self, path: str) -> bool:
+        # A missing path is "absent" (return False); an auth/permission/network
+        # failure must *not* masquerade as absent — that would silently trigger a
+        # re-upload (and hide a misconfigured token), so let those propagate.
+        from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
+
         try:
             return any(True for _ in self.api.get_bucket_paths_info(self.bucket, [path]))
-        except Exception:  # missing path / transient read — treat as absent
+        except EntryNotFoundError, RepositoryNotFoundError:
             return False
 
     def has(self, sha256: str) -> bool:
@@ -117,9 +122,10 @@ class HFStore(Store):
         path = f'refs/{name}.json'
         if not self._remote_has(path):
             return None
-        tmp = Path(tempfile.mkdtemp()) / 'ref.json'
-        self.api.download_bucket_files(self.bucket, files=[(path, str(tmp))])
-        return tmp.read_text()
+        with tempfile.TemporaryDirectory() as d:  # cleaned up, unlike a bare mkdtemp
+            tmp = Path(d) / 'ref.json'
+            self.api.download_bucket_files(self.bucket, files=[(path, str(tmp))])
+            return tmp.read_text()
 
     # -- publish --------------------------------------------------------------
 
