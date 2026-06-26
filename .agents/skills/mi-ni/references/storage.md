@@ -71,25 +71,32 @@ See `docs/acts` (producer) and `docs/probe` (consumer) for a runnable pair.
 
 ## Choosing the backend (local vs. Hugging Face bucket)
 
-One env var picks the durable backend; nothing in experiment or report code
+The backend is configuration, not code — nothing in an experiment or report
 changes:
 
-- **Unset** → `LocalStore`, a `cas/<sha>` tree on disk under `.mini/store`. The
-  boring default; no network. Project-wide sharing works *locally*.
-- **`MINI_STORE_BUCKET=<namespace>/<bucket>`** (plus `HF_TOKEN`) → `HFStore`, the
-  same layout over a Xet-backed Hugging Face bucket. Now the durable store is
-  shared across *machines and backends*: a Modal worker `put`s a blob, and a
-  local report or another experiment `get`s it back — no shared Volume. The local
-  dir demotes to a warm cache (`.mini/store-cache/hf`).
+- **No bucket configured** → `LocalStore`, a `cas/<ab>/<sha>` tree under
+  `.mini/store`. The default; no network. Project-wide sharing works *locally*.
+- **A bucket configured** → `HFStore`, the same layout over a Xet-backed Hugging
+  Face bucket, shared across *machines and backends*: a Modal worker `put`s a
+  blob; a local report or another experiment `get`s it back, no shared Volume.
+  The local dir demotes to a warm cache (`.mini/store-cache/hf`).
 
-`mini run --app modal` forwards the bucket + token into the worker (via a Modal
-Secret), so the remote step writes to the same bucket. Bucket I/O needs
-`*.xethub.hf.co` (and `*.cdn.hf.co` for serving) on the network egress allow-list.
+Set the bucket once in `pyproject.toml` so it travels with the repo (set in one
+place, not three):
 
-Auth: `./go auth` logs you into Hugging Face alongside Modal/WandB (a fine-grained
-token with read+write to the bucket). The token is cached by `hf`; the store and
-the Modal Secret both pick it up from there, so you don't need `HF_TOKEN` exported
-— only `MINI_STORE_BUCKET` set to select the bucket.
+```toml
+[tool.mini]
+store-bucket = "your-namespace/your-bucket"
+```
+
+`MINI_STORE_BUCKET` overrides it for a one-off shell or CI. `mini run --app modal`
+forwards the resolved bucket + token into the worker via a Modal Secret. Bucket
+I/O needs `*.xethub.hf.co` (and `*.cdn.hf.co` for serving) on the egress
+allow-list.
+
+Auth: `./go auth` logs into Hugging Face (a fine-grained token with read+write to
+the bucket). `hf` caches it; the store and the Modal Secret read it from there, so
+`HF_TOKEN` need not be exported — the bucket name isn't a secret, only the token.
 
 ## Publishing to the web
 

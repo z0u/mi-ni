@@ -33,7 +33,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from mini.store import Artifact, LocalStore, Store, _hash_file, _tree_sha
+from mini.store import Artifact, LocalStore, Store, _cas_key, _hash_file, _tree_sha
 
 __all__ = ['HFStore']
 
@@ -62,13 +62,18 @@ class HFStore(Store):
     # -- existence / cache ----------------------------------------------------
 
     def _remote_has(self, path: str) -> bool:
+        # A missing path is "absent" (return False); an auth/permission/network
+        # failure must *not* masquerade as absent — that would silently trigger a
+        # re-upload (and hide a misconfigured token), so let those propagate.
+        from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
+
         try:
             return any(True for _ in self.api.get_bucket_paths_info(self.bucket, [path]))
-        except Exception:  # missing path / transient read — treat as absent
+        except EntryNotFoundError, RepositoryNotFoundError:
             return False
 
     def has(self, sha256: str) -> bool:
-        return self._cache.has(sha256) or self._remote_has(f'cas/{sha256}')
+        return self._cache.has(sha256) or self._remote_has(_cas_key(sha256))
 
     def _cache_blob(self, sha256: str, src: Path) -> None:
         if not self._cache.has(sha256):
@@ -79,14 +84,14 @@ class HFStore(Store):
     def _write_blob(self, sha256: str, src: Path) -> None:
         # Reached only on a cache+remote miss (the base ``put`` checks ``has``
         # first); Xet still dedups the chunks if the bytes happen to exist.
-        self.api.batch_bucket_files(self.bucket, add=[(str(src), f'cas/{sha256}')])
+        self.api.batch_bucket_files(self.bucket, add=[(str(src), _cas_key(sha256))])
         self._cache_blob(sha256, src)
 
     def _read_blob(self, sha256: str, dest: Path) -> None:
         blob = self._cache._blob_path(sha256)
         if not blob.exists():  # pull once into the warm cache, then serve locally
-            self._cache.cas.mkdir(parents=True, exist_ok=True)
-            self.api.download_bucket_files(self.bucket, files=[(f'cas/{sha256}', str(blob))])
+            blob.parent.mkdir(parents=True, exist_ok=True)
+            self.api.download_bucket_files(self.bucket, files=[(_cas_key(sha256), str(blob))])
         shutil.copyfile(blob, dest)
 
     def _put_tree(self, src: Path, *, name: str) -> Artifact:
@@ -101,7 +106,7 @@ class HFStore(Store):
             sha, size = _hash_file(p)
             children.append(Artifact(sha256=sha, size=size, name=p.relative_to(src).as_posix()))
             if not self._cache.has(sha):
-                add.append((str(p), f'cas/{sha}'))
+                add.append((str(p), _cas_key(sha)))
             self._cache_blob(sha, p)
         if add:
             self.api.batch_bucket_files(self.bucket, add=add)  # one round trip for the set
@@ -117,16 +122,17 @@ class HFStore(Store):
         path = f'refs/{name}.json'
         if not self._remote_has(path):
             return None
-        tmp = Path(tempfile.mkdtemp()) / 'ref.json'
-        self.api.download_bucket_files(self.bucket, files=[(path, str(tmp))])
-        return tmp.read_text()
+        with tempfile.TemporaryDirectory() as d:  # cleaned up, unlike a bare mkdtemp
+            tmp = Path(d) / 'ref.json'
+            self.api.download_bucket_files(self.bucket, files=[(path, str(tmp))])
+            return tmp.read_text()
 
     # -- publish --------------------------------------------------------------
 
     def publish(self, art: Artifact, path: str) -> str:
         if art.kind == 'tree':
             raise ValueError('publish a single file (resolve a tree first, or publish its children)')
-        info = list(self.api.get_bucket_paths_info(self.bucket, [f'cas/{art.sha256}']))
+        info = list(self.api.get_bucket_paths_info(self.bucket, [_cas_key(art.sha256)]))
         if not info:
             raise FileNotFoundError(f'{art.sha256[:12]}… is not in the store — put() it before publish()')
         # Server-side copy *by xet hash*: a metadata op, no bytes moved. The

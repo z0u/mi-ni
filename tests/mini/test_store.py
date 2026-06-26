@@ -14,12 +14,14 @@ import pytest
 from mini.store import (
     Artifact,
     LocalStore,
+    default_store,
     get,
     get_ref,
     get_store,
     publish,
     put,
     set_ref,
+    store_bucket,
     store_context,
     store_root_for,
 )
@@ -68,8 +70,14 @@ def test_put_is_content_addressed_and_idempotent(store: LocalStore):
     a = store.put(b'same', name='one.bin')
     b = store.put(b'same', name='two.bin')  # different name, same bytes
     assert a.sha256 == b.sha256
-    blobs = list((store.root / 'cas').iterdir())
-    assert len(blobs) == 1  # stored once
+    blobs = [p for p in (store.root / 'cas').rglob('*') if p.is_file()]
+    assert len(blobs) == 1  # stored once (under its two-char shard dir)
+
+
+def test_blobs_are_sharded_by_prefix(store: LocalStore):
+    """A blob lands under a two-char shard dir (``cas/ab/abcd…``), not a flat tree."""
+    art = store.put(b'hello world', name='greeting.txt')
+    assert (store.root / 'cas' / art.sha256[:2] / art.sha256).is_file()
 
 
 def test_put_file_hashes_streaming(store: LocalStore, tmp_path: Path):
@@ -154,6 +162,42 @@ def test_publish_rejects_trees(store: LocalStore, tmp_path: Path):
 def test_store_root_is_project_scoped_beside_the_volume():
     # A volume at <root>/<experiment> shares <root>/store with every experiment.
     assert store_root_for(Path('/proj/.mini/acts')) == Path('/proj/.mini/store')
+
+
+def test_store_bucket_reads_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / 'pyproject.toml').write_text('[tool.mini]\nstore-bucket = "ns/bkt"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)
+    assert store_bucket() == 'ns/bkt'
+
+
+def test_store_bucket_env_overrides_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / 'pyproject.toml').write_text('[tool.mini]\nstore-bucket = "ns/bkt"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('MINI_STORE_BUCKET', 'other/override')
+    assert store_bucket() == 'other/override'
+
+
+def test_store_bucket_unset_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / 'pyproject.toml').write_text('[project]\nname = "x"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)
+    assert store_bucket() is None
+
+
+def test_default_store_falls_back_to_local_without_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A configured bucket but no HF token (trying the repo, pre-`./go auth`) → local, not a crash."""
+    monkeypatch.setenv('MINI_STORE_BUCKET', 'ns/bkt')
+    monkeypatch.setattr('mini.store._hf_token', lambda: None)
+    assert isinstance(default_store(tmp_path / 'store'), LocalStore)
+
+
+def test_default_store_uses_bucket_with_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from mini.hf_store import HFStore
+
+    monkeypatch.setenv('MINI_STORE_BUCKET', 'ns/bkt')
+    monkeypatch.setattr('mini.store._hf_token', lambda: 'tok')
+    assert isinstance(default_store(tmp_path / 'store'), HFStore)
 
 
 def test_get_store_raises_outside_context():

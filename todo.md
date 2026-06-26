@@ -10,20 +10,41 @@ cross-experiment artifact sharing works on Modal **without** a shared Volume.
 Deferred, in rough priority order:
 
 - **Separate publish bucket / private durable store.** We use one public bucket
-  for both durable CAS and published views (HF free tier = one bucket). `publish`
-  is a separate verb, so pointing it at a second (public) bucket while the CAS
-  goes private is a small change when wanted.
+  for both durable CAS and published views. HF buckets have **no per-prefix ACL** —
+  public/private is bucket-level only — so a private CAS + public `published/`
+  genuinely needs *two* buckets, not a prefix split. `publish` is already a
+  separate verb, so pointing it at a second bucket is a small change. (HF docs show
+  no documented cap on bucket *count* per account; free storage is account-level:
+  ~100 GB private, public best-effort.)
 
 - **Versioned publish tier.** A bucket gives immutable *content* (via `cas/<sha>`
-  views) but not immutable *names with history*. If we ever need to cite a frozen
-  figure, the cheap option is an append-only ref log (`refs/<name>/<run-id>`) over
-  the same bucket before reaching for a dataset repo. (Open question from
+  views) but not immutable *names with history*, and buckets are overwrite-in-place
+  with **no server-side append-only / object-lock**. So an `refs/<name>/<run-id>`
+  log is only *convention*, not enforced — a frozen-citation guarantee would need a
+  dataset repo (real git history) rather than a bucket. (Open question from
   `research/artifact-store.md`: bucket vs. dataset repo.)
 
 - **Streaming → promote-to-hash.** For chunk-by-chunk writers (Zarr, activation
   dumps), stream to a working path hashing incrementally, then server-side
   copy-by-xet-hash each chunk to `cas/<sha>` and assemble the tree. The seam is
   there (`HFStore` already copies by xet hash for `publish`); not built yet.
+
+- **Chunked datatrees (Zarr etc.) — out of scope for the CAS; use `hf://` directly.**
+  The per-file-blob + manifest design is fine for a handful of `.npy` shards but is
+  the wrong shape for a tree of thousands of tiny chunks: N `put` round trips on
+  write, and a `get` reassembles the *whole* tree before a consumer touches one
+  slice (kills random-read latency). The conclusion after review is **don't grow
+  the store to chase this** — not a by-name mirror (a mutable, non-atomic key tree
+  reintroduces the half-written-read and dual-namespace-GC hazards the CAS exists
+  to avoid), and not Zarr-specific packing/sharding baked into `put` (too tied to
+  one format; the store stays bytes/files/trees-agnostic). For the rare case that
+  actually needs random-access reads over the network, the right answer is to skip
+  the CAS for *that* artifact and let the array library do remote IO straight
+  against the bucket — Zarr v3 + `s3fs`/`hf://` fsspec over the bucket's HTTP
+  endpoint, with the producer choosing sharding if it wants fewer/larger objects.
+  Document that escape hatch in storage.md if/when someone hits it; keep the CAS
+  for immutable artifact handoff. (Worth a one-off check that the bucket endpoint
+  honours HTTP `Range` before recommending the fsspec path.)
 
 - **Modal gotcha — stale serialized worker.** A long-lived detached app can serve
   a previously-serialized `_modal_task_entry` (so store-wiring edits don't take
