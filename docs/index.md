@@ -33,6 +33,7 @@ Index:
 
 - [Getting started](./getting_started.py)
 - [Pipeline: a memoized, multi-step experiment](./pipeline/report.py)
+- [Probe: reusing another experiment's artifacts via the shared store](./probe/report.py)
 - [Themed (light/dark) plots](./themed.py)
 - [Sparkline text annotations](./subline_demo.py)
 - [nanoGPT and nGPT demo](./gpt.py)

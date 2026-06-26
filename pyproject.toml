@@ -9,6 +9,7 @@ dependencies = [
     "datasets>=3.0.0",  # Hugging Face Datasets
     "equinox>=0.13",  # neural networks as JAX pytrees
     "ftfy>=6.3.1",  # text cleaning for NLP tasks
+    "huggingface-hub[hf-xet]>=1.19",
     "imageio-ffmpeg>=0.6.0",  # for video support in matplotlib
     "jax>=0.6",  # accelerated array computing and program transformation
     "jaxtyping>=0.2.38",
@@ -58,6 +59,14 @@ cuda = [
 pages = [
     "markdown>=3",
 ]
+
+[tool.mini]
+# The project's Hugging Face bucket for the content-addressed artifact store
+# (see .agents/skills/mi-ni/references/storage.md). Committed here so it's set
+# once and shared by every checkout, Modal worker, and CI run — the bucket name
+# is not a secret (the token lives in the env / `hf` cache). Override per-shell
+# with MINI_STORE_BUCKET. Unset → the store stays local (no network).
+# store-bucket = "your-namespace/your-bucket"
 
 [tool.uv]
 # Dependency cooldown to mitigate risk of supply chain attacks.
@@ -130,6 +139,7 @@ ignore_names = [
     "visit_*",
     "do_*",
     "test_*",
+    "pytestmark",
     "setUp",
     "tearDown"
 ]

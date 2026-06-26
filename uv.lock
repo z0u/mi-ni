@@ -617,6 +617,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b2/a5/558da89f66464d8d0229ff497e8b8666977de2d8cf48c28a2862ecf1250f/huggingface_hub-1.19.0-py3-none-any.whl", hash = "sha256:1dc72e1f6b4d6df6b30eb72e57d00514ef453d660f04af2b87f0e67267f31ee0", size = 693398, upload-time = "2026-06-11T12:33:16.695Z" },
 ]
 
+[package.optional-dependencies]
+hf-xet = [
+    { name = "hf-xet" },
+]
+
 [[package]]
 name = "hyperframe"
 version = "6.1.0"
@@ -952,6 +957,7 @@ dependencies = [
     { name = "datasets" },
     { name = "equinox" },
     { name = "ftfy" },
+    { name = "huggingface-hub", extra = ["hf-xet"] },
     { name = "imageio-ffmpeg" },
     { name = "jax" },
     { name = "jaxtyping" },
@@ -993,6 +999,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=3.0.0" },
     { name = "equinox", specifier = ">=0.13" },
     { name = "ftfy", specifier = ">=6.3.1" },
+    { name = "huggingface-hub", extras = ["hf-xet"], specifier = ">=1.19" },
     { name = "imageio-ffmpeg", specifier = ">=0.6.0" },
     { name = "jax", specifier = ">=0.6" },
     { name = "jaxtyping", specifier = ">=0.2.38" },

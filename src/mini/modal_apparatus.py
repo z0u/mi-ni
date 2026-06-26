@@ -33,6 +33,8 @@ from mini.modal_volume import ModalVolume
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
+from mini.runs import data_root
+from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, _cas_key, _hf_token, default_store, store_bucket
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -150,6 +152,82 @@ class ModalMemoStore(MemoStore):
             return '(no logs)'
 
 
+class ModalVolumeStore(Store):
+    """Client-side artifact :class:`~mini.store.Store` that reads blobs off the Volume.
+
+    The remote worker writes the CAS *under* the mounted Volume (``store/cas/ab/<sha>``)
+    and commits it; this reads those blobs back from the client (a report, or
+    ``ctx.run`` resolving a handle into the next step) with no running function,
+    caching each blob into a local :class:`~mini.store.LocalStore` so a re-read is
+    free. Read-only: producing artifacts happens *in* a step (on the worker), and a
+    report that wants to publish a Modal-produced asset resolves it here, then
+    ``put``/``publish``es through the local project store.
+    """
+
+    def __init__(self, volume: ModalVolume, cache: Any):
+        self._volume = volume
+        self._cache = cache  # a LocalStore checkout cache (warm copies, keyed by sha)
+
+    def _read_volume_bytes(self, rel: str) -> bytes:
+        return b''.join(self._volume._modal_volume.read_file(rel))
+
+    def has(self, sha256: str) -> bool:
+        if self._cache.has(sha256):
+            return True
+        try:
+            self._read_volume_bytes(f'store/{_cas_key(sha256)}')
+            return True
+        except FileNotFoundError, modal.exception.NotFoundError:
+            return False
+
+    def _read_blob(self, sha256: str, dest: Path) -> None:
+        import shutil
+
+        blob = self._cache._blob_path(sha256)
+        if not blob.exists():  # pull once into the warm cache, then serve locally
+            data = self._read_volume_bytes(f'store/{_cas_key(sha256)}')
+            blob.parent.mkdir(parents=True, exist_ok=True)
+            tmp = blob.with_name(f'{sha256}.tmp')
+            tmp.write_bytes(data)
+            tmp.replace(blob)
+        shutil.copyfile(blob, dest)
+
+    def _read_ref(self, name: str) -> str | None:
+        try:
+            return self._read_volume_bytes(f'store/refs/{name}.json').decode()
+        except FileNotFoundError, modal.exception.NotFoundError:
+            return None
+
+    def _write_blob(self, sha256: str, src: Path) -> None:
+        raise NotImplementedError('ModalVolumeStore is read-only on the client; put() runs inside a step')
+
+    def _write_ref(self, name: str, payload: str) -> None:
+        raise NotImplementedError('ModalVolumeStore is read-only on the client; set_ref() runs inside a step')
+
+    def publish(self, art: Artifact, path: str) -> str:
+        raise NotImplementedError(
+            'publish a Modal-produced asset by resolving it (get) into a local path, '
+            'then put()/publish() through the local project store'
+        )
+
+
+def _hf_store_secret() -> modal.Secret | None:
+    """A Modal Secret carrying the HF bucket config into the worker, if configured.
+
+    When a bucket is configured (``[tool.mini] store-bucket`` or the env override)
+    and a token is available, forward both into the remote container's env so the
+    worker's ``default_store`` resolves to the shared bucket. Absent either, the
+    worker falls back to the Volume-backed store.
+    """
+    bucket = store_bucket()
+    if not bucket:
+        return None
+    token = _hf_token()  # env, or the cached `hf auth login`
+    if not token:
+        return None
+    return modal.Secret.from_dict({STORE_BUCKET_ENV: bucket, 'HF_TOKEN': token})
+
+
 def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, mount_point: str) -> None:
     """Remote entry: run one memoized call on Modal and persist its result/state.
 
@@ -163,11 +241,17 @@ def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, m
     from mini._taskworker import execute_task
     from mini.memo import MemoStore
     from mini.modal_apparatus import ModalRecordStore
+    from mini.store import default_store
 
     fn, args, hooks = _cp.loads(blob)
     store = MemoStore(Path(mount_point), records=ModalRecordStore.from_name(dict_name))
     volume = _modal.Volume.from_name(volume_name)
-    execute_task(store, key, fn, args, hooks, commit=volume.commit)
+    # With MINI_STORE_BUCKET set (passed in via a Modal Secret), put/get hit the
+    # shared HF bucket — so another experiment, local or remote, reads these bytes
+    # back with no shared Volume. Otherwise the CAS rides *under* the mounted
+    # Volume (committed with the result), per-experiment until #22's project Volume.
+    artifacts = default_store(Path(mount_point) / 'store')
+    execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts)
 
 
 class ModalApparatus(Apparatus[ModalVolume]):
@@ -258,6 +342,23 @@ class ModalApparatus(Apparatus[ModalVolume]):
     def memo_store(self) -> MemoStore:
         return ModalMemoStore(self.volume, ModalRecordStore.from_name(self._dict_name))
 
+    @override
+    def store(self) -> Store:
+        """The artifact store for reads on the client (reports, ``ctx`` resolves).
+
+        With a bucket configured *and* a token available, that's the shared HF
+        bucket the worker wrote to — so artifacts read back the same everywhere, no
+        Volume needed. Otherwise it's a read-through over this experiment's Modal
+        Volume, warm-caching into a local checkout (``.mini/store-cache/<app>``).
+        The token gate mirrors ``_hf_store_secret``: with no token the worker writes
+        to the Volume, so the client must read from there too (not an empty bucket).
+        """
+        if store_bucket() and _hf_token():
+            return default_store(data_root() / 'store')
+        assert self.app.name  # guaranteed by __init__ (a named App is required)
+        cache = LocalStore(data_root() / 'store-cache' / self.app.name)
+        return ModalVolumeStore(self.volume, cache)
+
     def _memo_worker(self) -> modal.Function:
         """Register (once) and return the generic remote worker for memo tasks.
 
@@ -280,6 +381,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
                     **fn_kwargs.get('volumes', {}),
                     str(self._volume.path): self._volume._modal_volume,
                 }
+            if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
+                fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), secret]
             self._memo_fn = self.app.function(serialized=True, **fn_kwargs)(_modal_task_entry)
         return self._memo_fn
 

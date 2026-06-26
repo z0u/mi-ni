@@ -29,6 +29,20 @@ if uv run wandb status 2>/dev/null | grep -q '"api_key": null'; then
 fi
 echo "✅ WandB authenticated"
 
+# Hugging Face — fine-grained token for the artifact store bucket (see the mi-ni
+# storage reference). Reads/writes the project's content-addressed store and
+# serves published figures. `hf` caches the token, and both the store and the
+# Modal worker pick it up from there.
+if ! uv run hf auth whoami &>/dev/null; then
+    show_url "https://huggingface.co/settings/tokens/new?tokenType=fineGrained&tokenName=mi-ni+store"
+    echo "Create a fine-grained token with read & write access to your store bucket"
+    echo "(under 'Repositories', select the bucket), then paste it below."
+    read -rsp 'Token: ' hf_token
+    echo
+    uv run hf auth login --token "$hf_token"
+fi
+echo "✅ Hugging Face authenticated"
+
 # Claude Code
 if ! claude auth status &>/dev/null; then
     claude auth login

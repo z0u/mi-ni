@@ -14,6 +14,7 @@ from mini.volume import Volume
 
 if TYPE_CHECKING:
     from mini.memo import MemoStore
+    from mini.store import Store
 
 P = ParamSpec('P')
 R = TypeVar('R')
@@ -165,6 +166,21 @@ class Apparatus(ABC, Generic[V]):
     # Unlike map/amap (blocking launch + monitor + collect for notebooks), the
     # memoized path splits the lifecycle across short-lived processes: tick
     # stages each call and spawn_tasks launches it detached.
+
+    def store(self) -> Store:
+        """Return the content-addressed artifact :class:`~mini.store.Store` for this backend.
+
+        Distinct from :meth:`memo_store` (the per-experiment control plane): the
+        artifact store is **project-scoped**, so blobs and named refs are shared
+        across experiments — content-addressed, so identical bytes coincide. The
+        default sits a ``store/`` beside the experiment's volume (the project
+        root); ``ModalApparatus`` overrides it to read blobs back off the Volume.
+        Both the apparatus (here, for reports) and the worker enter this around a
+        step, so ``mini.store.put`` / ``get`` resolve against the same store.
+        """
+        from mini.store import default_store, store_root_for
+
+        return default_store(store_root_for(self.volume.path))
 
     @abstractmethod
     def memo_store(self) -> MemoStore:
