@@ -11,10 +11,15 @@ with app.setup(hide_code=True):
     import numpy as np
 
     from mini import LocalApparatus, RunState
-    from mini.vis import themed, use_publisher
+    from mini.vis import report_bundle, themed, use_publisher
 
     # The report reads results by experiment *name*, the same key the CLI uses.
     NAME = 'probe'
+
+    # Externalize every themed figure to a file beside the exported HTML, referenced
+    # by a relative URL — keeps the report light, and `build_site` repoints those URLs
+    # at the bucket (one <base> tag) when publishing. No publisher → figures inline.
+    use_publisher(report_bundle(__file__))
 
 
 @app.cell(hide_code=True)
@@ -23,19 +28,21 @@ def _():
     # Probe report
 
     This notebook is a **report**, not the experiment. The experiment in
-    [`experiment.py`](./experiment.py) resolves an activation cache that a
-    *different* experiment ([`docs/acts`](../acts/experiment.py)) published to the
-    project-scoped artifact store, summarizes it, and stores the summary as a
-    durable artifact. Run both from the command line:
+    [`experiment.py`](https://github.com/z0u/mi-ni/blob/main/docs/probe/experiment.py)
+    resolves an activation cache that a *different* experiment
+    ([`docs/acts`](https://github.com/z0u/mi-ni/blob/main/docs/acts/experiment.py))
+    published to the project-scoped artifact store, summarizes it, and stores the
+    summary as a durable artifact. Run both from the command line:
 
     ```bash
     bin/mini run docs/acts/experiment.py  --watch
     bin/mini run docs/probe/experiment.py --watch
     ```
 
-    Here we read the durable summary back through its handle, render it, and
-    **publish** the figure to a shareable URL — the report is where assets go out
-    to the web, distinct from the content-addressed store the step writes to.
+    Here we read the durable summary back through its handle and render it. The
+    figure is **externalized** to the artifact store (not inlined), so the published
+    report stays light and the bytes are served from the bucket — source links above
+    are absolute on purpose, so the report's only relative URLs are its assets.
     """)
     return
 
@@ -47,10 +54,6 @@ def _():
     # DAG, so the report can't relaunch work.
     app_ = LocalApparatus(NAME)
     store, artifacts = app_.memo_store(), app_.store()
-    # Route every themed figure in this report out to the artifact store as a web
-    # URL, so the exported HTML stays light (the figure bytes live in the bucket,
-    # not inline). With no web-serving store configured, figures inline as before.
-    use_publisher(artifacts, prefix=f'reports/{NAME}')
     done = [r for r in store.records() if r.get('fn') == 'probe_activations' and r.get('state') == RunState.DONE]
     result = store.result(done[0]['key']) if done else None
     return artifacts, result, store
@@ -91,16 +94,15 @@ def _(artifacts, result):
 def _(means, result):
     mo.stop(result is None)
 
-    # `use_publisher` (set above) routes this figure out to the artifact store: the
-    # rendered <img> points at a web URL instead of carrying the PNG inline, so the
-    # exported report stays light. `name` gives the asset a stable, shareable URL.
+    # `use_publisher` (set in the setup cell) routes this figure out to a file beside
+    # the exported HTML; the rendered <img> points at its relative URL instead of
+    # carrying the PNG inline, so the exported report stays light.
     @themed(
         alt_text=(
             'A heatmap of mean activation per neuron (x-axis) for each layer (y-axis) of the '
             'stand-in activation cache. Values cluster near zero, as expected for a synthesized '
             'standard-normal stand-in, with small layer-to-layer variation.'
         ),
-        name=f'{result["dataset"]}-neuron-means',
     )
     def _plot() -> plt.Figure:
         grid = np.vstack([means[layer] for layer in sorted(means)])

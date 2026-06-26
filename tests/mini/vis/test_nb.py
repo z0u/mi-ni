@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,17 +9,9 @@ import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from mini.store import LocalStore
-from mini.vis.nb import Publisher, themed, use_publisher
+from mini.vis.nb import Publisher, report_bundle, themed, use_publisher
 
 matplotlib.use('Agg')
-
-
-class _WebStore(LocalStore):
-    """A LocalStore that pretends to serve over the web (https publish URLs)."""
-
-    def publish(self, art, path):  # type: ignore[override]
-        return f'https://buckets.example/resolve/published/{path}'
 
 
 @pytest.fixture(autouse=True)
@@ -78,44 +71,54 @@ def test_decorator_factory():
 def test_default_inlines_as_data_uri():
     result = themed(_dummy_plot)(1, 2)
     assert result.count('src="data:image/png;base64,') == 2
-    assert 'https://' not in result
+    assert '_assets/' not in result
 
 
-def test_publish_externalizes_to_web_urls(tmp_path: Path):
-    pub = Publisher(_WebStore(tmp_path / 'store'), prefix='reports/demo')
+def test_publish_externalizes_to_relative_urls(tmp_path: Path):
+    pub = Publisher(tmp_path / '__marimo__' / '_assets')
     result = themed(_dummy_plot, publish=pub)(1, 2)
-    # Both variants reference web URLs, not inline data, and stay grouped by slug.
+    # Both variants reference relative _assets/ URLs, not inline data.
     assert 'src="data:image' not in result
-    assert 'https://buckets.example/resolve/published/reports/demo/' in result
-    assert '-light.png' in result
-    assert '-dark.png' in result
+    srcs = re.findall(r'src="([^"]+)"', result)
+    assert len(srcs) == 2
+    assert all(re.fullmatch(r'_assets/[0-9a-f]{64}\.png', s) for s in srcs), srcs
+    # …and the referenced files actually exist on disk and are valid PNGs.
+    for s in srcs:
+        f = tmp_path / '__marimo__' / s
+        assert f.exists() and f.read_bytes()[:4] == b'\x89PNG'
 
 
-def test_named_figure_gives_stable_slug(tmp_path: Path):
-    pub = Publisher(_WebStore(tmp_path / 'store'))
-    result = themed(_dummy_plot, publish=pub, name='loss-curve')(1, 2)
-    assert 'reports/loss-curve-light.png' in result
-    assert 'reports/loss-curve-dark.png' in result
+def test_distinct_light_dark_files(tmp_path: Path):
+    pub = Publisher(tmp_path / '_assets')
+    result = themed(_dummy_plot)(1, 2)  # inline (no publisher) → control
+    assert 'data:image' in result
+    out = themed(_dummy_plot, publish=pub)(1, 2)
+    srcs = set(re.findall(r'src="([^"]+)"', out))
+    assert len(srcs) == 2  # light and dark hash differently → two files
 
 
-def test_local_store_falls_back_to_inline(tmp_path: Path):
-    # A non-web store can't serve an <img> over the wire, so figures inline.
-    pub = Publisher(LocalStore(tmp_path / 'store'))
-    result = themed(_dummy_plot, publish=pub)(1, 2)
-    assert result.count('src="data:image/png;base64,') == 2
+def test_content_addressed_write_once(tmp_path: Path):
+    pub = Publisher(tmp_path)
+    u1 = pub.asset_url(b'same-bytes', name='a.json')
+    u2 = pub.asset_url(b'same-bytes', name='b.json')
+    assert u1 == u2  # identical content → identical URL, written once
+    assert len(list(tmp_path.glob('*.json'))) == 1
 
 
 def test_use_publisher_default_is_picked_up(tmp_path: Path):
-    use_publisher(_WebStore(tmp_path / 'store'), prefix='reports/auto')
+    use_publisher(Publisher(tmp_path / '_assets'))
     result = themed(_dummy_plot)(1, 2)  # no per-figure publish=
-    assert 'https://buckets.example/resolve/published/reports/auto/' in result
+    assert re.search(r'src="_assets/[0-9a-f]{64}\.png"', result)
 
 
-def test_asset_url_publishes_arbitrary_bytes(tmp_path: Path):
-    pub = Publisher(_WebStore(tmp_path / 'store'), prefix='reports/demo')
-    url = pub.asset_url(b'{"hello": "world"}', name='data/points.json')
-    assert url == 'https://buckets.example/resolve/published/reports/demo/data/points.json'
+def test_asset_url_writes_file_and_returns_relative_url(tmp_path: Path):
+    pub = Publisher(tmp_path / '_assets')
+    url = pub.asset_url(b'{"hello": "world"}', name='points.json')
+    assert re.fullmatch(r'_assets/[0-9a-f]{64}\.json', url)
+    assert (tmp_path / url).read_bytes() == b'{"hello": "world"}'
 
 
-def test_asset_url_without_store_is_none():
-    assert Publisher(None).asset_url(b'x', name='a.json') is None
+def test_report_bundle_targets_marimo_dir():
+    pub = report_bundle('/proj/docs/probe/report.py')
+    assert pub.asset_dir == Path('/proj/docs/probe/__marimo__/_assets')
+    assert pub.link == '_assets'

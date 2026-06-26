@@ -3,29 +3,32 @@ Notebook utilities for rendering themed matplotlib figures as HTML.
 
 A report's figures are heavy (a themed plot is *two* PNGs, light and dark). Inlined
 as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry.
-A :class:`Publisher` routes them through the artifact :class:`~mini.store.Store`
-instead: each PNG is ``put`` + ``publish``ed and the ``<img>`` points at its web
-URL, so the report HTML stays light enough to live in Git. Set one up once per
-report and every ``@themed`` figure externalizes with no per-figure ceremony::
+A :class:`Publisher` instead writes each blob out as a content-addressed file beside
+the report and references it by a **relative** URL, so the report HTML stays light.
+Set one up once per report and every ``@themed`` figure externalizes with no
+per-figure ceremony::
 
     # in the report's setup cell
-    from mini import LocalApparatus
-    from mini.vis import themed, use_publisher
-    use_publisher(LocalApparatus(NAME).store(), prefix=f'reports/{NAME}')
+    from mini.vis import themed, use_publisher, report_bundle
+    use_publisher(report_bundle(__file__))
 
     # in a figure cell — unchanged
     @themed(alt_text='…')
     def _plot(): ...
     mo.Html(_plot())
 
-Without a publisher (or with a local-only store that can't serve web URLs) figures
-fall back to inlining, so an offline ``./go build`` still renders.
+The relative reference is the point: the *same* HTML works both ways. Opened locally
+it resolves to the co-located ``_assets/`` files (offline, and the figures are real
+PNG files); published, ``scripts/build_site.py`` uploads those files to the HF bucket
+and inserts a single ``<base href>`` so the very same relative URLs resolve there. A
+report with no publisher inlines as self-contained ``data:`` URIs, as before.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path, PurePosixPath
 from textwrap import dedent
@@ -38,11 +41,10 @@ from collections.abc import Sequence
 
 from matplotlib.figure import Figure
 
-from mini.store import Store
 from mini.vis.plt import Stylesheet
 
 
-__all__ = ['themed', 'themed_figure_html', 'Publisher', 'use_publisher']
+__all__ = ['themed', 'themed_figure_html', 'Publisher', 'use_publisher', 'report_bundle']
 
 P = ParamSpec('P')
 R = TypeVar('R')
@@ -52,73 +54,76 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Publishing report assets to web URLs
+# Publishing report assets as files referenced by a relative URL
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class Publisher:
-    """Routes report assets (figures, data blobs) to a :class:`~mini.store.Store`'s
-    published web URLs, under a shared ``prefix``.
+    """Writes a report's heavy assets out as content-addressed files beside the
+    exported HTML, referenced by a **relative** URL.
 
-    The same content-addressed ``publish`` the store uses for any artifact, scoped
-    to a report's asset namespace. Use :meth:`png_url` for themed figures (it signals
-    a graceful inline fallback) and :meth:`asset_url` for arbitrary blobs a report's
-    JS reads — a large JSON a data-browser widget fetches, an SPA's data files.
+    Each blob is written once, keyed by its SHA-256, under ``asset_dir``
+    (conventionally ``…/__marimo__/_assets``); the reference is ``<link>/<sha><ext>``.
+    Because it's relative, the same HTML resolves to the local files when opened off
+    disk and to the HF bucket when published (a single ``<base href>`` is inserted at
+    build time — see ``scripts/build_site.py``). Use :meth:`asset_url` for any blob (a
+    JSON a data-browser widget fetches, an SPA's data files); :meth:`png_url` is the
+    figure-shaped wrapper :func:`themed` calls.
     """
 
-    store: Store | None = None
-    prefix: str = 'reports'
+    asset_dir: Path
+    link: str = '_assets'
 
-    def asset_url(self, data: bytes | Path, *, name: str) -> str | None:
-        """Publish bytes (or a file) at ``<prefix>/<name>`` and return its URL.
+    def asset_url(self, data: bytes | Path, *, name: str) -> str:
+        """Write *data* (bytes or a file) as ``<sha><ext>`` and return its relative URL.
 
-        ``None`` only when no store is configured. A web-serving backend (an HF
-        bucket) returns an ``https://`` URL the browser can fetch cross-origin; a
-        local store returns a ``file://`` URL — fine when opening the HTML straight
-        off disk, but it won't fetch from a *served* page, which is why figures
-        inline instead of relying on it (see :meth:`png_url`).
+        Content-addressed and write-once, so re-running a report reuses identical
+        bytes rather than piling up copies. *name* only supplies the extension (which
+        sets the served media type); the SHA names the file.
         """
-        if self.store is None:
-            return None
-        art = self.store.put(data, name=PurePosixPath(name).name)
-        return self.store.publish(art, f'{self.prefix}/{name}')
+        blob = bytes(data) if isinstance(data, (bytes, bytearray)) else Path(data).read_bytes()
+        filename = f'{hashlib.sha256(blob).hexdigest()}{PurePosixPath(name).suffix}'
+        dest = self.asset_dir / filename
+        if not dest.exists():  # content-addressed: identical bytes already written
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dest.with_name(f'{filename}.tmp')
+            tmp.write_bytes(blob)
+            tmp.replace(dest)  # atomic, so a concurrent reader never sees a partial file
+        return f'{self.link}/{filename}'
 
-    def png_url(self, data: bytes, *, slug: str) -> str | None:
-        """Publish a PNG and return a *web* URL, or ``None`` to inline it instead.
-
-        Narrower than :meth:`asset_url` on purpose: an ``<img>`` only benefits from
-        externalizing if the URL actually serves over the wire, so a missing store
-        *or* a non-web (``file://``) store both yield ``None`` — the caller inlines.
-        """
-        url = self.asset_url(data, name=f'{slug}.png')
-        return url if (url and url.startswith('https://')) else None
+    def png_url(self, data: bytes) -> str:
+        """Write a PNG and return its relative URL (the figure-shaped :meth:`asset_url`)."""
+        return self.asset_url(data, name='figure.png')
 
 
-def _as_publisher(publisher: Publisher | Store | None) -> Publisher | None:
-    if isinstance(publisher, Publisher):
-        return publisher
-    return Publisher(publisher) if publisher is not None else None
+def report_bundle(notebook_file: str | Path, *, link: str = '_assets') -> Publisher:
+    """A :class:`Publisher` writing assets beside a report's exported HTML.
+
+    Marimo exports ``docs/<…>/report.py`` to ``docs/<…>/__marimo__/report.html``; this
+    points assets at ``docs/<…>/__marimo__/<link>/`` so the relative ``<link>/…`` URL
+    resolves next to that HTML. Call it from the report's setup cell with ``__file__``::
+
+        use_publisher(report_bundle(__file__))
+    """
+    out_dir = Path(notebook_file).resolve().parent / '__marimo__'
+    return Publisher(asset_dir=out_dir / link, link=link)
 
 
 _default_publisher: Publisher | None = None
 
 
-def use_publisher(publisher: Publisher | Store | None, *, prefix: str | None = None) -> Publisher | None:
+def use_publisher(publisher: Publisher | None) -> Publisher | None:
     """Set the report-wide default publisher; call once in a report's setup cell.
 
-    Every ``@themed`` figure then externalizes through it with no per-figure
-    argument. Pass a :class:`~mini.store.Store` (optionally with ``prefix``) for the
-    common case, a :class:`Publisher` to reuse a configured one, or ``None`` to clear
-    it (figures inline). Returns the resolved publisher (e.g. to call
-    :meth:`~Publisher.asset_url` on it for a data blob).
+    Every ``@themed`` figure then externalizes through it with no per-figure argument.
+    Pass a :class:`Publisher` (usually from :func:`report_bundle`), or ``None`` to clear
+    it (figures inline as self-contained ``data:`` URIs). Returns it, e.g. to call
+    :meth:`~Publisher.asset_url` for a data blob.
     """
     global _default_publisher
-    pub = _as_publisher(publisher)
-    if pub is not None and prefix is not None:
-        pub = replace(pub, prefix=prefix)
-    _default_publisher = pub
-    return pub
+    _default_publisher = publisher
+    return publisher
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +137,7 @@ def themed(
     *,
     alt_text: str | None = ...,
     max_width: str | None = ...,
-    publish: Publisher | Store | None = ...,
-    name: str | None = ...,
+    publish: Publisher | None = ...,
     light_styles: Sequence[Stylesheet] = ...,
     dark_styles: Sequence[Stylesheet] = ...,
 ) -> Callable[P, str]: ...
@@ -145,8 +149,7 @@ def themed(
     *,
     alt_text: str | None = ...,
     max_width: str | None = ...,
-    publish: Publisher | Store | None = ...,
-    name: str | None = ...,
+    publish: Publisher | None = ...,
     light_styles: Sequence[Stylesheet] = ...,
     dark_styles: Sequence[Stylesheet] = ...,
 ) -> Callable[[Callable[P, Figure]], Callable[P, str]]: ...
@@ -157,8 +160,7 @@ def themed(
     *,
     alt_text: str | None = None,
     max_width: str | None = None,
-    publish: Publisher | Store | None = None,
-    name: str | None = None,
+    publish: Publisher | None = None,
     light_styles: Sequence[Stylesheet] = ('base', 'light'),
     dark_styles: Sequence[Stylesheet] = ('base', 'dark'),
 ) -> Callable[P, str] | Callable[[Callable[P, Figure]], Callable[P, str]]:
@@ -178,10 +180,9 @@ def themed(
 
         themed(plot_lr_finder, alt_text='LR finder')(lr_history, lr_config)
 
-    By default the figure is inlined as a ``data:`` URI. To externalize it to a web
-    URL (and keep the report HTML light), set a default with :func:`use_publisher`,
-    or pass ``publish=`` a :class:`Publisher`/:class:`~mini.store.Store` here. ``name``
-    gives the figure a stable URL slug; omitted, a content hash names it.
+    By default the figure is inlined as a ``data:`` URI. To externalize it (keeping the
+    report HTML light), set a default :class:`Publisher` with :func:`use_publisher`, or
+    pass ``publish=`` one here.
     """
 
     def decorator(fn: Callable[P, Figure]) -> Callable[P, str]:
@@ -196,14 +197,12 @@ def themed(
                 msg = f'{fn.__name__} returned None'
                 raise ValueError(msg)
 
-            pub = _as_publisher(publish) if publish is not None else _default_publisher
             return themed_figure_html(
                 light_fig,
                 dark_fig,
                 alt_text=alt_text,
                 max_width=max_width,
-                publish=pub,
-                name=name,
+                publish=publish if publish is not None else _default_publisher,
             )
 
         return wrapper
@@ -221,16 +220,14 @@ def themed_figure_html(
     alt_text: str | None = None,
     max_width: str | None = None,
     publish: Publisher | None = None,
-    name: str | None = None,
     **savefig_kwargs: str | int | bool,
 ) -> str:
     """Render light/dark matplotlib figures as an HTML figure element.
 
-    With ``publish`` set, each PNG is externalized to a web URL (falling back to an
-    inline ``data:`` URI when the store can't serve one); otherwise both inline.
+    With ``publish`` set, each PNG is written out and referenced by a relative URL;
+    otherwise both inline as ``data:`` URIs.
     """
     import base64
-    import hashlib
     import html
     import secrets
     from io import BytesIO
@@ -255,17 +252,13 @@ def themed_figure_html(
         plt.close(light_fig)
         plt.close(dark_fig)
 
-    # One slug base groups the light/dark pair; a content hash keeps the URL stable
-    # by content when the author doesn't name it.
-    base = name or hashlib.sha256(light_png + dark_png).hexdigest()[:12]
-
-    def _src(data: bytes, slug: str) -> str:
-        if publish is not None and (url := publish.png_url(data, slug=slug)):
-            return url
+    def _src(data: bytes) -> str:
+        if publish is not None:
+            return publish.png_url(data)
         return f'data:image/png;base64,{base64.b64encode(data).decode("ascii")}'
 
-    light_uri = _src(light_png, f'{base}-light')
-    dark_uri = _src(dark_png, f'{base}-dark')
+    light_uri = _src(light_png)
+    dark_uri = _src(dark_png)
 
     escaped_alt = html.escape(alt_text or 'Plot')
     style = f'max-width: {max_width};' if max_width is not None else ''

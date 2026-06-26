@@ -8,6 +8,9 @@ __pycache__/
 .install.sh.rc
 _site/
 **/__marimo__/session/
+# Externalized report assets (figures, data blobs). Durable home is the HF bucket;
+# regenerated on export. Kept out of Git (and so out of the __marimo__ LFS filter).
+**/__marimo__/_assets/
 lightning_logs/
 wandb/
 scratch*

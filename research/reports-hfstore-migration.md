@@ -2,11 +2,15 @@
 
 By Claude Opus 4.8
 
-An initial investigation: what's involved in publishing reports (and their
-figures) through the new `HFStore` instead of Git LFS, so an agent can run an
-experiment and publish results end-to-end. It builds on
-[the artifact-store sketch](./artifact-store.md), which already called this out as
-step 3 ("`publish` for reports and figures; move large assets off LFS").
+How we publish reports (and their figures) through the new `HFStore` instead of
+Git LFS, so an agent can run an experiment and publish results end-to-end. It
+started as an investigation and now records the decided architecture and the
+mechanism that landed; it builds on [the artifact-store sketch](./artifact-store.md),
+which called this out as step 3 ("`publish` for reports and figures; move large
+assets off LFS"). The short version: externalize each report's figures/assets as
+content-addressed files referenced by a **relative** URL, and flip one `<base
+href>` at build time to repoint them — local files when opened off disk, the HF
+bucket when served from Pages.
 
 ## Why move
 
@@ -43,100 +47,82 @@ fetched bytes: 38  content-type: text/plain  roundtrip match: True
 So the egress allow-list (`*.xethub.hf.co`, `*.cdn.hf.co`) and the token are in
 place here, and the only missing piece is wiring the *reports* to use it.
 
-## The shape of the migration
+## The architecture: a coherent bundle + a `<base>` switch
 
-The plan from the sketch holds: **split at size**. Heavy bytes (figures) go to
-the bucket via `publish()` and are referenced by `https://` URL; the lightened
-report HTML — now mostly prose, code, and a little scaffolding — goes into Git,
-where it's diffable and readable on GitHub. Keep GitHub Pages as the front door;
-the served HTML just pulls its images from the bucket's CDN.
+A report is a **bundle**: one Marimo HTML document plus its heavy assets (figures,
+data blobs). The assets are externalized when *produced* and referenced by a
+**relative** URL — `_assets/<sha>.png` — written to a `_assets/` dir beside the
+exported HTML. That one decision (relative, not absolute) is what makes the same
+HTML work in every context, because *where* `_assets/…` resolves depends only on a
+single `<base href>` in the `<head>`:
 
-Concretely, the moving parts:
+- **Opened locally** (off disk, or `./go serve`): no base tag, so `_assets/…`
+  resolves to the co-located files. Offline, and the figures are real PNG files.
+- **Published to Pages**: `build_site.py` uploads `_assets/` to the HF bucket and
+  inserts one `<base href="…/resolve/published/reports/<name>/">`. Now the *same*
+  relative URLs resolve at the bucket. Pages carries only the HTML; the bytes are
+  served from HF's CDN.
 
-1. **Externalize figures** (the substance — see the next section).
-2. **`.gitattributes`**: drop both LFS rules once figures are externalized.
-   Large static assets, if we ever have them, go through `publish()` too, so the
-   `large-assets/**` rule retires alongside `__marimo__/**`.
-3. **`publish-docs.yml`**: drop `lfs: true` from the checkout. The build
-   (`build_site.py`) is unchanged — it copies the HTML, which now carries bucket
-   URLs; the viewer's browser fetches the images directly from the public bucket,
-   so Pages needs no token.
-4. **Re-export the five reports** with figures externalized and commit the
-   lightened HTML. (`themed`/`subline_demo`/`getting_started` are standalone;
-   `gpt`/`gpt_sweep` need their experiment results present to re-run.)
-5. **History**: the old LFS blobs stay in history harmlessly but count against
-   the LFS quota. Purging them is a `git filter-repo` rewrite — heavy, separable,
-   and I'd defer it rather than block the migration on it.
+So publishing is "upload the assets + insert one tag," with **no per-URL
+rewriting** — which matters, because the asset URLs live inside Marimo's
+doubly-escaped session JSON (see below) where surgical rewriting is fragile. A
+`<base>` sidesteps that entirely: the relative URLs resolve at DOM-render time
+against the document base, so one tag repoints all of them, *including* the ones
+buried in the JSON, *and* a relative `fetch("_assets/data.json")` in an
+interactive report (it resolves against `document.baseURI` too).
 
-## Will the lightened reports be small enough for Git?
+## Why relative + `<base>`, not a rewrite
 
-Your intuition is right, with a caveat worth stating precisely. The two
-figure-light reports (`getting_started`, `subline_demo`) sit at ~65 KB *with*
-Marimo's scaffolding, and that scaffolding is near-identical across every export
-(the frontend JS/CSS is referenced from a CDN, not inlined — which is why the
-floor is tens of KB, not megabytes). So a de-figured `gpt.html` should land in
-roughly that ~50–70 KB range too, and because the boilerplate is shared,
-Git's zlib + delta compression packs the set down hard. A handful of ~60 KB
-mostly-boilerplate HTML files is a non-issue for Git.
+Two things had to be true for the `<base>` switch to be safe, and both were
+verified against a real export this session:
 
-The caveat: this is an estimate from the two small reports as a proxy floor, not
-a measurement of a de-figured heavy report (I can't re-export the experiment
-reports here without their run results). Worth confirming on the first real
-prototype — but I'd be surprised if it came out badly.
+**Marimo contributes no relative URLs of its own.** A fresh `marimo export` has
+**zero** in-page fragment anchors (`href="#…"`, the classic `<base>` footgun) and
+**zero** incidental relative `src`/`href` — every framework resource is an absolute
+`cdn.jsdelivr.net` URL, and images are data-URIs inside the session JSON. So a
+`<base>` governs *only* the relative `_assets/…` references we deliberately
+introduce. (Sweeps over `docs/__marimo__/themed.html`: 0 fragment links, 0
+relative URLs, 194 absolute.)
 
-## Externalize at production, not as a post-process
+**Externalizing at production beats post-processing.** Our `themed_figure_html`
+(`src/mini/vis/nb.py`) renders each figure *twice* (light + dark) and previously
+emitted `<img src="data:image/png;base64,…">` — the bulk of a heavy report. On
+export those strings are buried in the cell-output session snapshot: JSON, inside a
+`<script>`, with `json_script` escaping `<`/`>`/`&` to `\uXXXX` (and Marimo's own
+matplotlib images nested one level deeper still, a data URI inside a
+JSON-string-of-a-mimebundle). Trying to *extract* that base64 back out is the
+fragile path. Emitting a short relative token instead is robust — and since we own
+the code that emits it, there's nothing to parse. (No Marimo CLI flag externalizes
+images either; confirmed in `_server/export/exporter.py`, `templates.py`,
+`_output/mpl.py`.)
 
-This is your open question, and the Marimo internals settle it. **Externalize
-when the figure is produced, not by post-processing the exported HTML.**
+The **one caveat** of a document-global `<base>`: it also repoints *author-written*
+relative links — a markdown `[experiment.py](./experiment.py)` — at the bucket,
+where they'd 404. The convention is therefore **the only relative URLs in a report
+are store assets; nav/source links are absolute** (e.g. to GitHub source). It's
+enforced cheaply: `build_site` runs `mini.reports.stray_links` over each export and
+warns about any relative URL that isn't an `_assets/…`. Conveniently, the existing
+reports' relative source links (`./experiment.py`, `../acts/…`) are *already* dead
+on Pages — `build_site` never copied `.py` files — so making them absolute fixes a
+latent bug rather than creating one.
 
-The reason is where the bytes end up. Our own `themed`/`themed_figure_html`
-(`src/mini/vis/nb.py`) renders each figure — *twice*, a light and a dark variant
-— to a base64 PNG and emits `<img src="data:image/png;base64,…">`. That's the
-bulk of a heavy report (two inline PNGs per figure). When Marimo exports, that
-HTML string is the cell's *output*, and it gets buried inside the session
-snapshot: a JSON object, inside a `<script>`/`<marimo-config>` block, with
-Marimo's `json_script` escaping `<`/`>`/`&` to `\uXXXX`. A figure from Marimo's
-own matplotlib formatter is nested even deeper — a data URI inside a
-JSON-string-of-a-mimebundle inside the session JSON.
+### Git size is now a non-question
 
-So a post-processing pass would have to **parse that doubly-nested, escaped JSON
-out of a `<script>` tag and reconstruct it** — a regex over `src="data:…"` won't
-find it. That's fragile against Marimo's version-specific internal layout, and
-there is no Marimo CLI flag that externalizes images for us (only `--include-code`
-and friends; `html-wasm` externalizes the *framework* assets, not notebook
-images). Confirmed by reading the installed `marimo` package
-(`_server/export/exporter.py`, `_server/templates/templates.py`,
-`_output/mpl.py`).
+Earlier I estimated a de-figured report at ~50–70 KB (the figure-light
+`getting_started`/`subline_demo` floor, since Marimo's scaffolding is CDN-loaded,
+not inlined). With externalization that's moot: the assets aren't in Git at all
+(`_assets/` is gitignored; durable home is the bucket), and the committed HTML is
+just the light shell. The demo export below came out at 41 KB with its two figures
+moved to files.
 
-Producing externally sidesteps all of that, because **we already own the code
-that emits the data URI**. The change is local to the figure-rendering boundary:
-instead of emitting `<img src="data:…">`, `put()` the PNG and emit
-`<img src="https://…bucket…/resolve/published/…">`. The report HTML then carries
-URLs (~100 bytes each) instead of two ~60 KB blobs per figure, and the figure
-bytes flow through the same content-addressed `publish()` path everything else
-uses — idempotent, deduped, version-independent. `docs/probe/report.py` already
-does the `put`+`publish` half (lines 121–122); it just *also* inlines the figure
-via `mo.Html`, so today it pays for both. The migration is to emit the URL
-*instead of* the inline image, not in addition.
+### A note on the bucket-hosted-HTML alternative
 
-Mechanically I'd add an opt-in publish path to the vis helper rather than
-overload `themed`: a small wrapper that takes the figure(s), a store, and a
-logical path, publishes each variant, and returns the themed `<img>` markup
-pointing at the two URLs. The report cell already has the store in hand
-(`LocalApparatus(NAME).store()`), and during `./go run` export the ambient store
-resolves to `HFStore` whenever the bucket + token are set — so this works inside
-the existing export command with no new plumbing.
-
-### The local-fallback wrinkle
-
-One thing to get right: `default_store` falls back to `LocalStore` when there's
-no bucket/token (a fresh checkout, someone trying the repo, a `./go build` with
-no auth). `LocalStore.publish` returns a `file://` URL, which won't render once
-the HTML is served from Pages. So the production-time helper needs a policy: when
-the resolved store can't produce a web URL, **fall back to inlining** the data
-URI as today. That keeps offline/no-auth builds working and renderable, and only
-the authenticated path (CI, the Cloud agent) produces lightened, externalized
-reports — which is exactly the path that needs to.
+We considered serving the *HTML itself* from the bucket (no Pages). It's viable —
+HF serves `.html` as `text/html; Content-Disposition: inline` (verified), so a
+browser renders it — but relative links break there (the `resolve` URL 302s to a
+signed CDN URL, so the document base becomes that signed path). Pages-hosts-HTML +
+bucket-hosts-assets keeps the front door pretty and the `<base>` clean, so that's
+the chosen shape. A thin Pages index linking to reports stays the project's URL.
 
 ## Beyond figures: data blobs and interactive reports
 
@@ -168,80 +154,84 @@ it's the single fact that would have sunk them if it had gone the other way.
 
 The design consequences:
 
-- **One verb covers it.** A data blob is just `publish()` with a `.json`/`.bin`
-  extension instead of `.png`. The vis helper exposes this as
-  `Publisher.asset_url(data, name=…)` (see below) — the report publishes the blob,
-  gets a URL, and hands that URL to whatever JS reads it. No new store surface.
-- **The SPA's own bundle** can ride the same path (publish the JS/CSS, reference
-  by URL) or come from a CDN; either way the heavy *data* goes through `publish`,
-  and the report HTML committed to Git stays a thin shell. This is the `html-wasm`
-  shape Marimo already uses for its framework assets, pointed at the bucket.
+- **One verb covers it.** A data blob is just `Publisher.asset_url(data, name=…)`
+  with a `.json`/`.bin` extension instead of a figure — it writes the bytes to
+  `_assets/<sha>.ext` and returns the relative URL. The report hands that URL to
+  whatever JS reads it; locally it resolves to the file, published it resolves
+  (via `<base>`) to the bucket. No new store surface.
+- **The SPA's own bundle** can ride the same path (write the JS/CSS to `_assets/`,
+  reference relatively) or come from a CDN; either way the heavy *data* is an
+  asset, and the committed HTML stays a thin shell.
 - **Range requests** survive the trip: the CDN 200 advertises `Accept-Ranges` and
-  exposes `Content-Range`, so a JS viewer can fetch a slice of a big binary rather
-  than the whole thing — the partial-access story the artifact sketch wanted from
-  `tree` artifacts, now over HTTP.
-- **The local-dev caveat sharpens here.** A figure degrades gracefully (inline)
-  when there's no web store; a *data fetch* can't inline into an `<img>`, and a
-  `file://` URL won't satisfy a cross-origin `fetch()` from a served page. So the
-  interactive cases genuinely need the bucket to be live — `asset_url` returns the
-  `file://` URL for local opening, but the honest position is that SPA/data
-  reports are an authenticated-build feature, not an offline one. Worth a clear
-  error/warning when a report calls `asset_url` and the store can't serve.
+  exposes `Content-Range`, so a JS viewer can fetch a slice of a big binary — the
+  partial-access story the artifact sketch wanted from `tree` artifacts, over HTTP.
+- **The local-dev caveat.** A figure resolves to a local file offline; a
+  cross-origin `fetch()` only works once the assets are on the bucket (a `file://`
+  fetch from a served page won't). So a *running* SPA/data report is an
+  authenticated-build feature — fine, since that's the publish path anyway.
 
-## The vis helper (landed)
+## What landed
 
-`mini.vis` now has a `Publisher` and `use_publisher`, and `themed` grew an opt-in
-`publish` path. Ergonomics were the priority, so the common case is one line of
-setup and **no change to existing figure cells**:
+The mechanism is built and verified end-to-end against the live bucket.
+
+**`mini.vis.Publisher`** (in `nb.py`) writes each asset to `_assets/<sha>.<ext>`
+and returns its relative URL; `themed` externalizes through it when one is set.
+Ergonomics first — one line in the setup cell, no change to figure cells:
 
 ```python
-# setup cell — point the report's figures at the artifact store
-from mini.vis import themed, use_publisher
-use_publisher(LocalApparatus(NAME).store(), prefix=f'reports/{NAME}')
+# setup cell
+from mini.vis import themed, use_publisher, report_bundle
+use_publisher(report_bundle(__file__))   # assets land in this report's __marimo__/_assets
 
-# figure cell — unchanged; it now externalizes instead of inlining
-@themed(alt_text='…', name='loss-curve')   # name → stable URL; omit → content hash
+# figure cell — unchanged
+@themed(alt_text='…')
 def _plot(): ...
 mo.Html(_plot())
 ```
 
-- **Externalize-or-inline.** With a web-serving store each PNG (light *and* dark)
-  is `put` + `publish`ed and the `<img>` carries the URL; with no store, or a
-  local `file://`-only store, it inlines as before — so offline builds still
-  render. The decision is per-`<img>`, in `Publisher.png_url`.
-- **`asset_url(data, name=…)`** is the general-purpose verb for the data-blob and
-  SPA cases above — publish arbitrary bytes/a file under the report's prefix, get
-  a URL back.
-- **Verified end-to-end** against the real bucket: a themed figure that inlined at
-  ~27 KB of base64 now emits ~1.2 KB of HTML with two PNG URLs that serve as
-  `image/png`. `docs/probe/report.py` is converted as the worked example (it used
-  to inline *and* separately publish — now it just externalizes).
+- `report_bundle(__file__)` derives the asset dir from the notebook path
+  (`__file__` resolves during `marimo export` — verified). No publisher → figures
+  inline as self-contained `data:` URIs, so a no-frills export still works.
+- `Publisher.asset_url(data, name=…)` is the general verb for data blobs / SPAs.
 
-Tests cover the inline default, the web-URL path, the `file://` fallback, named
-vs. content-hash slugs, the `use_publisher` default, and `asset_url`.
+**`mini.reports`** has the publish-side string ops: `insert_base(html, href)` and
+`stray_links(html)` (the lint), kept dependency-light and unit-tested.
+
+**`scripts/build_site.py`** resolves the project store and picks a mode per report:
+*localize* (no bucket → copy `_assets/` into `_site` beside the HTML) or
+*externalize* (bucket → upload `_assets/` and insert the `<base>`), warning on any
+stray relative link either way.
+
+**End-to-end check** (a demo report exported with `report_bundle`): 41 KB HTML, two
+relative `_assets/<sha>.png` refs (0 inline), no stray links; localize resolved
+every ref to a file in `_site`; externalize uploaded to `z0u/mi-ni-store`, inserted
+one `<base>`, and the *same* relative ref then resolved to a live, fetchable
+`image/png`. `docs/probe/report.py` is converted as the worked example (it used to
+inline *and* separately publish; now it externalizes and its source links are
+absolute, per the convention).
 
 ## What's left
 
-1. ~~The vis helper~~ — done (above).
-2. Convert a figure-heavy report (`gpt` or `gpt_sweep`) and **measure** the
-   de-figured HTML size to confirm the Git-size estimate.
-3. Drop the LFS rules + `lfs: true`, re-export the five reports, commit the
-   lightened HTML.
-4. Defer (separable): purging old LFS blobs from history; the private-CAS /
-   public-publish two-bucket split already tracked in `todo.md` (the bucket is
-   public today, so `publish` is fine, but the durable CAS is public too).
+1. **Re-export the five real reports** with a publisher and commit the light HTML.
+   (`themed`/`subline_demo`/`getting_started` are standalone; `gpt`/`gpt_sweep`
+   need their run results.) Apply the absolute-source-links convention to each.
+2. **`.gitattributes`**: drop both LFS rules (`__marimo__/**`, `large-assets/**`)
+   so the light HTML commits to Git normally. (`_assets/` is already gitignored,
+   so exported assets never hit the LFS filter.)
+3. **`publish-docs.yml`**: drop `lfs: true`; and for the *externalize* build to run
+   in CI it needs the project installed (not just `--only-group pages`) plus the HF
+   token as a secret. Without them the CI build localizes — assets won't be on the
+   bucket — so externalization wants either the full-deps CI job or to happen at
+   export time on the agent. Worth deciding.
+4. **A Pages index/gallery** linking to the reports (keeps a stable front door).
+5. Defer: purge old LFS blobs from history (`git filter-repo`); the private-CAS /
+   public-publish two-bucket split tracked in `todo.md`.
 
 ## Open questions
 
-- **Accumulation / GC.** Every re-export publishes new content-addressed figure
-  blobs; old ones linger. This is the same CAS-only-grows problem `todo.md`
-  already flags for the store at large — reports just add a steady trickle. Not a
-  blocker, but reports make the refcount-and-sweep need concrete sooner.
-- **Stable vs. content-addressed published paths.** Publishing under a
-  content-hash path means a report's image URLs churn on every re-render (fine,
-  the HTML is regenerated too). Publishing under a stable `reports/<exp>/<fig>.png`
-  path keeps URLs constant but is last-writer-wins. The probe report uses the
-  stable form; I'd keep that for reports (the URL is meant to be shareable) and
-  rely on the CAS underneath for immutability of *content*.
-- **Measuring the real de-figured size**, per above — the one number this
-  investigation estimates rather than measures.
+- **Accumulation / GC.** Every re-export writes new content-addressed assets to the
+  bucket; old ones linger — the same CAS-only-grows problem `todo.md` flags, just
+  with a steady trickle from reports. Refcount-from-live-reports + sweep, later.
+- **Where externalization runs** (CI vs. export time) — item 3 above; the cleanest
+  answer probably ties report publishing to a `mini`-side command the agent runs,
+  rather than loading the full project into the Pages job.
