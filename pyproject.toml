@@ -60,6 +60,14 @@ pages = [
     "markdown>=3",
 ]
 
+[tool.mini]
+# The project's Hugging Face bucket for the content-addressed artifact store
+# (see .agents/skills/mi-ni/references/storage.md). Committed here so it's set
+# once and shared by every checkout, Modal worker, and CI run — the bucket name
+# is not a secret (the token lives in the env / `hf` cache). Override per-shell
+# with MINI_STORE_BUCKET. Unset → the store stays local (no network).
+# store-bucket = "your-namespace/your-bucket"
+
 [tool.uv]
 # Dependency cooldown to mitigate risk of supply chain attacks.
 # https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns

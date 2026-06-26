@@ -47,6 +47,7 @@ import json
 import mimetypes
 import os
 import shutil
+import tomllib
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -67,11 +68,12 @@ __all__ = [
     'get_ref',
     'store_root_for',
     'default_store',
+    'store_bucket',
     'STORE_BUCKET_ENV',
 ]
 
-# Env var naming the project's Hugging Face bucket. Set it (alongside HF_TOKEN)
-# to make the durable/publish tier the shared bucket; unset, the store is local.
+# Env var naming the project's Hugging Face bucket — an *override* for the
+# `[tool.mini] store-bucket` committed in pyproject.toml (see `store_bucket`).
 STORE_BUCKET_ENV = 'MINI_STORE_BUCKET'
 
 _CHUNK = 1 << 20  # 1 MiB streaming-hash chunk
@@ -131,6 +133,17 @@ class Artifact:
             kind=d.get('kind', 'file'),
             children=tuple(cls.from_dict(c) for c in d.get('children', ())),
         )
+
+
+def _cas_key(sha256: str) -> str:
+    """A blob's path within the store, sharded by a two-char prefix (``cas/ab/abcd…``).
+
+    Git and Git-LFS both fan blobs out under a short prefix dir so the CAS never
+    becomes one flat directory of thousands of entries — slow to list on disk and
+    unwieldy in a bucket's web UI. One level of two hex chars (256 buckets) is
+    plenty at our scale; the full sha still names the file, so it stays the id.
+    """
+    return f'cas/{sha256[:2]}/{sha256}'
 
 
 def _hash_bytes(data: bytes) -> str:
@@ -289,16 +302,47 @@ def store_root_for(data_dir: Path | str) -> Path:
     return Path(data_dir).parent / 'store'
 
 
+def _project_config() -> dict:
+    """``[tool.mini]`` from the nearest ``pyproject.toml`` walking up from cwd, or ``{}``.
+
+    Read lazily off the live cwd (like :func:`~mini.runs.data_root`) so a ``chdir``
+    — or a test in a tmp dir — resolves the right project, and nothing parses TOML
+    at import time.
+    """
+    cwd = Path.cwd().resolve()
+    for d in (cwd, *cwd.parents):
+        pp = d / 'pyproject.toml'
+        if pp.exists():
+            try:
+                return tomllib.loads(pp.read_text()).get('tool', {}).get('mini', {})
+            except OSError, tomllib.TOMLDecodeError:
+                return {}
+    return {}
+
+
+def store_bucket() -> str | None:
+    """The configured Hugging Face bucket (``namespace/name``), or ``None`` for local.
+
+    Resolution order: the ``MINI_STORE_BUCKET`` env var first (so CI or a one-off
+    shell can override), else ``[tool.mini] store-bucket`` in ``pyproject.toml`` —
+    so the project's default *travels with the repo*, set once and shared by every
+    checkout, Modal worker, and CI run rather than re-set in three places. The
+    bucket name isn't a secret; the token still lives in the env / ``hf`` cache.
+    """
+    return os.environ.get(STORE_BUCKET_ENV) or _project_config().get('store-bucket')
+
+
 def default_store(root: Path | str) -> Store:
     """The project store for a given local *root* — bucket-backed if configured.
 
-    When ``MINI_STORE_BUCKET`` is set the durable store is the shared Hugging Face
-    bucket (with *root* demoted to a local warm cache); otherwise it's a
-    :class:`LocalStore` rooted at *root*. One switch flips every put/get/publish —
-    in a step, a report, or a worker — from on-disk to shared-and-web-reachable.
+    When a bucket is configured (:func:`store_bucket`) the durable store is the
+    shared Hugging Face bucket (with *root* demoted to a local warm cache);
+    otherwise it's a :class:`LocalStore` rooted at *root*. One switch flips every
+    put/get/publish — in a step, a report, or a worker — from on-disk to
+    shared-and-web-reachable.
     """
     root = Path(root)
-    bucket = os.environ.get(STORE_BUCKET_ENV)
+    bucket = store_bucket()
     if bucket:
         from mini.hf_store import HFStore
 
@@ -307,7 +351,7 @@ def default_store(root: Path | str) -> Store:
 
 
 class LocalStore(Store):
-    """A ``cas/<sha256>`` blob tree on local disk, with file-backed refs and views.
+    """A ``cas/<ab>/<sha256>`` blob tree on local disk, with file-backed refs and views.
 
     The boring default: no network, immutability enforced by write-once-by-hash.
     ``publish`` copies a blob to ``published/<path>`` and returns a ``file://`` URL
@@ -317,19 +361,18 @@ class LocalStore(Store):
 
     def __init__(self, root: Path | str):
         self.root = Path(root)
-        self.cas = self.root / 'cas'
         self.refs = self.root / 'refs'
         self.published = self.root / 'published'
 
     def _blob_path(self, sha256: str) -> Path:
-        return self.cas / sha256
+        return self.root / _cas_key(sha256)
 
     def has(self, sha256: str) -> bool:
         return self._blob_path(sha256).exists()
 
     def _write_blob(self, sha256: str, src: Path) -> None:
-        self.cas.mkdir(parents=True, exist_ok=True)
         dest = self._blob_path(sha256)
+        dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():  # immutable: another writer won the race; bytes are identical by hash
             return
         tmp = dest.with_name(f'{sha256}.tmp.{src.stat().st_ino}')

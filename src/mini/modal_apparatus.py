@@ -35,7 +35,7 @@ from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
 from mini.runs import data_root
-from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, default_store
+from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, _cas_key, default_store, store_bucket
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -156,7 +156,7 @@ class ModalMemoStore(MemoStore):
 class ModalVolumeStore(Store):
     """Client-side artifact :class:`~mini.store.Store` that reads blobs off the Volume.
 
-    The remote worker writes the CAS *under* the mounted Volume (``store/cas/<sha>``)
+    The remote worker writes the CAS *under* the mounted Volume (``store/cas/ab/<sha>``)
     and commits it; this reads those blobs back from the client (a report, or
     ``ctx.run`` resolving a handle into the next step) with no running function,
     caching each blob into a local :class:`~mini.store.LocalStore` so a re-read is
@@ -176,7 +176,7 @@ class ModalVolumeStore(Store):
         if self._cache.has(sha256):
             return True
         try:
-            self._read_volume_bytes(f'store/cas/{sha256}')
+            self._read_volume_bytes(f'store/{_cas_key(sha256)}')
             return True
         except FileNotFoundError, modal.exception.NotFoundError:
             return False
@@ -186,8 +186,8 @@ class ModalVolumeStore(Store):
 
         blob = self._cache._blob_path(sha256)
         if not blob.exists():  # pull once into the warm cache, then serve locally
-            data = self._read_volume_bytes(f'store/cas/{sha256}')
-            self._cache.cas.mkdir(parents=True, exist_ok=True)
+            data = self._read_volume_bytes(f'store/{_cas_key(sha256)}')
+            blob.parent.mkdir(parents=True, exist_ok=True)
             tmp = blob.with_name(f'{sha256}.tmp')
             tmp.write_bytes(data)
             tmp.replace(blob)
@@ -215,11 +215,12 @@ class ModalVolumeStore(Store):
 def _hf_store_secret() -> modal.Secret | None:
     """A Modal Secret carrying the HF bucket config into the worker, if configured.
 
-    When ``MINI_STORE_BUCKET`` (and ``HF_TOKEN``) are set locally, forward them into
-    the remote container's env so the worker's ``default_store`` resolves to the
-    shared bucket. Absent, the worker falls back to the Volume-backed store.
+    When a bucket is configured (``[tool.mini] store-bucket`` or the env override)
+    and a token is available, forward both into the remote container's env so the
+    worker's ``default_store`` resolves to the shared bucket. Absent either, the
+    worker falls back to the Volume-backed store.
     """
-    bucket = os.environ.get(STORE_BUCKET_ENV)
+    bucket = store_bucket()
     if not bucket:
         return None
     from huggingface_hub import get_token
@@ -353,7 +354,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         Otherwise it's a read-through over this experiment's Modal Volume,
         warm-caching into a local checkout (``.mini/store-cache/<app>``).
         """
-        if os.environ.get(STORE_BUCKET_ENV):
+        if store_bucket():
             return default_store(data_root() / 'store')
         assert self.app.name  # guaranteed by __init__ (a named App is required)
         cache = LocalStore(data_root() / 'store-cache' / self.app.name)

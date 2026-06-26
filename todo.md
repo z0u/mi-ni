@@ -25,6 +25,22 @@ Deferred, in rough priority order:
   copy-by-xet-hash each chunk to `cas/<sha>` and assemble the tree. The seam is
   there (`HFStore` already copies by xet hash for `publish`); not built yet.
 
+- **Chunked datatrees (Zarr) — the tree manifest is the wrong shape at scale.**
+  The per-file-blob + manifest design is fine for a handful of `.npy` shards but
+  degrades on a Zarr datatree of thousands of tiny chunks: N `put` round trips on
+  write, and a `get` reassembles the *whole* tree before a consumer touches one
+  slice (kills random-read latency). Don't reach for a mutable `objects-by-name/`
+  mirror to enable opening Zarr over `resolve/` URLs — a mutable, non-atomic key
+  tree reintroduces the half-written-read and dual-namespace-GC hazards the CAS
+  exists to avoid (only acceptable as *immutable, version-suffixed* trees).
+  Preferred direction: Zarr v3 **sharding** (collapses N chunks to a few shard
+  files, random reads become HTTP range requests) + store the sharded tree as a
+  *single packed* `cas/<sha>` object opened over `resolve/` with range reads —
+  atomic publish, trivial GC, low-latency slicing, no second namespace. Unverified
+  assumption to check first: does HF's Xet `resolve/` honor HTTP `Range` with low
+  per-request latency? A one-off ranged `curl` against a real bucket object
+  decides whether any of this is viable.
+
 - **Modal gotcha — stale serialized worker.** A long-lived detached app can serve
   a previously-serialized `_modal_task_entry` (so store-wiring edits don't take
   until its containers drain). Surfaced while testing: a fresh app name or
