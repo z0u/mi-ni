@@ -138,12 +138,92 @@ URI as today. That keeps offline/no-auth builds working and renderable, and only
 the authenticated path (CI, the Cloud agent) produces lightened, externalized
 reports — which is exactly the path that needs to.
 
-## What I'd build first
+## Beyond figures: data blobs and interactive reports
 
-1. The vis helper: `publish-or-inline` for `themed` figures, with the fallback
-   above. Smallest change that proves the loop; testable against `LocalStore`
-   (file URLs) and the real bucket.
-2. Convert one figure-heavy report (`gpt` or `gpt_sweep`) and **measure** the
+Figures are the common case, but the same split generalizes, and two harder cases
+are worth designing for now rather than retrofitting:
+
+- a report that ships a **large JSON or binary blob** that in-page JS browses
+  (a sortable table, a tensor viewer, an embedding explorer); and
+- an **interactive SPA visualization** that *is* the report — its own JS bundle
+  plus data files.
+
+Both reduce to the same move as a figure: `publish()` the heavy bytes, reference
+them by URL, and let the browser fetch them at view time. The one new requirement
+is that JS `fetch()`/`XHR` — unlike an `<img>` — is subject to CORS, so the
+bucket has to allow a cross-origin read from the Pages origin. **It does.** The
+bucket reflects the request `Origin` on both the `resolve` redirect and the final
+CDN response (verified from this environment):
+
+```
+$ curl -sI -H 'Origin: https://z0u.github.io' <resolve URL>
+access-control-allow-origin: https://z0u.github.io      # on the 302
+…and the CDN 200 it redirects to:
+access-control-allow-origin: *
+```
+
+So a report served from `*.github.io` can `fetch()` a published JSON straight
+from the bucket CDN. That's what makes the data-browser and SPA cases work, and
+it's the single fact that would have sunk them if it had gone the other way.
+
+The design consequences:
+
+- **One verb covers it.** A data blob is just `publish()` with a `.json`/`.bin`
+  extension instead of `.png`. The vis helper exposes this as
+  `Publisher.asset_url(data, name=…)` (see below) — the report publishes the blob,
+  gets a URL, and hands that URL to whatever JS reads it. No new store surface.
+- **The SPA's own bundle** can ride the same path (publish the JS/CSS, reference
+  by URL) or come from a CDN; either way the heavy *data* goes through `publish`,
+  and the report HTML committed to Git stays a thin shell. This is the `html-wasm`
+  shape Marimo already uses for its framework assets, pointed at the bucket.
+- **Range requests** survive the trip: the CDN 200 advertises `Accept-Ranges` and
+  exposes `Content-Range`, so a JS viewer can fetch a slice of a big binary rather
+  than the whole thing — the partial-access story the artifact sketch wanted from
+  `tree` artifacts, now over HTTP.
+- **The local-dev caveat sharpens here.** A figure degrades gracefully (inline)
+  when there's no web store; a *data fetch* can't inline into an `<img>`, and a
+  `file://` URL won't satisfy a cross-origin `fetch()` from a served page. So the
+  interactive cases genuinely need the bucket to be live — `asset_url` returns the
+  `file://` URL for local opening, but the honest position is that SPA/data
+  reports are an authenticated-build feature, not an offline one. Worth a clear
+  error/warning when a report calls `asset_url` and the store can't serve.
+
+## The vis helper (landed)
+
+`mini.vis` now has a `Publisher` and `use_publisher`, and `themed` grew an opt-in
+`publish` path. Ergonomics were the priority, so the common case is one line of
+setup and **no change to existing figure cells**:
+
+```python
+# setup cell — point the report's figures at the artifact store
+from mini.vis import themed, use_publisher
+use_publisher(LocalApparatus(NAME).store(), prefix=f'reports/{NAME}')
+
+# figure cell — unchanged; it now externalizes instead of inlining
+@themed(alt_text='…', name='loss-curve')   # name → stable URL; omit → content hash
+def _plot(): ...
+mo.Html(_plot())
+```
+
+- **Externalize-or-inline.** With a web-serving store each PNG (light *and* dark)
+  is `put` + `publish`ed and the `<img>` carries the URL; with no store, or a
+  local `file://`-only store, it inlines as before — so offline builds still
+  render. The decision is per-`<img>`, in `Publisher.png_url`.
+- **`asset_url(data, name=…)`** is the general-purpose verb for the data-blob and
+  SPA cases above — publish arbitrary bytes/a file under the report's prefix, get
+  a URL back.
+- **Verified end-to-end** against the real bucket: a themed figure that inlined at
+  ~27 KB of base64 now emits ~1.2 KB of HTML with two PNG URLs that serve as
+  `image/png`. `docs/probe/report.py` is converted as the worked example (it used
+  to inline *and* separately publish — now it just externalizes).
+
+Tests cover the inline default, the web-URL path, the `file://` fallback, named
+vs. content-hash slugs, the `use_publisher` default, and `asset_url`.
+
+## What's left
+
+1. ~~The vis helper~~ — done (above).
+2. Convert a figure-heavy report (`gpt` or `gpt_sweep`) and **measure** the
    de-figured HTML size to confirm the Git-size estimate.
 3. Drop the LFS rules + `lfs: true`, re-export the five reports, commit the
    lightened HTML.

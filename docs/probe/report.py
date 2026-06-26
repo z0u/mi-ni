@@ -11,7 +11,7 @@ with app.setup(hide_code=True):
     import numpy as np
 
     from mini import LocalApparatus, RunState
-    from mini.vis import themed
+    from mini.vis import themed, use_publisher
 
     # The report reads results by experiment *name*, the same key the CLI uses.
     NAME = 'probe'
@@ -47,6 +47,10 @@ def _():
     # DAG, so the report can't relaunch work.
     app_ = LocalApparatus(NAME)
     store, artifacts = app_.memo_store(), app_.store()
+    # Route every themed figure in this report out to the artifact store as a web
+    # URL, so the exported HTML stays light (the figure bytes live in the bucket,
+    # not inline). With no web-serving store configured, figures inline as before.
+    use_publisher(artifacts, prefix=f'reports/{NAME}')
     done = [r for r in store.records() if r.get('fn') == 'probe_activations' and r.get('state') == RunState.DONE]
     result = store.result(done[0]['key']) if done else None
     return artifacts, result, store
@@ -84,15 +88,19 @@ def _(artifacts, result):
 
 
 @app.cell(hide_code=True)
-def _(artifacts, means, result):
+def _(means, result):
     mo.stop(result is None)
 
+    # `use_publisher` (set above) routes this figure out to the artifact store: the
+    # rendered <img> points at a web URL instead of carrying the PNG inline, so the
+    # exported report stays light. `name` gives the asset a stable, shareable URL.
     @themed(
         alt_text=(
             'A heatmap of mean activation per neuron (x-axis) for each layer (y-axis) of the '
             'stand-in activation cache. Values cluster near zero, as expected for a synthesized '
             'standard-normal stand-in, with small layer-to-layer variation.'
-        )
+        ),
+        name=f'{result["dataset"]}-neuron-means',
     )
     def _plot() -> plt.Figure:
         grid = np.vstack([means[layer] for layer in sorted(means)])
@@ -104,24 +112,7 @@ def _(artifacts, means, result):
         # handles the colorbar; calling both clashes the layout engines.
         return fig
 
-    html = _plot()
-
-    # Publish a standalone PNG of the figure to a shareable URL. Locally this is a
-    # file:// URL under the project store; a web-reachable backend (e.g. an HF
-    # bucket) returns an https:// resolve URL for the same handle — see todo.md.
-    from io import BytesIO
-
-    grid = np.vstack([means[layer] for layer in sorted(means)])
-    fig, ax = plt.subplots(figsize=(6, 3))
-    ax.imshow(grid, aspect='auto', cmap='RdBu', vmin=-0.3, vmax=0.3)
-    ax.set_axis_off()
-    buf = BytesIO()
-    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-    plt.close(fig)
-    asset = artifacts.put(buf.getvalue(), name=f'{result["dataset"]}-neuron-means.png')
-    url = artifacts.publish(asset, f'reports/probe/{result["dataset"]}-neuron-means.png')
-
-    mo.md(f'{html}\n\nPublished figure: [`{url}`]({url})')
+    mo.Html(_plot())
     return
 
 
