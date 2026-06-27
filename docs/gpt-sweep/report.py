@@ -42,15 +42,16 @@ def _():
     This is a **report**: it reads results the experiment already produced and
     renders them. The experiment itself is [`experiment.py`](./experiment.py), an
     importable `main(ctx)` DAG (one data-prep step, then a nine-cell GPU sweep)
-    run from the CLI on Modal L4s:
+    run from the CLI on Modal L4s (the `train` role binds the GPU + timeout):
 
     ```bash
-    bin/mini run docs/gpt-sweep/experiment.py --app modal --gpu L4 --max-containers 9 --timeout 600
+    bin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9
+    uv run docs/gpt-sweep/snapshot.py
     ```
 
     The val-loss curves below were gathered from that run into
-    [`results.json`](./results.json), so this notebook opens standalone — no GPU,
-    no Modal, no waiting.
+    [`results.json`](./results.json) by `snapshot.py`, so this notebook opens
+    standalone — no GPU, no Modal, no waiting.
     """)
     return
 
@@ -66,9 +67,11 @@ def _(curves):
     mo.stop(
         not curves,
         mo.md(
-            'No results yet. Run the experiment first:\n\n'
-            '```bash\nbin/mini run docs/gpt-sweep/experiment.py --app modal --gpu L4 --max-containers 9 --timeout 600\n```'
-            '\n\nThen snapshot the gathered curves to `results.json` (see the experiment README).'
+            'No results yet. Run the experiment, then snapshot its curves:\n\n'
+            '```bash\n'
+            'bin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9\n'
+            'uv run docs/gpt-sweep/snapshot.py\n'
+            '```'
         ),
     )
     flat = {(a, lr): v for a in ARCHS for lr in LRS if (v := curves.get(f'{a}|{lr}'))}

@@ -6,7 +6,7 @@
 
 mi-ni is a template repository and library for doing AI research. Features:
 
-- **Local Python notebooks** with Marimo, with outputs stored in Git LFS and published to GitHub Pages
+- **Local Python notebooks** with Marimo, published to GitHub Pages with their figures served from a Hugging Face bucket
 - **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
 - **Agentic coding config** for Claude Code
 
@@ -25,7 +25,7 @@ app.volume.download(...)
 
 ## Published notebooks
 
-Notebooks are automatically published to GitHub Pages, including assets stored in Git LFS.
+Notebooks are automatically published to GitHub Pages; their figures and other heavy assets are served from a Hugging Face bucket (repointed at build time with one `<base>` tag).
 
 Index:
 
@@ -37,4 +37,4 @@ Index:
 - [Themed (light/dark) plots](./themed.py)
 - [Sparkline text annotations](./subline_demo.py)
 - [nanoGPT and nGPT demo](./gpt.py)
-- [Sweep over GPT architectures (LayerNorm vs. hypersphere)](./gpt_sweep.py)
+- [Sweep over GPT architectures (LayerNorm vs. hypersphere)](./gpt-sweep/report.py)
