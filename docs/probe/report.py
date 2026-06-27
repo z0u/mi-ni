@@ -29,9 +29,9 @@ def _():
     # Probe report
 
     This notebook is a **report**, not the experiment. The experiment in
-    [`experiment.py`](https://github.com/z0u/mi-ni/blob/main/docs/probe/experiment.py)
+    [`experiment.py`](./experiment.py)
     resolves an activation cache that a *different* experiment
-    ([`docs/acts`](https://github.com/z0u/mi-ni/blob/main/docs/acts/experiment.py))
+    ([`docs/acts`](../acts/experiment.py))
     published to the project-scoped artifact store, summarizes it, and stores the
     summary as a durable artifact. Run both from the command line:
 
@@ -42,8 +42,10 @@ def _():
 
     Here we read the durable summary back through its handle and render it. The
     figure is **externalized** to the artifact store (not inlined), so the published
-    report stays light and the bytes are served from the bucket — source links above
-    are absolute on purpose, so the report's only relative URLs are its assets.
+    report stays light and the bytes are served from the bucket. The source links
+    above are written *relative*; `build_site` resolves them to their GitHub source
+    (a sibling report would resolve to its rendered page), so the only literal
+    relative URLs left in the published report are its assets.
     """)
     return
 
