@@ -1,21 +1,28 @@
 #!/usr/bin/env python
 """Build the static site from Marimo HTML output."""
 
+import os
 import re
 import shutil
-from pathlib import Path
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
-from mini.reports import insert_base, stray_links
+from mini.reports import insert_base, rewrite_links, stray_links
 
 WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
 SITE_DIR = WORKSPACE_ROOT / '_site'
 DOCS_DIR = WORKSPACE_ROOT / 'docs'
 
 # The relative dir, beside each report's HTML, holding its externalized assets
-# (figures, data blobs) written by mini.vis.Publisher.
+# (figures, data blobs) written by mini.reports.Publisher.
 ASSET_LINK = '_assets'
+
+# Source suffixes that the build renders into a sibling .html page (so an author link
+# to one resolves to the rendered result, not the dead source file).
+_RENDERED_SUFFIXES = ('.py', '.ipynb', '.md')
 
 
 def prepare_dirs():
@@ -45,20 +52,133 @@ def _bundle_key(rel_parent: Path) -> str:
 def _externalize_assets(assets_dir: Path, store, key: str) -> str:
     """Upload a bundle's assets to the bucket; return the ``<base href>`` they sit under.
 
-    The relative ``_assets/<sha>.ext`` references then resolve against this base to the
-    published bucket URL — content-addressed, so ``put`` is a no-op when bytes recur.
+    The relative ``_assets/<sha>/<name>`` references then resolve against this base to
+    the published bucket URL — content-addressed, so ``put`` is a no-op when bytes
+    recur. Walks recursively so the ``<sha>/<name>`` layout is preserved under the key.
     """
-    for f in sorted(p for p in assets_dir.iterdir() if p.is_file()):
-        store.publish(store.put(f, name=f.name), f'reports/{key}/{ASSET_LINK}/{f.name}')
+    for f in sorted(p for p in assets_dir.rglob('*') if p.is_file()):
+        rel = f.relative_to(assets_dir).as_posix()
+        store.publish(store.put(f, name=f.name), f'reports/{key}/{ASSET_LINK}/{rel}')
     return f'https://huggingface.co/buckets/{store.bucket}/resolve/published/reports/{key}/'
 
 
-def copy_marimo_output():
+# ---------------------------------------------------------------------------
+# Author-link resolution
+#
+# A report's only *relative* URLs should be its store assets; an author-written link
+# (``[src](./experiment.py)``) is repointed by the asset ``<base>`` and would 404. The
+# resolver turns each such link into an absolute target — the rendered page for things
+# the build renders, the GitHub source otherwise — so it survives the base. In localize
+# mode (no base) rendered links stay relative so offline navigation still works.
+# ---------------------------------------------------------------------------
+
+_ANCHORED = re.compile(r'(?:[a-z][a-z0-9+.\-]*:|//|/|#)', re.IGNORECASE)
+
+
+def _repo_slug() -> str | None:
+    """``owner/repo`` from ``$MINI_REPO`` or the git ``origin`` remote, or ``None``."""
+    url = os.environ.get('MINI_REPO')
+    if not url:
+        try:
+            url = subprocess.run(
+                ['git', '-C', str(WORKSPACE_ROOT), 'remote', 'get-url', 'origin'],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        except OSError, subprocess.CalledProcessError:
+            return None
+    m = re.search(r'[:/]([^/]+/[^/]+?)(?:\.git)?$', url)
+    return m.group(1) if m else None
+
+
+@dataclass(frozen=True)
+class LinkResolver:
+    """Maps an author-written relative link to its published target.
+
+    ``render_map`` is docs-relative *source* path → site-relative *output* path for
+    every page the build emits; ``source_files`` is every file under ``docs/`` (the
+    GitHub-source fallback). ``site_base``/``source_base`` are the absolute roots used
+    when a link must be made absolute (externalize mode).
+    """
+
+    render_map: dict[str, str]
+    source_files: frozenset[str]
+    site_base: str | None
+    source_base: str | None
+
+    @classmethod
+    def discover(cls) -> 'LinkResolver':
+        render_map: dict[str, str] = {}
+        for md in DOCS_DIR.rglob('*.md'):
+            if md.name == 'README.md':
+                continue
+            rel = md.relative_to(DOCS_DIR).as_posix()
+            render_map[rel] = PurePosixPath(rel).with_suffix('.html').as_posix()
+        for marimo_dir in DOCS_DIR.rglob('__marimo__'):
+            if not marimo_dir.is_dir():
+                continue
+            rel_parent = marimo_dir.parent.relative_to(DOCS_DIR)
+            for html in marimo_dir.rglob('*.html'):
+                if ASSET_LINK in html.relative_to(marimo_dir).parts:
+                    continue
+                stem = html.stem
+                out = (rel_parent / f'{stem}.html').as_posix()
+                # The export came from a sibling notebook; register every suffix an
+                # author might have linked (``report.py`` → its rendered ``report.html``).
+                for suffix in _RENDERED_SUFFIXES:
+                    render_map[(rel_parent / f'{stem}{suffix}').as_posix()] = out
+
+        source_files = frozenset(p.relative_to(DOCS_DIR).as_posix() for p in DOCS_DIR.rglob('*') if p.is_file())
+
+        slug = _repo_slug()
+        site_base = os.environ.get('MINI_SITE_URL')
+        source_base = os.environ.get('MINI_SOURCE_URL')
+        if slug:
+            owner, repo = slug.split('/', 1)
+            site_base = site_base or f'https://{owner}.github.io/{repo}/'
+            source_base = source_base or f'https://github.com/{slug}/blob/main/'
+        return cls(render_map, source_files, site_base, source_base)
+
+    def resolve(self, token: str, *, from_dir: str, externalizing: bool) -> str | None:
+        """The rewritten target for relative link *token* (authored under ``docs/<from_dir>``).
+
+        ``None`` means "leave it alone" — an external/absolute link, or one whose target
+        the build doesn't know how to reach (a dangling or not-yet-rendered path).
+        """
+        if not token or _ANCHORED.match(token):
+            return None
+        path_part, _, frag = token.partition('#')
+        frag = f'#{frag}' if frag else ''
+        norm = os.path.normpath(PurePosixPath(from_dir, path_part).as_posix())
+        if norm.startswith('..'):  # escaped the docs tree — not ours to resolve
+            return None
+
+        if norm in self.render_map:
+            if externalizing:
+                return None if self.site_base is None else f'{self.site_base}{self.render_map[norm]}{frag}'
+            # localize: keep it relative (resolves within _site), just swap the suffix
+            return f'{PurePosixPath(path_part).with_suffix(".html").as_posix()}{frag}'
+        if norm in self.source_files:
+            return None if self.source_base is None else f'{self.source_base}docs/{norm}{frag}'
+        return None
+
+
+def prepare_dirs_and_resolver() -> LinkResolver:
+    prepare_dirs()
+    return LinkResolver.discover()
+
+
+# ---------------------------------------------------------------------------
+
+
+def copy_marimo_output(links: LinkResolver):
     """Copy each ``__marimo__`` report's HTML to ``_site/``, resolving its asset bundle.
 
     Local store → copy ``_assets/`` beside the HTML (relative URLs resolve in ``_site``).
     HF bucket   → upload ``_assets/`` and insert one ``<base>`` so the same relative
-    URLs resolve at the bucket; ``_site`` then carries only HTML.
+    URLs resolve at the bucket; ``_site`` then carries only HTML. Author-written links
+    are resolved to absolute targets either way (so the ``<base>`` doesn't break them).
     """
     print('Copying Marimo HTML output...')
     from mini.hf_store import HFStore
@@ -72,7 +192,7 @@ def copy_marimo_output():
             continue
         rel_parent = marimo_dir.parent.relative_to(DOCS_DIR)
         assets_dir = marimo_dir / ASSET_LINK
-        has_assets = assets_dir.is_dir() and any(assets_dir.iterdir())
+        has_assets = assets_dir.is_dir() and any(assets_dir.rglob('*'))
 
         base_href = None
         if has_assets and externalizing:
@@ -85,8 +205,7 @@ def copy_marimo_output():
             dest = SITE_DIR / rel_parent / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             html = html_file.read_text('utf-8')
-            for stray in stray_links(html, link=ASSET_LINK):
-                print(f'  ! {rel}: relative link {stray!r} — make it absolute, a <base> would break it')
+            html = _resolve_html_links(html, links, from_dir=rel_parent.as_posix(), externalizing=externalizing)
             if base_href:
                 html = insert_base(html, base_href)
             dest.write_text(html, 'utf-8')
@@ -98,6 +217,18 @@ def copy_marimo_output():
             out = SITE_DIR / rel_parent / ASSET_LINK
             shutil.copytree(assets_dir, out, dirs_exist_ok=True)
             print(f'  {assets_dir.relative_to(WORKSPACE_ROOT)}/ -> {out.relative_to(WORKSPACE_ROOT)}/')
+
+
+def _resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, externalizing: bool) -> str:
+    """Rewrite resolvable author links in *html*; warn on the ones left dangling."""
+    mapping: dict[str, str] = {}
+    for token in stray_links(html, link=ASSET_LINK):
+        target = links.resolve(token, from_dir=from_dir, externalizing=externalizing)
+        if target is not None:
+            mapping[token] = target
+        else:
+            print(f'  ! {from_dir or "."}: unresolved relative link {token!r} — a <base> would break it')
+    return rewrite_links(html, mapping) if mapping else html
 
 
 def copy_assets():
@@ -135,7 +266,23 @@ def copy_md_stylesheet():
     print(f'  {css_src.relative_to(WORKSPACE_ROOT)} -> {css_dest.relative_to(WORKSPACE_ROOT)}')
 
 
-def convert_markdown():
+def _rewrite_md_links(text: str, links: LinkResolver, *, from_dir: str) -> str:
+    """Resolve relative Markdown link targets (``](./experiment.py)``) before conversion.
+
+    Markdown pages never carry an asset ``<base>``, so they're resolved in *localize*
+    mode: a rendered target stays a relative ``.html`` link (clickable offline), a
+    source file becomes an absolute GitHub link, and anything else is left untouched.
+    """
+
+    def repl(m: re.Match) -> str:
+        token = m.group(1)
+        target = links.resolve(token, from_dir=from_dir, externalizing=False)
+        return f']({target})' if target is not None else m.group(0)
+
+    return re.sub(r'\]\(([^)\s]+)\)', repl, text)
+
+
+def convert_markdown(links: LinkResolver):
     """Convert all .md files in docs/ (except README.md) to .html in _site/."""
     print('Converting Markdown...')
     skip = {'README.md'}
@@ -145,8 +292,8 @@ def convert_markdown():
         rel = md_file.relative_to(DOCS_DIR).with_suffix('.html')
         dest = SITE_DIR / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        text = md_file.read_text('utf-8')
-        text = re.sub(r'\]\(([^)]+)\.py\)', r'](\1.html)', text)
+        from_dir = md_file.parent.relative_to(DOCS_DIR).as_posix()
+        text = _rewrite_md_links(md_file.read_text('utf-8'), links, from_dir=from_dir)
         body = md_lib.markdown(text, extensions=['extra'])
         title_match = re.search(r'^#\s+(.+)$', text, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else md_file.stem
@@ -171,11 +318,11 @@ def add_nojekyll():
 
 
 def main():
-    prepare_dirs()
-    copy_marimo_output()
+    links = prepare_dirs_and_resolver()
+    copy_marimo_output(links)
     copy_assets()
     copy_md_stylesheet()
-    convert_markdown()
+    convert_markdown(links)
     add_nojekyll()
     print(f'\nSite written to {SITE_DIR.relative_to(WORKSPACE_ROOT)}/')
 

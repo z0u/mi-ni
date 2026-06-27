@@ -117,12 +117,46 @@ extensioned path, served with a `Content-Type` from that extension. The bucket i
 public because we share one bucket for now (a private store + public publish bucket
 is a later split — see `todo.md`).
 
-**Reports don't call `publish` directly.** A report externalizes its figures and
-data through `mini.vis` (`use_publisher(report_bundle(__file__))` — see
-[vis.md](./vis.md)), which writes content-addressed files referenced by *relative*
-URLs. `scripts/build_site.py` then `publish`es those to the bucket and inserts one
-`<base href>` so the relative URLs resolve there — one HTML that works both opened
-locally and served from Pages.
+**Reports don't call `publish` directly** — they go through a report bundle.
+
+## Report bundles
+
+A report is a **bundle**: one Marimo HTML document plus its heavy assets (figures,
+data blobs). `mini.reports` owns both halves — producing the assets and repointing
+them at the bucket on publish.
+
+**Produce.** Set a `Publisher` once in the report's setup cell; every `themed` figure
+then externalizes through it (figure cells are unchanged), and `asset_url` is the
+general verb for any blob a report's JS reads (a large JSON for a data browser, an
+SPA's data files):
+
+```py
+from mini.reports import use_publisher, report_bundle
+
+pub = use_publisher(report_bundle(__file__))   # assets → this report's __marimo__/_assets/
+url = pub.asset_url(points_json, name='points.json')   # -> '_assets/<sha>/points.json'
+```
+
+Each asset is written to `_assets/<sha>/<name>`: the SHA directory is the content
+address (identical bytes are written once and shared across reports), and the readable
+`name` is the leaf — so a browser "Save as" suggests that name (it takes the URL's last
+segment; the bucket sets no `Content-Disposition`). With no publisher, figures inline
+as self-contained `data:` URIs, so a no-frills export still works.
+
+**Publish.** The relative URL is the point: the *same* HTML works two ways. Opened
+locally, `_assets/…` resolves to the co-located files (offline; the figures are real
+PNGs). Published, `scripts/build_site.py` uploads `_assets/` to the bucket and inserts
+one `<base href>` in the `<head>` so the same relative URLs resolve there — no per-URL
+rewriting.
+
+Because `<base>` repoints *every* relative URL, the rule is **the only relative URLs in
+a report are its assets**. Author-written nav/source links would break against the
+bucket, so `build_site` resolves them: a link to another report or `.md` becomes its
+rendered page, a link to a source file becomes its GitHub source, and anything it can't
+place is left alone with a warning. Write natural relative links
+(`[experiment](./experiment.py)`); the absolute targets are derived from the git remote
+(override with `MINI_SITE_URL` / `MINI_SOURCE_URL`). Design notes:
+`research/reports-hfstore-migration.md`.
 
 ## Checkpoints are different
 

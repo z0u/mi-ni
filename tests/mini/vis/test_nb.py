@@ -9,7 +9,8 @@ import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from mini.vis.nb import Publisher, report_bundle, themed, use_publisher
+from mini.reports import Publisher, report_bundle, use_publisher
+from mini.vis.nb import themed
 
 matplotlib.use('Agg')
 
@@ -81,11 +82,22 @@ def test_publish_externalizes_to_relative_urls(tmp_path: Path):
     assert 'src="data:image' not in result
     srcs = re.findall(r'src="([^"]+)"', result)
     assert len(srcs) == 2
-    assert all(re.fullmatch(r'_assets/[0-9a-f]{64}\.png', s) for s in srcs), srcs
+    # Path is <sha>/<readable leaf>: the sha addresses the content, the leaf (derived
+    # from the plot fn name) is what a "Save as" suggests.
+    assert all(re.fullmatch(r'_assets/[0-9a-f]{64}/dummy_plot-(light|dark)\.png', s) for s in srcs), srcs
     # …and the referenced files actually exist on disk and are valid PNGs.
     for s in srcs:
         f = tmp_path / '__marimo__' / s
         assert f.exists() and f.read_bytes()[:4] == b'\x89PNG'
+
+
+def test_name_overrides_the_asset_leaf(tmp_path: Path):
+    pub = Publisher(tmp_path / '_assets')
+    result = themed(_dummy_plot, name='loss-curve', publish=pub)(1, 2)
+    srcs = re.findall(r'src="([^"]+)"', result)
+    assert all(re.fullmatch(r'_assets/[0-9a-f]{64}/loss-curve-(light|dark)\.png', s) for s in srcs), srcs
+    # The readable name is also surfaced for provenance.
+    assert result.count('data-asset-name="loss-curve"') == 2
 
 
 def test_distinct_light_dark_files(tmp_path: Path):
@@ -99,22 +111,23 @@ def test_distinct_light_dark_files(tmp_path: Path):
 
 def test_content_addressed_write_once(tmp_path: Path):
     pub = Publisher(tmp_path)
-    u1 = pub.asset_url(b'same-bytes', name='a.json')
-    u2 = pub.asset_url(b'same-bytes', name='b.json')
-    assert u1 == u2  # identical content → identical URL, written once
-    assert len(list(tmp_path.glob('*.json'))) == 1
+    u1 = pub.asset_url(b'same-bytes', name='pts.json')
+    u2 = pub.asset_url(b'same-bytes', name='pts.json')
+    assert u1 == u2  # identical content + name → identical URL, written once
+    assert len(list(tmp_path.rglob('*.json'))) == 1
 
 
 def test_use_publisher_default_is_picked_up(tmp_path: Path):
     use_publisher(Publisher(tmp_path / '_assets'))
     result = themed(_dummy_plot)(1, 2)  # no per-figure publish=
-    assert re.search(r'src="_assets/[0-9a-f]{64}\.png"', result)
+    assert re.search(r'src="_assets/[0-9a-f]{64}/dummy_plot-light\.png"', result)
 
 
 def test_asset_url_writes_file_and_returns_relative_url(tmp_path: Path):
     pub = Publisher(tmp_path / '_assets')
     url = pub.asset_url(b'{"hello": "world"}', name='points.json')
-    assert re.fullmatch(r'_assets/[0-9a-f]{64}\.json', url)
+    # <sha>/<name>: addressed by content, named for a readable download.
+    assert re.fullmatch(r'_assets/[0-9a-f]{64}/points\.json', url)
     assert (tmp_path / url).read_bytes() == b'{"hello": "world"}'
 
 

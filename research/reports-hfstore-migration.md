@@ -51,7 +51,7 @@ place here, and the only missing piece is wiring the *reports* to use it.
 
 A report is a **bundle**: one Marimo HTML document plus its heavy assets (figures,
 data blobs). The assets are externalized when *produced* and referenced by a
-**relative** URL — `_assets/<sha>.png` — written to a `_assets/` dir beside the
+**relative** URL — `_assets/<sha>/<name>.png` — written to a `_assets/` dir beside the
 exported HTML. That one decision (relative, not absolute) is what makes the same
 HTML work in every context, because *where* `_assets/…` resolves depends only on a
 single `<base href>` in the `<head>`:
@@ -98,13 +98,17 @@ images either; confirmed in `_server/export/exporter.py`, `templates.py`,
 
 The **one caveat** of a document-global `<base>`: it also repoints *author-written*
 relative links — a markdown `[experiment.py](./experiment.py)` — at the bucket,
-where they'd 404. The convention is therefore **the only relative URLs in a report
-are store assets; nav/source links are absolute** (e.g. to GitHub source). It's
-enforced cheaply: `build_site` runs `mini.reports.stray_links` over each export and
-warns about any relative URL that isn't an `_assets/…`. Conveniently, the existing
-reports' relative source links (`./experiment.py`, `../acts/…`) are *already* dead
-on Pages — `build_site` never copied `.py` files — so making them absolute fixes a
-latent bug rather than creating one.
+where they'd 404. The convention is therefore **the only relative URLs left in a report
+are store assets**. Rather than make authors hand-write absolute URLs, `build_site`
+*resolves* the author links: `mini.reports.stray_links` finds the non-asset relatives
+and a `LinkResolver` rewrites each to an absolute target — the rendered page for a
+report/`.md` the build emits, the GitHub source for a plain source file — so it
+survives the base (and stays relative in localize mode for offline nav). The absolute
+roots are derived from the git remote (`MINI_SITE_URL` / `MINI_SOURCE_URL` override);
+anything the resolver can't place is left alone with a warning. Conveniently, the
+existing reports' relative source links were *already* dead on Pages — `build_site`
+never copied `.py` files — so resolving them fixes a latent bug rather than creating
+one.
 
 ### Git size is now a non-question
 
@@ -174,13 +178,17 @@ The design consequences:
 
 The mechanism is built and verified end-to-end against the live bucket.
 
-**`mini.vis.Publisher`** (in `nb.py`) writes each asset to `_assets/<sha>.<ext>`
-and returns its relative URL; `themed` externalizes through it when one is set.
-Ergonomics first — one line in the setup cell, no change to figure cells:
+**`mini.reports.Publisher`** writes each asset to `_assets/<sha>/<name>`
+and returns its relative URL; `themed` (in `mini.vis`) externalizes through it when one
+is set. The SHA directory keeps it content-addressed; the readable leaf is what a
+browser "Save as" suggests (the bucket sets no `Content-Disposition`, so the name has
+to live in the URL). Ergonomics first — one line in the setup cell, no change to figure
+cells:
 
 ```python
 # setup cell
-from mini.vis import themed, use_publisher, report_bundle
+from mini.vis import themed
+from mini.reports import use_publisher, report_bundle
 use_publisher(report_bundle(__file__))   # assets land in this report's __marimo__/_assets
 
 # figure cell — unchanged

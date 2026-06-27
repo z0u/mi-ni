@@ -2,14 +2,15 @@
 Notebook utilities for rendering themed matplotlib figures as HTML.
 
 A report's figures are heavy (a themed plot is *two* PNGs, light and dark). Inlined
-as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry.
-A :class:`Publisher` instead writes each blob out as a content-addressed file beside
-the report and references it by a **relative** URL, so the report HTML stays light.
-Set one up once per report and every ``@themed`` figure externalizes with no
-per-figure ceremony::
+as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry. A
+:class:`~mini.reports.Publisher` instead writes each blob out as a content-addressed
+file beside the report and references it by a **relative** URL, so the report HTML
+stays light. Set one up once per report and every ``@themed`` figure externalizes with
+no per-figure ceremony::
 
     # in the report's setup cell
-    from mini.vis import themed, use_publisher, report_bundle
+    from mini.vis import themed
+    from mini.reports import use_publisher, report_bundle
     use_publisher(report_bundle(__file__))
 
     # in a figure cell — unchanged
@@ -21,16 +22,14 @@ The relative reference is the point: the *same* HTML works both ways. Opened loc
 it resolves to the co-located ``_assets/`` files (offline, and the figures are real
 PNG files); published, ``scripts/build_site.py`` uploads those files to the HF bucket
 and inserts a single ``<base href>`` so the very same relative URLs resolve there. A
-report with no publisher inlines as self-contained ``data:`` URIs, as before.
+report with no publisher inlines as self-contained ``data:`` URIs, as before. The
+publisher and the bundle protocol live in :mod:`mini.reports`.
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
-from dataclasses import dataclass
 from functools import wraps
-from pathlib import Path, PurePosixPath
 from textwrap import dedent
 from typing import Callable, ParamSpec, TypeVar, overload
 
@@ -41,89 +40,17 @@ from collections.abc import Sequence
 
 from matplotlib.figure import Figure
 
+from mini.reports import Publisher, current_publisher
 from mini.vis.plt import Stylesheet
 
 
-__all__ = ['themed', 'themed_figure_html', 'Publisher', 'use_publisher', 'report_bundle']
+__all__ = ['themed', 'themed_figure_html']
 
 P = ParamSpec('P')
 R = TypeVar('R')
 
 
 log = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Publishing report assets as files referenced by a relative URL
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Publisher:
-    """Writes a report's heavy assets out as content-addressed files beside the
-    exported HTML, referenced by a **relative** URL.
-
-    Each blob is written once, keyed by its SHA-256, under ``asset_dir``
-    (conventionally ``…/__marimo__/_assets``); the reference is ``<link>/<sha><ext>``.
-    Because it's relative, the same HTML resolves to the local files when opened off
-    disk and to the HF bucket when published (a single ``<base href>`` is inserted at
-    build time — see ``scripts/build_site.py``). Use :meth:`asset_url` for any blob (a
-    JSON a data-browser widget fetches, an SPA's data files); :meth:`png_url` is the
-    figure-shaped wrapper :func:`themed` calls.
-    """
-
-    asset_dir: Path
-    link: str = '_assets'
-
-    def asset_url(self, data: bytes | Path, *, name: str) -> str:
-        """Write *data* (bytes or a file) as ``<sha><ext>`` and return its relative URL.
-
-        Content-addressed and write-once, so re-running a report reuses identical
-        bytes rather than piling up copies. *name* only supplies the extension (which
-        sets the served media type); the SHA names the file.
-        """
-        blob = bytes(data) if isinstance(data, (bytes, bytearray)) else Path(data).read_bytes()
-        filename = f'{hashlib.sha256(blob).hexdigest()}{PurePosixPath(name).suffix}'
-        dest = self.asset_dir / filename
-        if not dest.exists():  # content-addressed: identical bytes already written
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            tmp = dest.with_name(f'{filename}.tmp')
-            tmp.write_bytes(blob)
-            tmp.replace(dest)  # atomic, so a concurrent reader never sees a partial file
-        return f'{self.link}/{filename}'
-
-    def png_url(self, data: bytes) -> str:
-        """Write a PNG and return its relative URL (the figure-shaped :meth:`asset_url`)."""
-        return self.asset_url(data, name='figure.png')
-
-
-def report_bundle(notebook_file: str | Path, *, link: str = '_assets') -> Publisher:
-    """A :class:`Publisher` writing assets beside a report's exported HTML.
-
-    Marimo exports ``docs/<…>/report.py`` to ``docs/<…>/__marimo__/report.html``; this
-    points assets at ``docs/<…>/__marimo__/<link>/`` so the relative ``<link>/…`` URL
-    resolves next to that HTML. Call it from the report's setup cell with ``__file__``::
-
-        use_publisher(report_bundle(__file__))
-    """
-    out_dir = Path(notebook_file).resolve().parent / '__marimo__'
-    return Publisher(asset_dir=out_dir / link, link=link)
-
-
-_default_publisher: Publisher | None = None
-
-
-def use_publisher(publisher: Publisher | None) -> Publisher | None:
-    """Set the report-wide default publisher; call once in a report's setup cell.
-
-    Every ``@themed`` figure then externalizes through it with no per-figure argument.
-    Pass a :class:`Publisher` (usually from :func:`report_bundle`), or ``None`` to clear
-    it (figures inline as self-contained ``data:`` URIs). Returns it, e.g. to call
-    :meth:`~Publisher.asset_url` for a data blob.
-    """
-    global _default_publisher
-    _default_publisher = publisher
-    return publisher
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +64,7 @@ def themed(
     *,
     alt_text: str | None = ...,
     max_width: str | None = ...,
+    name: str | None = ...,
     publish: Publisher | None = ...,
     light_styles: Sequence[Stylesheet] = ...,
     dark_styles: Sequence[Stylesheet] = ...,
@@ -149,6 +77,7 @@ def themed(
     *,
     alt_text: str | None = ...,
     max_width: str | None = ...,
+    name: str | None = ...,
     publish: Publisher | None = ...,
     light_styles: Sequence[Stylesheet] = ...,
     dark_styles: Sequence[Stylesheet] = ...,
@@ -160,6 +89,7 @@ def themed(
     *,
     alt_text: str | None = None,
     max_width: str | None = None,
+    name: str | None = None,
     publish: Publisher | None = None,
     light_styles: Sequence[Stylesheet] = ('base', 'light'),
     dark_styles: Sequence[Stylesheet] = ('base', 'dark'),
@@ -181,8 +111,10 @@ def themed(
         themed(plot_lr_finder, alt_text='LR finder')(lr_history, lr_config)
 
     By default the figure is inlined as a ``data:`` URI. To externalize it (keeping the
-    report HTML light), set a default :class:`Publisher` with :func:`use_publisher`, or
-    pass ``publish=`` one here.
+    report HTML light), set a default :class:`~mini.reports.Publisher` with
+    :func:`~mini.reports.use_publisher`, or pass ``publish=`` one here. *name* is the
+    externalized figure's readable basename (it ends up in the asset filename and the
+    download name); it defaults to the plot function's name.
     """
 
     def decorator(fn: Callable[P, Figure]) -> Callable[P, str]:
@@ -202,7 +134,8 @@ def themed(
                 dark_fig,
                 alt_text=alt_text,
                 max_width=max_width,
-                publish=publish if publish is not None else _default_publisher,
+                name=name or getattr(fn, '__name__', '').lstrip('_') or 'figure',
+                publish=publish if publish is not None else current_publisher(),
             )
 
         return wrapper
@@ -219,13 +152,16 @@ def themed_figure_html(
     close_fig: bool = True,
     alt_text: str | None = None,
     max_width: str | None = None,
+    name: str | None = None,
     publish: Publisher | None = None,
     **savefig_kwargs: str | int | bool,
 ) -> str:
     """Render light/dark matplotlib figures as an HTML figure element.
 
-    With ``publish`` set, each PNG is written out and referenced by a relative URL;
-    otherwise both inline as ``data:`` URIs.
+    With ``publish`` set, each PNG is written out and referenced by a relative URL
+    (named ``<name>-light.png`` / ``<name>-dark.png`` so a saved file reads sensibly);
+    otherwise both inline as ``data:`` URIs. *name* is also surfaced as a
+    ``data-asset-name`` attribute on each ``<img>`` for provenance.
     """
     import base64
     import html
@@ -252,14 +188,17 @@ def themed_figure_html(
         plt.close(light_fig)
         plt.close(dark_fig)
 
-    def _src(data: bytes) -> str:
+    asset_name = name or 'figure'
+
+    def _src(data: bytes, theme: str) -> str:
         if publish is not None:
-            return publish.png_url(data)
+            return publish.asset_url(data, name=f'{asset_name}-{theme}.png')
         return f'data:image/png;base64,{base64.b64encode(data).decode("ascii")}'
 
-    light_uri = _src(light_png)
-    dark_uri = _src(dark_png)
+    light_uri = _src(light_png, 'light')
+    dark_uri = _src(dark_png, 'dark')
 
+    escaped_name = html.escape(asset_name)
     escaped_alt = html.escape(alt_text or 'Plot')
     style = f'max-width: {max_width};' if max_width is not None else ''
     escaped_style = html.escape(style)
@@ -312,8 +251,8 @@ def themed_figure_html(
         """)
     figure_html = dedent(f"""
         <figure class="{figure_class}">
-            <img class="mini-themed-img-light" src="{light_uri}" alt="{escaped_alt}" style="{escaped_style}" />
-            <img class="mini-themed-img-dark" src="{dark_uri}" alt="{escaped_alt}" style="{escaped_style}" />
+            <img class="mini-themed-img-light" src="{light_uri}" alt="{escaped_alt}" style="{escaped_style}" data-asset-name="{escaped_name}" />
+            <img class="mini-themed-img-dark" src="{dark_uri}" alt="{escaped_alt}" style="{escaped_style}" data-asset-name="{escaped_name}" />
         </figure>
         """)
 

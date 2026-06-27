@@ -11,7 +11,8 @@ with app.setup(hide_code=True):
     import numpy as np
 
     from mini import LocalApparatus, RunState
-    from mini.vis import report_bundle, themed, use_publisher
+    from mini.reports import report_bundle, use_publisher
+    from mini.vis import themed
 
     # The report reads results by experiment *name*, the same key the CLI uses.
     NAME = 'probe'
@@ -98,6 +99,7 @@ def _(means, result):
     # the exported HTML; the rendered <img> points at its relative URL instead of
     # carrying the PNG inline, so the exported report stays light.
     @themed(
+        name='mean-activation',  # externalized assets save as mean-activation-{light,dark}.png
         alt_text=(
             'A heatmap of mean activation per neuron (x-axis) for each layer (y-axis) of the '
             'stand-in activation cache. Values cluster near zero, as expected for a synthesized '
