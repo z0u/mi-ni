@@ -48,6 +48,41 @@ def test_fragment_is_preserved(resolver):
     assert got == 'https://o.github.io/r/acts/report.html#cell-3'
 
 
+def test_repo_source_link_outside_docs_resolves_to_github(resolver):
+    # A report linking to its source modules escapes docs/ but stays in the repo;
+    # it should resolve to the GitHub source so it survives the asset <base>.
+    # (Fixture has repo_root=None, so existence is trusted.)
+    assert (
+        resolver.resolve('../src/experiment', from_dir='.', externalizing=True)
+        == 'https://github.com/o/r/blob/main/src/experiment'
+    )
+    assert (
+        resolver.resolve('../../src/experiment/model/README.md#gate', from_dir='gpt-sweep', externalizing=True)
+        == 'https://github.com/o/r/blob/main/src/experiment/model/README.md#gate'
+    )
+
+
+def test_link_escaping_the_repo_root_is_unresolved(resolver):
+    assert resolver.resolve('../../../etc/passwd', from_dir='probe', externalizing=True) is None
+
+
+def test_missing_repo_source_target_is_unresolved(tmp_path):
+    # With a repo_root set, a link to a path that doesn't exist is left to warn.
+    r = build_site.LinkResolver(
+        render_map={},
+        source_files=frozenset(),
+        site_base=None,
+        source_base='https://github.com/o/r/blob/main/',
+        repo_root=tmp_path,
+    )
+    assert r.resolve('../src/nope', from_dir='.', externalizing=True) is None
+    (tmp_path / 'src').mkdir()
+    (tmp_path / 'src' / 'real.py').write_text('')
+    assert (
+        r.resolve('../src/real.py', from_dir='.', externalizing=True) == 'https://github.com/o/r/blob/main/src/real.py'
+    )
+
+
 def test_external_and_anchored_links_are_left_alone(resolver):
     assert resolver.resolve('https://example.com', from_dir='probe', externalizing=True) is None
     assert resolver.resolve('#section', from_dir='probe', externalizing=True) is None

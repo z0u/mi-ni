@@ -113,6 +113,7 @@ class LinkResolver:
     source_files: frozenset[str]
     site_base: str | None
     source_base: str | None
+    repo_root: Path | None = None  # used to confirm a link escaping docs/ exists in the repo
 
     @classmethod
     def discover(cls) -> 'LinkResolver':
@@ -145,7 +146,7 @@ class LinkResolver:
             owner, repo = slug.split('/', 1)
             site_base = site_base or f'https://{owner}.github.io/{repo}/'
             source_base = source_base or f'https://github.com/{slug}/blob/main/'
-        return cls(render_map, source_files, site_base, source_base)
+        return cls(render_map, source_files, site_base, source_base, repo_root=WORKSPACE_ROOT)
 
     def resolve(self, token: str, *, from_dir: str, externalizing: bool) -> str | None:
         """The rewritten target for relative link *token* (authored under ``docs/<from_dir>``).
@@ -158,8 +159,20 @@ class LinkResolver:
         path_part, _, frag = token.partition('#')
         frag = f'#{frag}' if frag else ''
         norm = os.path.normpath(PurePosixPath(from_dir, path_part).as_posix())
-        if norm.startswith('..'):  # escaped the docs tree — not ours to resolve
-            return None
+        if norm.startswith('..'):
+            # Escaped docs/, but often still inside the repo — a report linking to its
+            # source modules (``../src/experiment``, ``../../src/.../README.md``). Point
+            # such a link at the GitHub source so it survives the asset <base> (which
+            # would otherwise 404 it against the bucket). Bail if there's no source base,
+            # it escapes the repo root too, or the target doesn't exist in the repo.
+            if self.source_base is None:
+                return None
+            repo_rel = os.path.normpath(PurePosixPath('docs', norm).as_posix())
+            if repo_rel.startswith('..'):
+                return None
+            if self.repo_root is not None and not (self.repo_root / repo_rel).exists():
+                return None
+            return f'{self.source_base}{repo_rel}{frag}'
 
         if norm in self.render_map:
             if externalizing:
