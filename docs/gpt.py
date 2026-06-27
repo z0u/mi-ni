@@ -110,7 +110,7 @@ def apparatus(app_type, is_headless, run_button):
             .w(
                 gpu='L4',
                 max_containers=1,
-                timeout=int(t('10 min')),
+                timeout=int(t('30 min')),  # cold L4: JIT-compile + a full 100-epoch run
             )
             .before_each(logging_config.apply)
         )
