@@ -69,7 +69,10 @@ def extract(cfg) -> dict:
 
 The store is **project-scoped**, so one experiment can hand an artifact to
 another by name (`set_ref`/`get_ref`) with no recompute. Full semantics — trees,
-publishing figures to a URL, the Modal caveat — in [storage.md](./storage.md).
+publishing artifacts to a URL, the Modal caveat — in [storage.md](./storage.md).
+Externalizing a *report's* figures and data for publishing is in
+[storage.md](./storage.md#report-bundles); the `themed` hook for it is in
+[vis.md](./vis.md).
 
 ## Routing steps to compute
 

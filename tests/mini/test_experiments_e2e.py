@@ -30,6 +30,17 @@ REPO = Path(__file__).resolve().parents[2]
 DEMOS = sorted(REPO.glob('docs/*/experiment.py'))
 
 
+@pytest.fixture(autouse=True)
+def _local_store_only(monkeypatch: pytest.MonkeyPatch):
+    """Exercise the *local* project store, hermetically.
+
+    These demos test orchestration + the on-disk store; an ambient ``MINI_STORE_BUCKET``
+    (a configured HF bucket) would divert their put/get to the network and break the
+    local-CAS assertions. The bucket backend has its own coverage in ``test_hf_store``.
+    """
+    monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)
+
+
 def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 60.0):
     """Tick the DAG to completion (launch detached work, resume on memo hits)."""
     deadline = time.monotonic() + timeout

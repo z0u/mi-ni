@@ -1,5 +1,29 @@
 """
 Notebook utilities for rendering themed matplotlib figures as HTML.
+
+A report's figures are heavy (a themed plot is *two* PNGs, light and dark). Inlined
+as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry. A
+:class:`~mini.reports.Publisher` instead writes each blob out as a content-addressed
+file beside the report and references it by a **relative** URL, so the report HTML
+stays light. Set one up once per report and every ``@themed`` figure externalizes with
+no per-figure ceremony::
+
+    # in the report's setup cell
+    from mini.vis import themed
+    from mini.reports import use_publisher, report_bundle
+    use_publisher(report_bundle(__file__))
+
+    # in a figure cell — unchanged
+    @themed(alt_text='…')
+    def _plot(): ...
+    mo.Html(_plot())
+
+The relative reference is the point: the *same* HTML works both ways. Opened locally
+it resolves to the co-located ``_assets/`` files (offline, and the figures are real
+PNG files); published, ``scripts/build_site.py`` uploads those files to the HF bucket
+and inserts a single ``<base href>`` so the very same relative URLs resolve there. A
+report with no publisher inlines as self-contained ``data:`` URIs, as before. The
+publisher and the bundle protocol live in :mod:`mini.reports`.
 """
 
 from __future__ import annotations
@@ -16,6 +40,7 @@ from collections.abc import Sequence
 
 from matplotlib.figure import Figure
 
+from mini.reports import Publisher, current_publisher
 from mini.vis.plt import Stylesheet
 
 
@@ -28,12 +53,19 @@ R = TypeVar('R')
 log = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Themed figures
+# ---------------------------------------------------------------------------
+
+
 @overload
 def themed(
     plot: Callable[P, Figure],
     *,
     alt_text: str | None = ...,
     max_width: str | None = ...,
+    name: str | None = ...,
+    publish: Publisher | None = ...,
     light_styles: Sequence[Stylesheet] = ...,
     dark_styles: Sequence[Stylesheet] = ...,
 ) -> Callable[P, str]: ...
@@ -45,6 +77,8 @@ def themed(
     *,
     alt_text: str | None = ...,
     max_width: str | None = ...,
+    name: str | None = ...,
+    publish: Publisher | None = ...,
     light_styles: Sequence[Stylesheet] = ...,
     dark_styles: Sequence[Stylesheet] = ...,
 ) -> Callable[[Callable[P, Figure]], Callable[P, str]]: ...
@@ -55,6 +89,8 @@ def themed(
     *,
     alt_text: str | None = None,
     max_width: str | None = None,
+    name: str | None = None,
+    publish: Publisher | None = None,
     light_styles: Sequence[Stylesheet] = ('base', 'light'),
     dark_styles: Sequence[Stylesheet] = ('base', 'dark'),
 ) -> Callable[P, str] | Callable[[Callable[P, Figure]], Callable[P, str]]:
@@ -73,6 +109,12 @@ def themed(
         def plot(): ...
 
         themed(plot_lr_finder, alt_text='LR finder')(lr_history, lr_config)
+
+    By default the figure is inlined as a ``data:`` URI. To externalize it (keeping the
+    report HTML light), set a default :class:`~mini.reports.Publisher` with
+    :func:`~mini.reports.use_publisher`, or pass ``publish=`` one here. *name* is the
+    externalized figure's readable basename (it ends up in the asset filename and the
+    download name); it defaults to the plot function's name.
     """
 
     def decorator(fn: Callable[P, Figure]) -> Callable[P, str]:
@@ -92,6 +134,8 @@ def themed(
                 dark_fig,
                 alt_text=alt_text,
                 max_width=max_width,
+                name=name or getattr(fn, '__name__', '').lstrip('_') or 'figure',
+                publish=publish if publish is not None else current_publisher(),
             )
 
         return wrapper
@@ -108,9 +152,17 @@ def themed_figure_html(
     close_fig: bool = True,
     alt_text: str | None = None,
     max_width: str | None = None,
+    name: str | None = None,
+    publish: Publisher | None = None,
     **savefig_kwargs: str | int | bool,
 ) -> str:
-    """Render light/dark matplotlib figures as an HTML figure element."""
+    """Render light/dark matplotlib figures as an HTML figure element.
+
+    With ``publish`` set, each PNG is written out and referenced by a relative URL
+    (named ``<name>-light.png`` / ``<name>-dark.png`` so a saved file reads sensibly);
+    otherwise both inline as ``data:`` URIs. *name* is also surfaced as a
+    ``data-asset-name`` attribute on each ``<img>`` for provenance.
+    """
     import base64
     import html
     import secrets
@@ -124,19 +176,29 @@ def themed_figure_html(
     }
     save_args = defaults | savefig_kwargs
 
-    def _to_data_uri(fig: Figure) -> str:
+    def _png_bytes(fig: Figure) -> bytes:
         img_io = BytesIO()
         fig.savefig(img_io, format='png', facecolor=fig.get_facecolor(), **save_args)  # ty:ignore[invalid-argument-type]
-        payload = base64.b64encode(img_io.getvalue()).decode('ascii')
-        return f'data:image/png;base64,{payload}'
+        return img_io.getvalue()
 
-    light_uri = _to_data_uri(light_fig)
-    dark_uri = _to_data_uri(dark_fig)
+    light_png = _png_bytes(light_fig)
+    dark_png = _png_bytes(dark_fig)
 
     if close_fig:
         plt.close(light_fig)
         plt.close(dark_fig)
 
+    asset_name = name or 'figure'
+
+    def _src(data: bytes, theme: str) -> str:
+        if publish is not None:
+            return publish.asset_url(data, name=f'{asset_name}-{theme}.png')
+        return f'data:image/png;base64,{base64.b64encode(data).decode("ascii")}'
+
+    light_uri = _src(light_png, 'light')
+    dark_uri = _src(dark_png, 'dark')
+
+    escaped_name = html.escape(asset_name)
     escaped_alt = html.escape(alt_text or 'Plot')
     style = f'max-width: {max_width};' if max_width is not None else ''
     escaped_style = html.escape(style)
@@ -189,8 +251,8 @@ def themed_figure_html(
         """)
     figure_html = dedent(f"""
         <figure class="{figure_class}">
-            <img class="mini-themed-img-light" src="{light_uri}" alt="{escaped_alt}" style="{escaped_style}" />
-            <img class="mini-themed-img-dark" src="{dark_uri}" alt="{escaped_alt}" style="{escaped_style}" />
+            <img class="mini-themed-img-light" src="{light_uri}" alt="{escaped_alt}" style="{escaped_style}" data-asset-name="{escaped_name}" />
+            <img class="mini-themed-img-dark" src="{dark_uri}" alt="{escaped_alt}" style="{escaped_style}" data-asset-name="{escaped_name}" />
         </figure>
         """)
 
