@@ -75,6 +75,16 @@ class HFStore(Store):
     def has(self, sha256: str) -> bool:
         return self._cache.has(sha256) or self._remote_has(_cas_key(sha256))
 
+    def is_published(self, path: str) -> bool:
+        """Whether a ``published/<path>`` view already exists (a read).
+
+        Lets a publish step short-circuit: the published asset paths are
+        content-addressed (``…/_assets/<sha>/<name>``), so an existing path is the
+        same bytes. A build with a **read-only** token (CI) can thus skip the
+        server-side copy when the agent already published the assets at export time.
+        """
+        return self._remote_has(f'published/{path}')
+
     def _cache_blob(self, sha256: str, src: Path) -> None:
         if not self._cache.has(sha256):
             self._cache._write_blob(sha256, src)

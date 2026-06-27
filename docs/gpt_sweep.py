@@ -20,6 +20,7 @@ with app.setup(hide_code=True):
     from experiment.utils import align
     from mini import LocalApparatus, ModalApparatus, get_data_dir  # noqa: F401
     from mini.logging import SimpleLoggingConfig
+    from mini.reports import report_bundle, use_publisher
     from mini.vis import themed
     from utils.time import duration as t
 
@@ -27,6 +28,11 @@ with app.setup(hide_code=True):
     logging_config.apply()
 
     log = logging.getLogger('notebook')
+
+    # Externalize every themed figure to a file beside the exported HTML, referenced
+    # by a relative URL — keeps the report light, and `build_site` repoints those URLs
+    # at the bucket (one <base> tag) when publishing. No publisher → figures inline.
+    use_publisher(report_bundle(__file__))
 
 
 @app.cell(hide_code=True)

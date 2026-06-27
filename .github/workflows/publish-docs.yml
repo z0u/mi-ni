@@ -27,16 +27,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          lfs: true # Large files are stored outside the main history
+        # Reports are plain-file HTML now (no Git LFS); their heavy assets live on
+        # the HF bucket and are inserted via <base> at build time.
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
       - name: Install Dependencies (for docs build)
-        run: uv sync --only-group pages
+        # The build imports mini.store / mini.hf_store, so it needs the project
+        # (not just the pages group's markdown).
+        run: uv sync --group pages
 
       - name: Build Site
+        # With the bucket configured + a (read-only) token, build_site externalizes:
+        # it derives each report's <base href> at the bucket and mirrors the light
+        # HTML + index into _site. The assets themselves were published to the bucket
+        # by the agent at export time, so this build only reads (no bucket writes).
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MINI_STORE_BUCKET: ${{ vars.MINI_STORE_BUCKET }}
         run: ./go build
 
       - name: Setup Pages

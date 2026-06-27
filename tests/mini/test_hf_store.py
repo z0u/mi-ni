@@ -87,3 +87,16 @@ def test_publish_serves_with_content_type_from_extension(hf):
     head = requests.get(url, timeout=30)
     assert head.status_code == 200
     assert head.headers['content-type'].startswith('image/png')  # inferred from the extension
+
+
+def test_is_published_reflects_publish(hf):
+    store, tag, created = hf
+    path = f'_test/{tag}/fig.png'
+    assert not store.is_published(path)  # absent before publish (a read; read-only-safe)
+
+    art = store.put(b'\x89PNG\r\n\x1a\n' + tag.encode(), name='fig.png')
+    created.append(f'cas/{art.sha256}')
+    store.publish(art, path)
+    created.append(f'published/{path}')
+
+    assert store.is_published(path)  # lets a rebuild skip the publish write

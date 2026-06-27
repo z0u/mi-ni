@@ -55,10 +55,17 @@ def _externalize_assets(assets_dir: Path, store, key: str) -> str:
     The relative ``_assets/<sha>/<name>`` references then resolve against this base to
     the published bucket URL — content-addressed, so ``put`` is a no-op when bytes
     recur. Walks recursively so the ``<sha>/<name>`` layout is preserved under the key.
+
+    Idempotent and read-only-safe: an already-published asset path is skipped (no
+    ``put``/``publish`` write), so the CI Pages build — which holds only a read-only
+    token and relies on the agent having published the assets at export time — just
+    derives the ``<base>`` without writing to the bucket.
     """
     for f in sorted(p for p in assets_dir.rglob('*') if p.is_file()):
         rel = f.relative_to(assets_dir).as_posix()
-        store.publish(store.put(f, name=f.name), f'reports/{key}/{ASSET_LINK}/{rel}')
+        dest = f'reports/{key}/{ASSET_LINK}/{rel}'
+        if not store.is_published(dest):
+            store.publish(store.put(f, name=f.name), dest)
     return f'https://huggingface.co/buckets/{store.bucket}/resolve/published/reports/{key}/'
 
 
@@ -234,8 +241,8 @@ def _resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, extern
 def copy_assets():
     """Copy non-notebook, non-markdown files from docs/ to _site/."""
     print('Copying assets...')
-    skip_dirs = {'__marimo__'}
-    skip_suffixes = {'.py', '.md', '.ipynb'}
+    skip_dirs = {'__marimo__', '__pycache__'}
+    skip_suffixes = {'.py', '.md', '.ipynb', '.pyc', '.pyo'}
     for item in sorted(DOCS_DIR.rglob('*')):
         if not item.is_file():
             continue

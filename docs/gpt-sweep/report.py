@@ -10,7 +10,13 @@ with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
     import matplotlib.pyplot as plt
 
+    from mini.reports import report_bundle, use_publisher
     from mini.vis import themed
+
+    # Externalize every themed figure to a file beside the exported HTML, referenced
+    # by a relative URL — keeps the report light, and `build_site` repoints those URLs
+    # at the bucket (one <base> tag) when publishing. No publisher → figures inline.
+    use_publisher(report_bundle(__file__))
 
     # Sweep axes (kept in sync with experiment.py), and per-arch plot colours.
     LRS = ['3e-3', '1e-2', '4e-2']

@@ -1,2 +1,4 @@
-docs/**/large-assets/** filter=lfs diff=lfs merge=lfs -text
-docs/**/__marimo__/** filter=lfs diff=lfs merge=lfs -text
+# Reports (Marimo HTML exports) commit to Git as plain files: figures and other
+# heavy assets are externalized to the HF bucket at build time, so the committed
+# HTML is just a light shell. The externalized `_assets/` are gitignored (durable
+# home is the bucket). No Git LFS.
