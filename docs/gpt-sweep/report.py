@@ -11,8 +11,8 @@ with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
     import matplotlib.pyplot as plt
 
-    from mini import LocalApparatus
     from mini.reports import report_bundle, use_publisher
+    from mini.store import project_store
     from mini.vis import themed
 
     # Externalize every themed figure to a file beside the exported HTML, referenced
@@ -32,7 +32,7 @@ with app.setup(hide_code=True):
 
     def load_curves() -> dict[str, list[float]]:
         """Resolve `{arch|lr: [val_loss per epoch]}` from the store, or `{}` if unpublished."""
-        store = LocalApparatus('gpt-sweep').store()
+        store = project_store()
         art = store.get_ref(CURVES_REF)
         if art is None:
             return {}

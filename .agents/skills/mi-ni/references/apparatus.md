@@ -48,13 +48,15 @@ app_type = mo.cli_args().get('app', 'local')   # a marimo radio in edit mode; a 
 app = ModalApparatus('demo').w(gpu='L4') if app_type == 'modal' else LocalApparatus('demo')
 ```
 
-Export it headless with `./go run` (it wraps `marimo export` and already supplies the `--` separator); pass notebook options **after** the notebook:
+Export it headless with `./go run`, passing notebook options after a `--`:
 
 ```bash
-./go run docs/gpt.py --app=modal --arch=ngpt
+./go run docs/gpt.py -- --app=modal --arch=ngpt
 ```
 
-**Syntax gotcha:** marimo's `cli_args()` only parses `--key=value` or `--key value`. A bare `key=value` (or a stray extra `--`) parses to *nothing*, so the notebook silently falls back to its default (here `local`) with no error. Confirm which backend actually ran from the logs — a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally on CPU`.
+The `--` delimits notebook options from `./go`'s own args (and `./go` forwards them to `marimo export`). It's optional — `./go run docs/gpt.py --app=modal` also works — but explicit is clearer.
+
+**Syntax gotcha:** the options are flags — marimo's `cli_args()` only parses `--key=value` or `--key value`. A bare `key=value` parses to *nothing*, so the notebook silently falls back to its default (here `local`) with no error. Confirm which backend actually ran from the logs — a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally`.
 
 Always use the async methods `arun` and `amap` in Marimo notebooks and wherever there is an asynchronous context: Modal will complain otherwise. In other contexts, you can use the synchronous variants `run` and `map`, which are just wrappers provided for convenience.
 

@@ -69,6 +69,7 @@ __all__ = [
     'get_ref',
     'store_root_for',
     'default_store',
+    'project_store',
     'store_bucket',
     'STORE_BUCKET_ENV',
 ]
@@ -374,6 +375,20 @@ def default_store(root: Path | str) -> Store:
             bucket,
         )
     return LocalStore(root)
+
+
+def project_store() -> Store:
+    """The project-scoped artifact :class:`Store`, resolved from the project root.
+
+    The artifact store is one-per-project (a ``store/`` beside the experiment
+    volumes under ``.mini``), so it needs no experiment name. Use this *outside* a
+    step — a report or notebook reading a shared ref, a driver publishing one —
+    where there's no ambient store; *inside* a step the worker already binds the
+    same store, so bare :func:`put` / :func:`get` / :func:`get_ref` resolve here.
+    """
+    from mini.runs import data_root
+
+    return default_store(data_root() / 'store')
 
 
 class LocalStore(Store):

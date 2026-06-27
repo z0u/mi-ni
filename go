@@ -52,6 +52,9 @@ case "${1:-all}" in
         if is_marimo_notebook "${1:-}"; then
             notebook="$1"
             shift
+            # Allow an explicit '--' before notebook args (./go run nb -- --app=modal);
+            # we add our own separator below, so drop a redundant leading one.
+            [[ "${1:-}" == "--" ]] && shift
             out="$( dirname -- "$notebook" )/__marimo__/$( basename -- "$notebook" .py ).html"
             ( set -x; uv run marimo export html -f "$notebook" -o "$out" -- "$@" )
         else

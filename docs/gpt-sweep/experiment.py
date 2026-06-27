@@ -128,28 +128,28 @@ def train_one(config, arch_label: str, lr_str: str) -> tuple:
     return arch_label, lr_str, [m.val_loss for m in metrics]
 
 
-def _publish_curves(results: list[tuple]) -> None:
+def publish_curves(results: list[tuple]) -> str:
     """Publish the gathered val-loss curves to the project store under ``CURVES_REF``.
 
-    Runs in the driver once the sweep completes (the ``bin/mini`` process holds the
-    bucket token), so the report can resolve the curves by name and render them —
-    keeping the data in the durable store rather than a file committed to Git.
-    Idempotent: ``put`` is content-addressed and ``set_ref`` is last-writer-wins.
+    A step, so the worker binds the ambient store and bare ``put`` / ``set_ref``
+    resolve against it (the HF bucket when configured — the token rides in on the
+    worker's Secret). The report then reads the curves by name, so the data lives in
+    the durable store rather than a ``results.json`` in Git. Idempotent: ``put`` is
+    content-addressed and ``set_ref`` is last-writer-wins.
     """
     import json
 
-    from mini.runs import data_root
-    from mini.store import default_store, store_root_for
+    from mini.store import put, set_ref
 
-    store = default_store(store_root_for(data_root() / 'gpt-sweep'))
     curves = {f'{arch}|{lr}': losses for arch, lr, losses in results}
-    store.set_ref(CURVES_REF, store.put(json.dumps(curves, indent=2).encode(), name='gpt-sweep-curves.json'))
+    set_ref(CURVES_REF, put(json.dumps(curves, indent=2).encode(), name='gpt-sweep-curves.json'))
+    return CURVES_REF
 
 
 def main(ctx: Ctx) -> list[tuple]:
     meta = ctx.run(prepare_data, role='prep')  # CPU prep; suspends until done
     results = ctx.map(train_one, build_sweep(meta), role='train')  # GPU sweep that depends on prep
-    _publish_curves(results)  # all cells done → share the curves by name for the report
+    ctx.run(publish_curves, results, role='prep')  # share the curves by name for the report
     return results
 
 
