@@ -30,6 +30,11 @@ ARCH_CFGS = [
     ('nGPT (scalar)', dict(architecture='ngpt', ngpt_variant='crude')),
 ]
 
+# Named view of the gathered val-loss curves in the project-scoped store. The
+# report resolves this ref at export time, so the data lives in the durable store
+# (the HF bucket when configured), not committed to Git.
+CURVES_REF = 'reports/gpt-sweep/curves'
+
 
 def download_pride_and_prejudice():
     """Download Pride and Prejudice from the Gutenberg HuggingFace dataset."""
@@ -123,9 +128,29 @@ def train_one(config, arch_label: str, lr_str: str) -> tuple:
     return arch_label, lr_str, [m.val_loss for m in metrics]
 
 
+def _publish_curves(results: list[tuple]) -> None:
+    """Publish the gathered val-loss curves to the project store under ``CURVES_REF``.
+
+    Runs in the driver once the sweep completes (the ``bin/mini`` process holds the
+    bucket token), so the report can resolve the curves by name and render them —
+    keeping the data in the durable store rather than a file committed to Git.
+    Idempotent: ``put`` is content-addressed and ``set_ref`` is last-writer-wins.
+    """
+    import json
+
+    from mini.runs import data_root
+    from mini.store import default_store, store_root_for
+
+    store = default_store(store_root_for(data_root() / 'gpt-sweep'))
+    curves = {f'{arch}|{lr}': losses for arch, lr, losses in results}
+    store.set_ref(CURVES_REF, store.put(json.dumps(curves, indent=2).encode(), name='gpt-sweep-curves.json'))
+
+
 def main(ctx: Ctx) -> list[tuple]:
     meta = ctx.run(prepare_data, role='prep')  # CPU prep; suspends until done
-    return ctx.map(train_one, build_sweep(meta), role='train')  # GPU sweep that depends on prep
+    results = ctx.map(train_one, build_sweep(meta), role='train')  # GPU sweep that depends on prep
+    _publish_curves(results)  # all cells done → share the curves by name for the report
+    return results
 
 
 experiment = Experiment(
