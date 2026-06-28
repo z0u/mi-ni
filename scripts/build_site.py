@@ -7,7 +7,7 @@ the bucket under ``exports/<key>/``. This build is the deterministic, read-only 
 it pulls each synced bundle, resolves author links against the *repo*, inserts one
 ``<base>`` pointing at the bucket, and writes ``_site/<key>/index.html``. With no
 bucket it *localizes* instead — reads the bundles from ``.mini/exports/`` (produced by
-``./go run``) and copies their assets beside the HTML so the site works offline.
+``./go export``) and copies their assets beside the HTML so the site works offline.
 """
 
 import os
@@ -20,7 +20,15 @@ from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
-from mini.reports import export_dir, export_key, insert_base, report_notebooks, rewrite_links, stray_links
+from mini.reports import (
+    export_dir,
+    export_key,
+    insert_base,
+    report_notebooks,
+    rewrite_links,
+    set_theme,
+    stray_links,
+)
 
 WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
 SITE_DIR = WORKSPACE_ROOT / '_site'
@@ -65,6 +73,16 @@ def _resolve_store():
 # ---------------------------------------------------------------------------
 
 _ANCHORED = re.compile(r'(?:[a-z][a-z0-9+.\-]*:|//|/|#)', re.IGNORECASE)
+
+
+def _strip_index(url: str) -> str:
+    """Drop a trailing ``index.html`` so a report reads ``<key>/`` not ``<key>/index.html``.
+
+    GitHub Pages serves the directory form, and it's the nicer canonical/shareable URL.
+    Operates before any ``#fragment`` and leaves non-index pages (``foo.html``) untouched.
+    Used only when publishing — offline (``file://``) navigation keeps the explicit file.
+    """
+    return re.sub(r'(^|/)index\.html(?=$|#)', r'\1', url)
 
 
 def _repo_slug() -> str | None:
@@ -159,7 +177,7 @@ class LinkResolver:
         if norm in self.render_map:
             out = self.render_map[norm]
             if externalizing:
-                return None if self.site_base is None else f'{self.site_base}{out}{frag}'
+                return None if self.site_base is None else f'{self.site_base}{_strip_index(out)}{frag}'
             # localize: keep it relative, resolved from where this page renders (out_dir)
             rel = os.path.relpath(out, out_dir or '.')
             return f'{PurePosixPath(rel).as_posix()}{frag}'
@@ -202,12 +220,13 @@ def build_reports(links: LinkResolver, store, externalizing: bool):
             else:
                 bundle = export_dir(nb)
                 if not (bundle / 'index.html').exists():
-                    print(f'  ! {key}: not exported locally — run `./go run {nb_rel}` (skipping)')
+                    print(f'  ! {key}: not exported locally — run `./go export {nb_rel}` (skipping)')
                     continue
                 base_href = None
 
             html = (bundle / 'index.html').read_text('utf-8')
             html = _resolve_html_links(html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
+            html = set_theme(html)  # follow the visitor's device, not the exporter's setting
             if base_href:
                 html = insert_base(html, base_href)
             dest = SITE_DIR / key / 'index.html'
@@ -266,23 +285,27 @@ def copy_md_stylesheet():
     print(f'  {css_src.relative_to(WORKSPACE_ROOT)} -> {css_dest.relative_to(WORKSPACE_ROOT)}')
 
 
-def _rewrite_md_links(text: str, links: LinkResolver, *, from_dir: str) -> str:
+def _rewrite_md_links(text: str, links: LinkResolver, *, from_dir: str, pretty: bool) -> str:
     """Resolve relative Markdown link targets (``](./experiment.py)``) before conversion.
 
     Markdown pages never carry an asset ``<base>``, so they're resolved in *localize*
     mode: a rendered target stays a relative link (clickable offline), a source file
-    becomes an absolute GitHub link, and anything else is left untouched.
+    becomes an absolute GitHub link, and anything else is left untouched. When publishing
+    (``pretty``), a report link drops its ``index.html`` so it reads ``<key>/``; offline
+    builds keep the explicit file so ``file://`` navigation still works.
     """
 
     def repl(m: re.Match) -> str:
         token = m.group(1)
         target = links.resolve(token, from_dir=from_dir, out_dir=from_dir, externalizing=False)
-        return f']({target})' if target is not None else m.group(0)
+        if target is None:
+            return m.group(0)
+        return f']({_strip_index(target) if pretty else target})'
 
     return re.sub(r'\]\(([^)\s]+)\)', repl, text)
 
 
-def convert_markdown(links: LinkResolver):
+def convert_markdown(links: LinkResolver, externalizing: bool):
     """Convert all .md files in docs/ (except README.md) to .html in _site/."""
     print('Converting Markdown...')
     skip = {'README.md'}
@@ -294,7 +317,7 @@ def convert_markdown(links: LinkResolver):
         dest.parent.mkdir(parents=True, exist_ok=True)
         from_dir = md_file.parent.relative_to(DOCS_DIR).as_posix()
         from_dir = '' if from_dir == '.' else from_dir
-        text = _rewrite_md_links(md_file.read_text('utf-8'), links, from_dir=from_dir)
+        text = _rewrite_md_links(md_file.read_text('utf-8'), links, from_dir=from_dir, pretty=externalizing)
         body = md_lib.markdown(text, extensions=['extra'])
         title_match = re.search(r'^#\s+(.+)$', text, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else md_file.stem
@@ -328,7 +351,7 @@ def main():
     build_reports(links, store, externalizing)
     copy_assets()
     copy_md_stylesheet()
-    convert_markdown(links)
+    convert_markdown(links, externalizing)
     add_nojekyll()
     print(f'\nSite written to {SITE_DIR.relative_to(WORKSPACE_ROOT)}/')
 

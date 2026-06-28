@@ -58,7 +58,7 @@ def _loss_chart() -> plt.Figure: ...
 ```
 
 ```bash
-./go run     docs/pipeline/report.py   # export the bundle locally (offline preview)
+./go export  docs/pipeline/report.py   # export the bundle locally (offline preview)
 ./go publish docs/pipeline/report.py   # export + mirror to the bucket (needs ./go auth)
 ./go serve                             # build the static site and serve it
 ```

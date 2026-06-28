@@ -150,7 +150,7 @@ exports each report to `.mini/exports/<key>/` and mirrors that bundle to the buc
 token). `scripts/build_site.py` (read-only; CI) then *pulls* each synced bundle, resolves
 author links against the repo, and inserts one `<base href="…/exports/<key>/">` in the
 `<head>` so the relative `_assets/…` URLs resolve at the bucket — no per-URL rewriting,
-no bucket writes. The same HTML opened locally (after `./go run`, which exports the
+no bucket writes. The same HTML opened locally (after `./go export`, which exports the
 bundle) resolves `_assets/…` to the co-located files (offline; real PNGs), because the
 build *localizes* when there's no bucket. Each report is one independently syncable
 bundle, served at `<key>/`.

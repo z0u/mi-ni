@@ -47,7 +47,9 @@ case "${1:-all}" in
             "$SCRIPT_DIR/check.sh" --lint --format --typecheck --test
         fi
         ;;
-    r|run)
+    e|export|r|run)
+        # `run` is a deprecated alias: it collides with `mini run` (which executes
+        # compute) whereas this only exports a static bundle. Prefer `export`.
         shift
         if is_marimo_notebook "${1:-}"; then
             # Export the report to its bundle (.mini/exports/<key>/); preview via ./go build.
@@ -73,7 +75,9 @@ case "${1:-all}" in
         shift
         uv run "$SCRIPT_DIR/build_site.py" "$@"
         ;;
-    clean)
+    scrub|clean)
+        # `clean` is a deprecated alias: in most build tools it deletes outputs, but
+        # this scrubs terminal control sequences and redacts Modal URLs. Prefer `scrub`.
         shift
         "$SCRIPT_DIR/clean_docs.py" "$@"
         ;;
@@ -84,19 +88,20 @@ case "${1:-all}" in
     *)
         # Important: heredoc indented with tab characters.
         cat <<-EOF 1>&2
-			Usage: $0 {check|lint|format|types|tests|run|open|publish|build|clean|serve}
+			Usage: $0 {check|lint|format|types|tests|export|open|publish|build|scrub|serve}
 			  install:           install dependencies (uv sync) and git hooks
 			  check  [...args]:  run all checks in parallel (--lint --format --typecheck --test --fix)
 			  format [...args]:  format code (ruff format)
 			  lint   [...args]:  run linters (ruff check)
 			  types  [...args]:  check types (ty)
 			  tests  [...args]:  run tests (pytest)
-			  run    [...args]:  export a Marimo report to its bundle, or run anything else through uv
+			  export [...args]:  export a Marimo report to its bundle, or run anything else through uv
 			  open   [...args]:  open a Marimo notebook in Marimo, or anything else in \$EDITOR
 			  publish [...nbs]:  export reports and mirror their bundles to the HF bucket
 			  build  [...args]:  build the static site (from synced bundles, or local for offline)
-			  clean  [...args]:  clean Marimo HTML/session output (apply control chars)
+			  scrub  [...args]:  scrub terminal control sequences / redact Modal URLs from Marimo HTML
 			  serve:             build and serve at http://localhost:8000
+			  (aliases: \`run\`→\`export\`, \`clean\`→\`scrub\` — deprecated)
 			EOF
         exit 1
         ;;

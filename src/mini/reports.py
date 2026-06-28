@@ -53,6 +53,7 @@ __all__ = [
     'stray_links',
     'rewrite_links',
     'insert_base',
+    'set_theme',
 ]
 
 # Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
@@ -281,3 +282,57 @@ def insert_base(html: str, href: str) -> str:
     for a build step: it rewrites the first ``<head>`` only.
     """
     return re.sub(r'(<head[^>]*>)', lambda m: f'{m.group(1)}\n    <base href="{href}" />', html, count=1)
+
+
+# The ``display.theme`` inside Marimo's frozen mount config. The block is flat JSON
+# (no nested objects), so ``[^{}]*?`` stays within it; ``count=1`` guards the rest.
+_DISPLAY_THEME = re.compile(r'("display"\s*:\s*\{[^{}]*?"theme"\s*:\s*")(?:light|dark|system)(")')
+
+# What the document declares to the browser, so the UA paints its chrome (the canvas
+# behind the page, scrollbars, form controls) in the right scheme from the very first
+# paint — before any stylesheet or script runs.
+_COLOR_SCHEME = {'system': 'light dark', 'light': 'light', 'dark': 'dark'}
+
+# Runs synchronously as the first thing in <body> — before first paint, since Marimo's
+# stylesheets are render-blocking and already loaded by then. It sets the same body
+# markup Marimo applies (class="<t> <t>-theme" data-theme="<t>"), so the page paints in
+# the device theme straight away instead of flashing light and correcting once Marimo's
+# bundle mounts. Marimo recomputes the same value for a ``system`` config, so its later
+# take-over is a no-op (no second repaint).
+_FLASH_GUARD = (
+    '<script>'
+    '(function(){'
+    'var t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";'
+    'document.body.classList.add(t,t+"-theme");'
+    'document.body.dataset.theme=t;'
+    '})();'
+    '</script>'
+)
+
+
+def set_theme(html: str, theme: str = 'system') -> str:
+    """Rewrite a Marimo export's theme so a published report follows the device, flicker-free.
+
+    Marimo bakes the *exporting* machine's ``display.theme`` into the mount config and a
+    bit of JS applies it on load (``<body class="light light-theme" data-theme="light">``).
+    For a report served to other people that hard-codes one author's preference; rewriting
+    it to ``system`` makes the frontend honor the visitor's ``prefers-color-scheme``.
+
+    Because that JS only runs once Marimo's bundle mounts, the page would otherwise paint
+    light first and flip — so for ``system`` we also declare ``<meta name="color-scheme">``
+    (UA chrome) and inject a tiny blocking :data:`_FLASH_GUARD` (the content) to get the
+    right theme on the first paint. A no-op if no theme is present (a non-Marimo page).
+    """
+    html, n = _DISPLAY_THEME.subn(lambda m: f'{m.group(1)}{theme}{m.group(2)}', html, count=1)
+    if not n:
+        return html  # not a Marimo export — nothing to theme
+    scheme = _COLOR_SCHEME.get(theme, 'light dark')
+    html = re.sub(
+        r'(<head[^>]*>)',
+        lambda m: f'{m.group(1)}\n    <meta name="color-scheme" content="{scheme}" />',
+        html,
+        count=1,
+    )
+    if theme == 'system':
+        html = re.sub(r'(<body[^>]*>)', lambda m: f'{m.group(1)}\n    {_FLASH_GUARD}', html, count=1)
+    return html
