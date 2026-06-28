@@ -1,4 +1,12 @@
-from mini.reports import insert_base, relative_urls, rewrite_links, stray_links
+from mini.reports import (
+    SOURCE_ONLY_MARKER,
+    insert_base,
+    is_report_notebook,
+    relative_urls,
+    report_notebooks,
+    rewrite_links,
+    stray_links,
+)
 
 # Mimics a Marimo export: absolute CDN links + escaped data/asset URLs inside the JSON
 # session blob, an author markdown link, and a relative asset reference.
@@ -70,3 +78,36 @@ def test_insert_base_only_first_head():
     # A literal "<head>" appearing later (e.g. in escaped content) is not touched.
     out = insert_base('<head></head><script>"\\u003chead\\u003e"</script>', 'https://h/')
     assert out.count('<base ') == 1
+
+
+_APP = 'import marimo\napp = marimo.App()\n'
+
+
+def test_is_report_notebook_detects_marimo_app(tmp_path):
+    nb = tmp_path / 'report.py'
+    nb.write_text(_APP)
+    assert is_report_notebook(nb)
+
+
+def test_is_report_notebook_excludes_non_app_and_non_py(tmp_path):
+    plain = tmp_path / 'mod.py'
+    plain.write_text('x = 1\n')
+    assert not is_report_notebook(plain)
+    assert not is_report_notebook(tmp_path / 'notes.md')  # non-.py
+    assert not is_report_notebook(tmp_path / 'missing.py')  # absent
+
+
+def test_source_only_marker_opts_out(tmp_path):
+    nb = tmp_path / 'example.py'
+    nb.write_text(f'import marimo\n# {SOURCE_ONLY_MARKER} — heavy inline compute\napp = marimo.App()\n')
+    assert not is_report_notebook(nb)
+
+
+def test_report_notebooks_skips_source_only(tmp_path):
+    (tmp_path / 'report.py').write_text(_APP)
+    (tmp_path / 'sub').mkdir()
+    (tmp_path / 'sub' / 'nested.py').write_text(_APP)
+    (tmp_path / 'example.py').write_text(f'# {SOURCE_ONLY_MARKER}\n{_APP}')
+    (tmp_path / 'plain.py').write_text('x = 1\n')
+    found = {p.relative_to(tmp_path).as_posix() for p in report_notebooks(tmp_path)}
+    assert found == {'report.py', 'sub/nested.py'}
