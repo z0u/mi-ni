@@ -1,10 +1,8 @@
-## Description
 <!-- Describe the changes you're making and why they're valuable -->
 
-## Checklist
-- [ ] I've run `./go check` and all tests pass
-- [ ] I've added documentation where appropriate
-- [ ] I've tested my changes
+_One-line description_.
+
+_Longer description_
 
 <!-- template-only -->
 
