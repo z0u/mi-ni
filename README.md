@@ -4,15 +4,15 @@
 
 mi-ni is a template repository and library for doing AI research. Features:
 
-- **Local Python notebooks** with Marimo, with outputs stored in Git LFS and published to GitHub Pages
+- **Local Python notebooks** with Marimo, published to GitHub Pages
 - **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
 - **Agentic coding config** for Claude Code
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni)
 
-There are two ways to compute, sharing one storage abstraction.
+There are two ways to compute: interactive, and detached.
 
-**Interactive.** Map a function over a sweep, right in a notebook. Swap the apparatus to change _where_ it runs; the code stays the same:
+**Interactive.** Map a function over a sweep, right in a notebook. Swap the apparatus to change where it runs; the code stays the same:
 
 ```py
 # app = LocalApparatus('my-experiment', max_workers=4)
@@ -21,7 +21,11 @@ metrics = list(app.map(train, sweep_configs))
 app.volume.download('outputs', 'local/outputs')
 ```
 
-[Getting started notebook →](./docs/getting_started.py)
+```bash
+./go open ./docs/getting_started.py  # Edit in Marimo
+```
+
+[See: getting started notebook](./docs/getting_started.py).
 
 **Detached & memoized.** For sweeps, multi-step pipelines, and long runs. Define the experiment as an importable `main(ctx)` DAG; drive and monitor it from the CLI across separate processes. Work is launched detached, and its results, progress, and errors are written to durable storage — so you can close your laptop and check back later, and so can an agent:
 
@@ -35,14 +39,33 @@ experiment = Experiment(name='pipeline', main=main)
 ```
 
 ```bash
-bin/mini run docs/pipeline/experiment.py --watch   # drive to completion, live bar
-bin/mini status pipeline                            # poll later, from any process
-bin/mini watch  pipeline                            # ...or follow it live (read-only)
+mini run docs/pipeline/experiment.py --watch   # drive to completion, live bar
+mini status pipeline                            # poll later, from anywhere
 ```
 
-`bin/mini` wraps the `mini` console-script so it works from any directory; the store lives at the project root, so `status`/`watch` find your run no matter where you invoke them.
+[See: pipeline experiment module](./docs/pipeline/experiment.py).
 
-[Pipeline example →](./docs/pipeline/report.py)
+**Report, then publish.** `report.py` is a Marimo notebook that reads the durable results from the experiment and renders them. Figures are externalized and bundled, allowing agents to view them and keeping the report light:
+
+```python
+from mini.reports import report_bundle, use_publisher
+from mini.vis import themed
+
+use_publisher(report_bundle(__file__))   # themed figures → _assets/, by name
+
+@themed(alt_text='Final validation loss...')
+def _loss_chart() -> plt.Figure: ...
+```
+
+```bash
+./go run     docs/pipeline/report.py   # export the bundle locally (offline preview)
+./go publish docs/pipeline/report.py   # export + mirror to the bucket (needs ./go auth)
+./go serve                             # build the static site and serve it
+```
+
+At export the HTML is cleaned: progress-bar terminal sequences are collapsed, and Modal app URLs (which would leak your username) are redacted.
+
+[See: pipeline report notebook](./docs/pipeline/report.py).
 
 &nbsp;
 
@@ -74,9 +97,9 @@ This template is set up for agentic coding (Claude Code and friends). The detach
 
 Ask for something like:
 
-> Write an experiment under `docs/<name>/` that compares X and Y, run it on Modal, watch for failures, and summarise the results in the report notebook.
+> Write an experiment that compares X and Y, run it on Modal, watch for failures, and summarise the results in a report notebook.
 
-The `mi-ni` skill teaches the assistant the conventions: define `main(ctx)`, drive with `mini run`, poll with `mini status` (or `mini watch` for a live bar; never by re-running), read tracebacks with `mini logs`, and recover with `mini retry`. For a long run, it delegates launching and babysitting to a cheap monitor agent and can schedule periodic check-ins.
+The `mi-ni` skill teaches the assistant the conventions: define `main(ctx)`, drive with `mini run`, poll with `mini status`, read tracebacks with `mini logs`, and recover with `mini retry`. For a long run, it delegates launching and babysitting to a cheap monitor agent and can schedule periodic check-ins.
 
 [codespaces]: https://github.com/features/codespaces
 
@@ -90,36 +113,6 @@ Use [uv] to add and remove packages, and to run scripts:
 uv add plotly --group local
 uv run python example.py
 ```
-
-</details>
-
-<details>
-<summary>Notebook output cleaning</summary>
-
-A pre-commit hook runs [`scripts/clean_docs.py`](scripts/clean_docs.py) on staged Marimo outputs. It does two things:
-
-- **Terminal sequences** — collapses `\r`/cursor-up/erase sequences that progress bars leave behind, keeping colour codes intact.
-- **Redaction** — replaces patterns that shouldn't appear in published notebooks. By default, Modal app URLs are redacted (they expose your username and app IDs). Add your own patterns to the `REDACT` list at the top of `clean_docs.py`:
-
-  ```python
-  REDACT: list[tuple[re.Pattern, str]] = [
-      (re.compile(r'https://modal\.com/apps/\S+'), '[modal.com/apps/…]'),
-      (re.compile(r'your-pattern'), '[replacement]'),
-  ]
-  ```
-
-</details>
-
-<details>
-<summary>Working with large files (Git LFS)</summary>
-
-This project is preconfigured to use [Git LFS](https://git-lfs.com). If you commit a matching file, it won't clog up your main Git history. By default, files in `docs/**/__marimo__/` are stored in LFS; see [`.gitattributes`](.gitattributes).
-
-Typically, you would store _data_ rather than code in LFS:
-
-- training data
-- model weights
-- visualizations (images and video)
 
 </details>
 

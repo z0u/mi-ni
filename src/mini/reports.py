@@ -4,13 +4,13 @@ Report bundles: produce a report's assets as relative URLs, then repoint them.
 A report is a **bundle** — one Marimo HTML document plus its heavy assets (figures,
 data blobs). The two halves of the bundle protocol both live here:
 
-**Produce.** A :class:`Publisher` writes each asset out as a content-addressed file
-beside the exported HTML and hands back a *relative* URL like
-``_assets/<sha>/<name>.png``. The path carries the content hash (so identical bytes
-are written once and shared) *and* a readable leaf (so a browser saving the asset
-suggests a sensible filename — the URL's last segment, since the bucket sets no
-``Content-Disposition``). ``themed`` figures externalize through a publisher when one
-is set; :meth:`Publisher.asset_url` is the general verb for any blob.
+**Produce.** A :class:`Publisher` writes each asset out as a file beside the exported
+HTML and hands back a *relative* URL like ``_assets/<name>.png``. The path is the
+asset's readable name (so a browser saving it suggests a sensible filename — the URL's
+last segment, since the bucket sets no ``Content-Disposition``), and the name *is* the
+key, so a re-render overwrites in place and the URL stays stable. ``themed`` figures
+externalize through a publisher when one is set; :meth:`Publisher.asset_url` is the
+general verb for any blob.
 
 **Publish.** That same HTML is consumed two ways:
 
@@ -36,12 +36,17 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 __all__ = [
     'Publisher',
     'report_bundle',
+    'export_key',
+    'export_dir',
+    'is_report_notebook',
+    'report_notebooks',
+    'SOURCE_ONLY_MARKER',
     'use_publisher',
     'current_publisher',
     'relative_urls',
@@ -49,6 +54,9 @@ __all__ = [
     'rewrite_links',
     'insert_base',
 ]
+
+# Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
+_ROOT_MARKERS = ('pyproject.toml', '.git')
 
 log = logging.getLogger(__name__)
 
@@ -66,52 +74,136 @@ def _safe_leaf(name: str) -> str:
 
 @dataclass(frozen=True)
 class Publisher:
-    """Writes a report's heavy assets out as content-addressed files beside the
-    exported HTML, referenced by a **relative** URL.
+    """Writes a report's heavy assets out as files beside the exported HTML,
+    referenced by a **relative** URL.
 
-    Each blob is written under ``asset_dir`` (conventionally ``…/__marimo__/_assets``)
-    at ``<sha256>/<name>``: the SHA directory is the content address (identical bytes
-    land in one place, written once), and the readable *name* is the leaf — so a
-    browser "Save as" suggests that name (it derives the filename from the URL's last
-    segment, the bucket setting no ``Content-Disposition``). The reference is
-    ``<link>/<sha>/<name>``; because it's relative, the same HTML resolves to the local
-    files when opened off disk and to the HF bucket when published (a single
-    ``<base href>`` is inserted at build time — see ``scripts/build_site.py``).
+    Each blob is written under ``asset_dir`` (the report's bundle ``_assets/`` —
+    :func:`report_bundle`) at its readable *name*. The name *is* the key, so the URL is stable across
+    re-exports — a re-render overwrites in place rather than piling up a new
+    content-addressed copy each time (which is what kept the bucket accumulating
+    orphans). The name is also what a browser "Save as" suggests (it derives the
+    filename from the URL's last segment, the bucket setting no
+    ``Content-Disposition``). The reference is ``<link>/<name>``; because it's
+    relative, the same HTML resolves to the local files when opened off disk and to
+    the HF bucket when published (a single ``<base href>`` is inserted at build time
+    — see ``scripts/build_site.py``).
     """
 
     asset_dir: Path
     link: str = '_assets'
+    # name -> sha of what we wrote under it this export, so a second *different*
+    # blob under the same name is caught rather than silently clobbering.
+    _written: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
 
     def asset_url(self, data: bytes | Path, *, name: str) -> str:
-        """Write *data* (bytes or a file) as ``<sha>/<name>`` and return its relative URL.
+        """Write *data* (bytes or a file) as ``<name>`` and return its relative URL.
 
-        Content-addressed by the SHA directory and write-once, so re-running a report
-        reuses identical bytes rather than piling up copies. *name* is the readable
-        download filename (carry the extension — it sets the served media type).
+        The asset is keyed by its readable *name* (carry the extension — it sets the
+        served media type), so the URL is stable and a re-render overwrites in place.
+        Two *different* blobs written under the same name in one report is an authoring
+        bug (give each figure a distinct ``name=``), so it raises rather than clobber.
         """
         blob = bytes(data) if isinstance(data, (bytes, bytearray)) else Path(data).read_bytes()
         leaf = _safe_leaf(name)
-        rel = f'{hashlib.sha256(blob).hexdigest()}/{leaf}'
-        dest = self.asset_dir / rel
-        if not dest.exists():  # content-addressed: identical bytes + name already written
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            tmp = dest.with_name(f'{leaf}.tmp')
-            tmp.write_bytes(blob)
-            tmp.replace(dest)  # atomic, so a concurrent reader never sees a partial file
-        return f'{self.link}/{rel}'
+        sha = hashlib.sha256(blob).hexdigest()
+        if (prev := self._written.get(leaf)) is not None and prev != sha:
+            raise ValueError(
+                f'two different assets written as {leaf!r} in one report — pass a distinct '
+                'name= to disambiguate (the asset name is the stable URL now, with no content hash)'
+            )
+        self._written[leaf] = sha
+        dest = self.asset_dir / leaf
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(f'{leaf}.tmp')
+        tmp.write_bytes(blob)
+        tmp.replace(dest)  # atomic + overwrite-in-place: a re-render replaces, never piles up
+        return f'{self.link}/{leaf}'
+
+
+def _project_root(start: Path) -> Path:
+    """The project root (nearest ``pyproject.toml`` / ``.git``) walking up from *start*.
+
+    Anchored at the *path*, not the cwd, so it's stable during ``marimo export`` (which
+    may run from anywhere) — ``__file__`` is absolute there.
+    """
+    start = start.resolve()
+    for d in (start, *start.parents):
+        if any((d / m).exists() for m in _ROOT_MARKERS):
+            return d
+    return start.parent
+
+
+def export_key(notebook_file: str | Path) -> str:
+    """The docs-relative, suffix-less key naming a report's self-contained bundle.
+
+    ``docs/gpt.py`` → ``gpt``; ``docs/gpt-sweep/report.py`` → ``gpt-sweep/report``. It
+    names the report's on-disk export dir *and* its ``exports/<key>/`` prefix on the
+    bucket, and (served as ``index.html``) its URL ``<key>/`` — so each report is one
+    independently syncable bundle.
+    """
+    p = Path(notebook_file).resolve()
+    docs = _project_root(p) / 'docs'
+    try:
+        rel = p.relative_to(docs)
+    except ValueError:
+        rel = Path(p.name)
+    return rel.with_suffix('').as_posix()
+
+
+def export_dir(notebook_file: str | Path) -> Path:
+    """The local (gitignored) dir holding a report's exported ``index.html`` + ``_assets/``.
+
+    ``<root>/.mini/exports/<key>/`` — the unit that mirrors to bucket ``exports/<key>/``.
+    Kept under ``.mini`` (already gitignored) so exported HTML never enters Git.
+    """
+    p = Path(notebook_file).resolve()
+    return _project_root(p) / '.mini' / 'exports' / export_key(p)
+
+
+# A docs notebook carrying this marker is a source-only *example*, not a rendered
+# report: the build skips it (never runs its inline compute) and links to it resolve
+# to its GitHub source instead of a site page. For notebooks that don't fit the
+# read-from-store report model — e.g. ``docs/gpt.py`` trains inline on every run, so
+# exporting it would re-run the whole experiment. Put it in a cell the notebook tool
+# preserves (e.g. the setup block), since the text is matched literally.
+SOURCE_ONLY_MARKER = 'mini:source-only'
+
+
+def is_report_notebook(path: str | Path) -> bool:
+    """Whether *path* is a Marimo report the site renders.
+
+    A report is a ``.py`` that declares ``marimo.App(`` and is *not* flagged
+    ``# mini:source-only`` (:data:`SOURCE_ONLY_MARKER`): the marker opts a notebook out
+    of the published set, so the build neither runs nor renders it and links to it fall
+    back to its GitHub source. The notebooks are the only source of truth for the report
+    set — a report is on the site iff its ``.py`` is in the repo and its bundle is synced.
+    """
+    p = Path(path)
+    if p.suffix != '.py':
+        return False
+    try:
+        text = p.read_text('utf-8', errors='ignore')
+    except OSError:
+        return False
+    return 'marimo.App(' in text and SOURCE_ONLY_MARKER not in text
+
+
+def report_notebooks(docs: str | Path) -> list[Path]:
+    """Every Marimo report notebook under *docs* (sorted); see :func:`is_report_notebook`."""
+    return sorted(p for p in Path(docs).rglob('*.py') if is_report_notebook(p))
 
 
 def report_bundle(notebook_file: str | Path, *, link: str = '_assets') -> Publisher:
     """A :class:`Publisher` writing assets beside a report's exported HTML.
 
-    Marimo exports ``docs/<…>/report.py`` to ``docs/<…>/__marimo__/report.html``; this
-    points assets at ``docs/<…>/__marimo__/<link>/`` so the relative ``<link>/…`` URL
-    resolves next to that HTML. Call it from the report's setup cell with ``__file__``::
+    A report exports to its own self-contained dir :func:`export_dir` (HTML as
+    ``index.html``, assets under ``_assets/``); this points the publisher at that dir's
+    ``_assets/`` so the relative ``_assets/<name>`` URL resolves next to the HTML. Call
+    it from the report's setup cell with ``__file__``::
 
         use_publisher(report_bundle(__file__))
     """
-    out_dir = Path(notebook_file).resolve().parent / '__marimo__'
-    return Publisher(asset_dir=out_dir / link, link=link)
+    return Publisher(asset_dir=export_dir(notebook_file) / link, link=link)
 
 
 _default_publisher: Publisher | None = None

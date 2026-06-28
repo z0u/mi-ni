@@ -8,8 +8,14 @@ with app.setup(hide_code=True):
     import matplotlib.pyplot as plt
     import numpy as np
 
+    from mini.reports import report_bundle, use_publisher
     from mini.vis import themed
     from mini.vis.theme import light_dark
+
+    # Externalize every themed figure to a file beside the exported HTML, referenced
+    # by a relative URL — keeps the report light, and `build_site` repoints those URLs
+    # at the bucket (one <base> tag) when publishing. No publisher → figures inline.
+    use_publisher(report_bundle(__file__))
 
 
 @app.cell(hide_code=True)

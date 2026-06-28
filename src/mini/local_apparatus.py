@@ -105,7 +105,12 @@ class LocalApparatus(Apparatus[LocalVolume]):
         sizes = [len(it) for it in iterables_lists]
         n = min(sizes) if sizes else None
 
-        log.info('Running %d jobs with %d workers', n, self.max_workers)
+        # Name the backend (symmetric with Modal's 'Running … on Modal'), so a
+        # local run — e.g. a fallback when a notebook meant to use Modal — is
+        # visible in the logs rather than only inferable from the *absence* of
+        # Modal's image-build output. ('locally', not 'on CPU': a local box may
+        # well have a GPU that JAX/torch will use.)
+        log.info('Running %d jobs locally (%d workers)', n, self.max_workers)
         run_id = secrets.token_hex(4)
 
         if self._volume is not None:

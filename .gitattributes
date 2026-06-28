@@ -1,2 +1,5 @@
-docs/**/large-assets/** filter=lfs diff=lfs merge=lfs -text
-docs/**/__marimo__/** filter=lfs diff=lfs merge=lfs -text
+# Reports are not committed to Git at all. Each report notebook (docs/**/*.py) is the
+# source of truth; `./go publish` exports it to a self-contained bundle (index.html +
+# named-keyed _assets/) and mirrors that to the HF bucket under exports/<key>/. The
+# Pages build pulls the synced bundles and assembles the site. No exported HTML, no
+# heavy assets, and no Git LFS in the repo.

@@ -21,6 +21,7 @@ with app.setup(hide_code=True):
     from experiment.utils import align
     from mini import LocalApparatus, ModalApparatus, get_data_dir  # noqa: F401
     from mini.logging import SimpleLoggingConfig
+    from mini.reports import report_bundle, use_publisher
     from mini.vis import themed
     from utils.lr_finder.vis import plot_lr_finder
     from utils.time import duration as t
@@ -29,6 +30,17 @@ with app.setup(hide_code=True):
     logging_config.apply()
 
     log = logging.getLogger('notebook')
+
+    # mini:source-only — this notebook trains inline (a full run on every execution), so
+    # it doesn't fit the read-from-store report model the site build assumes. It's excluded
+    # from the published report set: the build never runs it, and links to it (e.g. from
+    # docs/index.md) resolve to its GitHub source rather than a rendered page. Run it
+    # interactively with `./go open docs/gpt.py` (pick the Modal apparatus for the GPU).
+
+    # Externalize every themed figure to a file beside the exported HTML, referenced
+    # by a relative URL — keeps the report light, and `build_site` repoints those URLs
+    # at the bucket (one <base> tag) when publishing. No publisher → figures inline.
+    use_publisher(report_bundle(__file__))
 
 
 @app.cell(hide_code=True)
@@ -104,7 +116,7 @@ def apparatus(app_type, is_headless, run_button):
             .w(
                 gpu='L4',
                 max_containers=1,
-                timeout=int(t('10 min')),
+                timeout=int(t('30 min')),  # cold L4: JIT-compile + a full 100-epoch run
             )
             .before_each(logging_config.apply)
         )

@@ -27,16 +27,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          lfs: true # Large files are stored outside the main history
+        # No report HTML in the repo (and no Git LFS). The notebooks are the source;
+        # their exported bundles live on the HF bucket, synced by `./go publish`.
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
       - name: Install Dependencies (for docs build)
-        run: uv sync --only-group pages
+        # The build imports mini.store / mini.hf_store, so it needs the project
+        # (not just the pages group's markdown).
+        run: uv sync --group pages
 
       - name: Build Site
+        # Read-only, deterministic half of publishing: build_site pulls each synced
+        # bundle from the bucket, resolves author links against this checkout, inserts
+        # one <base href> at exports/<key>/, and writes the HTML into _site. The assets
+        # stay on the bucket CDN; the agent did the export+upload (`./go publish`). A
+        # read-only HF_TOKEN suffices — this job never writes to the bucket or runs a
+        # notebook. (A report not yet published is skipped with a warning, not an error.)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MINI_STORE_BUCKET: ${{ vars.MINI_STORE_BUCKET }}
         run: ./go build
 
       - name: Setup Pages

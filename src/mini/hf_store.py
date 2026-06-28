@@ -141,3 +141,36 @@ class HFStore(Store):
         dest = f'published/{path}'
         self.api.batch_bucket_files(self.bucket, copy=[('bucket', self.bucket, info[0].xet_hash, dest)])
         return f'https://huggingface.co/buckets/{self.bucket}/resolve/{dest}'
+
+    # -- report bundles (the publish-a-report handoff) ------------------------
+    #
+    # A report is exported (HTML + named-keyed _assets/) to a self-contained local dir,
+    # then mirrored *as-is* to ``exports/<key>/``. The build (CI) reads those back and
+    # assembles the site, pointing a single <base> at ``exports/<key>/``. This keeps the
+    # heavy/authenticated half (export, which needs the data + a write token) on the
+    # agent, and the deterministic half (link resolution, <base>) read-only in CI — no
+    # cas/<sha>, no publish() copy, no accumulation (names overwrite in place).
+
+    def export_base(self, key: str) -> str:
+        """The ``<base href>`` a published report's relative ``_assets/`` resolve against."""
+        return f'https://huggingface.co/buckets/{self.bucket}/resolve/exports/{key}/'
+
+    def sync_export(self, local_dir: Path, key: str) -> None:
+        """Mirror a report's local export dir to bucket ``exports/<key>/`` (delete stale).
+
+        rsync-like (``sync_bucket``), so a re-export overwrites in place and drops assets
+        the report no longer references — the per-report bundle is the sync unit.
+        """
+        self.api.sync_bucket(source=str(local_dir), dest=f'hf://buckets/{self.bucket}/exports/{key}', delete=True)
+
+    def fetch_export(self, key: str, dest: Path) -> bool:
+        """Download bucket ``exports/<key>/`` into *dest*; ``False`` if nothing is synced.
+
+        The build reads exports back this way — read-only, no notebook execution — so a
+        report missing here just means it hasn't been ``./go publish``ed yet.
+        """
+        if not self._remote_has(f'exports/{key}/index.html'):
+            return False
+        dest.mkdir(parents=True, exist_ok=True)
+        self.api.sync_bucket(source=f'hf://buckets/{self.bucket}/exports/{key}', dest=str(dest))
+        return True

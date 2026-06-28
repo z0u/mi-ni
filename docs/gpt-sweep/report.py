@@ -5,23 +5,39 @@ app = marimo.App(width='medium', auto_download=['html'])
 
 with app.setup(hide_code=True):
     import json
+    import tempfile
     from pathlib import Path
 
     import marimo as mo  # noqa: F401
     import matplotlib.pyplot as plt
 
+    from mini.reports import report_bundle, use_publisher
+    from mini.store import project_store
     from mini.vis import themed
+
+    # Externalize every themed figure to a file beside the exported HTML, referenced
+    # by a relative URL — keeps the report light, and `build_site` repoints those URLs
+    # at the bucket (one <base> tag) when publishing. No publisher → figures inline.
+    use_publisher(report_bundle(__file__))
 
     # Sweep axes (kept in sync with experiment.py), and per-arch plot colours.
     LRS = ['3e-3', '1e-2', '4e-2']
     ARCHS = ['baseline', 'nGPT', 'nGPT (scalar)']
     ARCH_COLORS = {'baseline': 'tab:gray', 'nGPT': 'tab:red', 'nGPT (scalar)': 'tab:green'}
 
-    try:
-        _here = Path(__file__).resolve().parent
-    except NameError:
-        _here = Path('docs/gpt-sweep')
-    RESULTS_PATH = _here / 'results.json'
+    # The experiment publishes its curves to the project-scoped store under this
+    # name (see experiment.py); we resolve them by name at export time, so no data
+    # file is committed to Git. The store is the HF bucket when configured, else local.
+    CURVES_REF = 'reports/gpt-sweep/curves'
+
+    def load_curves() -> dict[str, list[float]]:
+        """Resolve `{arch|lr: [val_loss per epoch]}` from the store, or `{}` if unpublished."""
+        store = project_store()
+        art = store.get_ref(CURVES_REF)
+        if art is None:
+            return {}
+        with tempfile.TemporaryDirectory() as d:
+            return json.loads(store.get(art, Path(d) / 'curves.json').read_text())
 
 
 @app.cell(hide_code=True)
@@ -36,22 +52,22 @@ def _():
     This is a **report**: it reads results the experiment already produced and
     renders them. The experiment itself is [`experiment.py`](./experiment.py), an
     importable `main(ctx)` DAG (one data-prep step, then a nine-cell GPU sweep)
-    run from the CLI on Modal L4s:
+    run from the CLI on Modal L4s (the `train` role binds the GPU + timeout):
 
     ```bash
-    bin/mini run docs/gpt-sweep/experiment.py --app modal --gpu L4 --max-containers 9 --timeout 600
+    bin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9
     ```
 
-    The val-loss curves below were gathered from that run into
-    [`results.json`](./results.json), so this notebook opens standalone — no GPU,
-    no Modal, no waiting.
+    On completion the experiment publishes its val-loss curves to the project
+    store under a stable name, and this report resolves them by that name when it
+    renders — so the data lives in the durable store (the HF bucket), not in Git.
     """)
     return
 
 
 @app.cell(hide_code=True)
 def _():
-    curves = json.loads(RESULTS_PATH.read_text()) if RESULTS_PATH.exists() else {}
+    curves = load_curves()
     return (curves,)
 
 
@@ -60,9 +76,8 @@ def _(curves):
     mo.stop(
         not curves,
         mo.md(
-            'No results yet. Run the experiment first:\n\n'
-            '```bash\nbin/mini run docs/gpt-sweep/experiment.py --app modal --gpu L4 --max-containers 9 --timeout 600\n```'
-            '\n\nThen snapshot the gathered curves to `results.json` (see the experiment README).'
+            'No results yet — run the experiment (it publishes its curves to the store on completion):\n\n'
+            '```bash\nbin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9\n```'
         ),
     )
     flat = {(a, lr): v for a in ARCHS for lr in LRS if (v := curves.get(f'{a}|{lr}'))}

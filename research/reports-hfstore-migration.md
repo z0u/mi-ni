@@ -2,6 +2,21 @@
 
 By Claude Opus 4.8
 
+> **Update (later revision).** The shape below landed, then was refined in two ways
+> that supersede parts of this note:
+> 1. **No exported HTML in Git at all.** The original plan committed a light HTML shell
+>    and externalized only the assets. We now commit *neither*: each report notebook is
+>    the only source, exported on demand to a self-contained bundle and synced to the
+>    bucket under `exports/<key>/`. The Pages build pulls the synced bundles. (Motive:
+>    committed HTML makes PRs hard to review.)
+> 2. **Assets are keyed by readable name, not content hash.** `_assets/<name>` (not
+>    `_assets/<sha>/<name>`), so a re-export overwrites in place and the bucket doesn't
+>    accumulate orphans — this resolves the "Accumulation / GC" open question for report
+>    assets, and "where externalization runs" (export-time `./go publish`, read-only
+>    build). The content-addressed CAS (`cas/<sha>`, refs, `publish`) is unchanged for
+>    experiment *data*. Where the two differ, this update wins; the rest still describes
+>    the mechanism (the relative-URL + `<base>` switch, the author-link resolver).
+
 How we publish reports (and their figures) through the new `HFStore` instead of
 Git LFS, so an agent can run an experiment and publish results end-to-end. It
 started as an investigation and now records the decided architecture and the

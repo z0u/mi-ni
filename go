@@ -50,13 +50,16 @@ case "${1:-all}" in
     r|run)
         shift
         if is_marimo_notebook "${1:-}"; then
-            notebook="$1"
-            shift
-            out="$( dirname -- "$notebook" )/__marimo__/$( basename -- "$notebook" .py ).html"
-            ( set -x; uv run marimo export html -f "$notebook" -o "$out" -- "$@" )
+            # Export the report to its bundle (.mini/exports/<key>/); preview via ./go build.
+            ( set -x; uv run "$SCRIPT_DIR/export_reports.py" "$1" )
         else
             ( set -x; uv run "$@" )
         fi
+        ;;
+    publish)
+        shift
+        # Export each report and mirror its bundle to the HF bucket (needs ./go auth).
+        ( set -x; uv run "$SCRIPT_DIR/export_reports.py" --publish "$@" )
         ;;
     o|edit|open)
         shift
@@ -68,7 +71,6 @@ case "${1:-all}" in
         ;;
     build|site)
         shift
-        "$SCRIPT_DIR/clean_docs.py"
         uv run "$SCRIPT_DIR/build_site.py" "$@"
         ;;
     clean)
@@ -82,18 +84,19 @@ case "${1:-all}" in
     *)
         # Important: heredoc indented with tab characters.
         cat <<-EOF 1>&2
-			Usage: $0 {check|lint|format|types|tests|run|open|build|clean|serve}
+			Usage: $0 {check|lint|format|types|tests|run|open|publish|build|clean|serve}
 			  install:           install dependencies (uv sync) and git hooks
 			  check  [...args]:  run all checks in parallel (--lint --format --typecheck --test --fix)
 			  format [...args]:  format code (ruff format)
 			  lint   [...args]:  run linters (ruff check)
 			  types  [...args]:  check types (ty)
 			  tests  [...args]:  run tests (pytest)
-			  run    [...args]:  run & export a Marimo notebook, or run anything else through uv
+			  run    [...args]:  export a Marimo report to its bundle, or run anything else through uv
 			  open   [...args]:  open a Marimo notebook in Marimo, or anything else in \$EDITOR
-			  build  [...args]:  build static site
+			  publish [...nbs]:  export reports and mirror their bundles to the HF bucket
+			  build  [...args]:  build the static site (from synced bundles, or local for offline)
 			  clean  [...args]:  clean Marimo HTML/session output (apply control chars)
-			  serve:             clean docs and serve at http://localhost:8000
+			  serve:             build and serve at http://localhost:8000
 			EOF
         exit 1
         ;;

@@ -6,7 +6,9 @@ import re
 import sys
 from pathlib import Path
 
-DOCS_DIR = Path(__file__).parent.parent / 'docs' / '__marimo__'
+# Exported report bundles (gitignored). clean_html/clean_session_json are also imported
+# by export_reports.py and applied at export time, before a bundle is synced.
+EXPORTS_DIR = Path(__file__).parent.parent / '.mini' / 'exports'
 
 _CSI = re.compile(r'\x1b\[([0-9;?]*)([A-Za-z])')
 
@@ -147,7 +149,7 @@ def main() -> None:
     if sys.argv[1:]:
         paths = [Path(a) for a in sys.argv[1:]]
     else:
-        paths = list(DOCS_DIR.glob('*.html')) + list((DOCS_DIR / 'session').glob('*.py.json'))
+        paths = list(EXPORTS_DIR.rglob('*.html')) + list(EXPORTS_DIR.rglob('*.py.json'))
 
     changed = 0
     for p in paths:
