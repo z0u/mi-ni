@@ -33,6 +33,10 @@ Use `T | None` instead of `Optional[T]`.
 
 When working on a notebook, iterate on both the code (Python) and the prose (Markdown). Aim for a literate programming style in which we tell stories about our experiments. We don't just document the code; the notebook as a whole should display a strong narrative.
 
+## Pull requests
+
+When creating PRs, omit the **Checklist** and **Copyright Dedication** sections from the PR template — these don't apply when Claude Code is opening PRs on behalf of the repo owner or a contributor.
+
 ## Environment
 
 This project uses `uv`, `ruff`, and `ty`.
