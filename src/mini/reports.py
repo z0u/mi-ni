@@ -44,6 +44,9 @@ __all__ = [
     'report_bundle',
     'export_key',
     'export_dir',
+    'is_report_notebook',
+    'report_notebooks',
+    'SOURCE_ONLY_MARKER',
     'use_publisher',
     'current_publisher',
     'relative_urls',
@@ -155,6 +158,39 @@ def export_dir(notebook_file: str | Path) -> Path:
     """
     p = Path(notebook_file).resolve()
     return _project_root(p) / '.mini' / 'exports' / export_key(p)
+
+
+# A docs notebook carrying this marker is a source-only *example*, not a rendered
+# report: the build skips it (never runs its inline compute) and links to it resolve
+# to its GitHub source instead of a site page. For notebooks that don't fit the
+# read-from-store report model — e.g. ``docs/gpt.py`` trains inline on every run, so
+# exporting it would re-run the whole experiment. Put it in a cell the notebook tool
+# preserves (e.g. the setup block), since the text is matched literally.
+SOURCE_ONLY_MARKER = 'mini:source-only'
+
+
+def is_report_notebook(path: str | Path) -> bool:
+    """Whether *path* is a Marimo report the site renders.
+
+    A report is a ``.py`` that declares ``marimo.App(`` and is *not* flagged
+    ``# mini:source-only`` (:data:`SOURCE_ONLY_MARKER`): the marker opts a notebook out
+    of the published set, so the build neither runs nor renders it and links to it fall
+    back to its GitHub source. The notebooks are the only source of truth for the report
+    set — a report is on the site iff its ``.py`` is in the repo and its bundle is synced.
+    """
+    p = Path(path)
+    if p.suffix != '.py':
+        return False
+    try:
+        text = p.read_text('utf-8', errors='ignore')
+    except OSError:
+        return False
+    return 'marimo.App(' in text and SOURCE_ONLY_MARKER not in text
+
+
+def report_notebooks(docs: str | Path) -> list[Path]:
+    """Every Marimo report notebook under *docs* (sorted); see :func:`is_report_notebook`."""
+    return sorted(p for p in Path(docs).rglob('*.py') if is_report_notebook(p))
 
 
 def report_bundle(notebook_file: str | Path, *, link: str = '_assets') -> Publisher:

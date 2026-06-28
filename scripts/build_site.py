@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
-from mini.reports import export_dir, export_key, insert_base, rewrite_links, stray_links
+from mini.reports import export_dir, export_key, insert_base, report_notebooks, rewrite_links, stray_links
 
 WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
 SITE_DIR = WORKSPACE_ROOT / '_site'
@@ -33,15 +33,6 @@ ASSET_LINK = '_assets'
 # Source suffixes that the build renders into a report page (so an author link to one
 # resolves to the rendered result, not the dead source file).
 _RENDERED_SUFFIXES = ('.py', '.ipynb', '.md')
-
-
-def report_notebooks(docs: Path) -> list[Path]:
-    """Every Marimo report notebook under *docs* (a ``.py`` that declares ``marimo.App(``).
-
-    The notebooks are the only source of truth for the report set — a report is on the
-    site iff its ``.py`` is in the repo and its bundle is synced/exported.
-    """
-    return sorted(p for p in docs.rglob('*.py') if 'marimo.App(' in p.read_text('utf-8', errors='ignore'))
 
 
 def prepare_dirs():

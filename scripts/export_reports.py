@@ -18,17 +18,29 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))  # so `import clean_docs` (sibling) works
 
 from clean_docs import clean_html  # noqa: E402
-from mini.reports import export_dir, export_key  # noqa: E402
+from mini.reports import export_dir, export_key, is_report_notebook, report_notebooks  # noqa: E402
 
 ROOT = Path(__file__).parent.parent.resolve()
 DOCS = ROOT / 'docs'
 
 
-def report_notebooks(paths: list[str]) -> list[Path]:
-    """The notebooks to export — the given ones, or every report under ``docs/``."""
-    if paths:
-        return [Path(p).resolve() for p in paths]
-    return sorted(p for p in DOCS.rglob('*.py') if 'marimo.App(' in p.read_text('utf-8', errors='ignore'))
+def notebooks_to_export(paths: list[str]) -> list[Path]:
+    """The report notebooks to export — the given ones, or every report under ``docs/``.
+
+    Source-only example notebooks (``# mini:source-only``, e.g. ``docs/gpt.py``) are
+    skipped even when named explicitly: the site links to their GitHub source rather than
+    running them, so exporting one (which re-runs its inline compute) is never intended.
+    """
+    if not paths:
+        return report_notebooks(DOCS)
+    keep = []
+    for p in paths:
+        path = Path(p).resolve()
+        if is_report_notebook(path):
+            keep.append(path)
+        else:
+            print(f'  skip {path.name}: source-only example, not a rendered report — open it with `./go open`')
+    return keep
 
 
 def export_one(nb: Path) -> Path:
@@ -55,7 +67,7 @@ def main() -> None:
     ap.add_argument('notebooks', nargs='*', help='report notebooks (default: all under docs/)')
     args = ap.parse_args()
 
-    nbs = report_notebooks(args.notebooks)
+    nbs = notebooks_to_export(args.notebooks)
     if not nbs:
         sys.exit('No report notebooks found under docs/.')
 

@@ -102,6 +102,22 @@ def test_unknown_target_is_unresolved(resolver):
     assert resolver.resolve('./nope.py', from_dir='probe', out_dir='probe/report', externalizing=True) is None
 
 
+def test_source_only_report_link_resolves_to_github():
+    # A source-only example (e.g. gpt.py) is absent from render_map but still a file under
+    # docs/, so a link to it (as from docs/index.md) falls through to the GitHub source
+    # rather than a rendered page that would never exist. Markdown resolves in localize mode.
+    r = build_site.LinkResolver(
+        render_map={'pipeline/report.py': 'pipeline/report/index.html'},
+        source_files=frozenset({'gpt.py', 'pipeline/report.py'}),
+        site_base='https://o.github.io/r/',
+        source_base='https://github.com/o/r/blob/main/',
+    )
+    assert (
+        r.resolve('./gpt.py', from_dir='', out_dir='', externalizing=False)
+        == 'https://github.com/o/r/blob/main/docs/gpt.py'
+    )
+
+
 def test_missing_bases_degrade_to_unresolved():
     r = build_site.LinkResolver(
         render_map={'acts/report.py': 'acts/report/index.html'},
