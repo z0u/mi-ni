@@ -34,7 +34,7 @@ from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
 from mini.runs import data_root
-from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, _cas_key, _hf_token, default_store, store_bucket
+from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, _cas_key, _hf_token, store_bucket, store_for
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ def _hf_store_secret() -> modal.Secret | None:
 
     When a bucket is configured (``[tool.mini] store-bucket`` or the env override)
     and a token is available, forward both into the remote container's env so the
-    worker's ``default_store`` resolves to the shared bucket. Absent either, the
+    worker's ``store_for`` resolves to the shared bucket. Absent either, the
     worker falls back to the Volume-backed store.
     """
     bucket = store_bucket()
@@ -241,7 +241,7 @@ def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, m
     from mini._taskworker import execute_task
     from mini.memo import MemoStore
     from mini.modal_apparatus import ModalRecordStore
-    from mini.store import default_store
+    from mini.store import store_for
 
     fn, args, hooks = _cp.loads(blob)
     store = MemoStore(Path(mount_point), records=ModalRecordStore.from_name(dict_name))
@@ -250,7 +250,7 @@ def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, m
     # shared HF bucket — so another experiment, local or remote, reads these bytes
     # back with no shared Volume. Otherwise the CAS rides *under* the mounted
     # Volume (committed with the result), per-experiment until #22's project Volume.
-    artifacts = default_store(Path(mount_point) / 'store')
+    artifacts = store_for(Path(mount_point) / 'store')
     execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts)
 
 
@@ -354,7 +354,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         to the Volume, so the client must read from there too (not an empty bucket).
         """
         if store_bucket() and _hf_token():
-            return default_store(data_root() / 'store')
+            return store_for(data_root() / 'store')
         assert self.app.name  # guaranteed by __init__ (a named App is required)
         cache = LocalStore(data_root() / 'store-cache' / self.app.name)
         return ModalVolumeStore(self.volume, cache)

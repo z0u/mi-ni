@@ -68,7 +68,7 @@ __all__ = [
     'set_ref',
     'get_ref',
     'store_root_for',
-    'default_store',
+    'store_for',
     'project_store',
     'store_bucket',
     'STORE_BUCKET_ENV',
@@ -348,7 +348,7 @@ def _hf_token() -> str | None:
         return None
 
 
-def default_store(root: Path | str) -> Store:
+def store_for(root: Path | str) -> Store:
     """The project store for a given local *root* — bucket-backed if configured.
 
     When a bucket is configured (:func:`store_bucket`) *and* a Hugging Face token is
@@ -388,7 +388,7 @@ def project_store() -> Store:
     """
     from mini.runs import data_root
 
-    return default_store(data_root() / 'store')
+    return store_for(data_root() / 'store')
 
 
 class LocalStore(Store):

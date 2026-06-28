@@ -1,28 +1,47 @@
 #!/usr/bin/env python
-"""Build the static site from Marimo HTML output."""
+"""Build the static site from the project's report notebooks.
+
+The HTML lives nowhere in Git: each report is exported (``./go publish``) to a
+self-contained bundle — ``index.html`` + named-keyed ``_assets/`` — and mirrored to
+the bucket under ``exports/<key>/``. This build is the deterministic, read-only half:
+it pulls each synced bundle, resolves author links against the *repo*, inserts one
+``<base>`` pointing at the bucket, and writes ``_site/<key>/index.html``. With no
+bucket it *localizes* instead — reads the bundles from ``.mini/exports/`` (produced by
+``./go run``) and copies their assets beside the HTML so the site works offline.
+"""
 
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
-from mini.reports import insert_base, rewrite_links, stray_links
+from mini.reports import export_dir, export_key, insert_base, rewrite_links, stray_links
 
 WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
 SITE_DIR = WORKSPACE_ROOT / '_site'
 DOCS_DIR = WORKSPACE_ROOT / 'docs'
 
-# The relative dir, beside each report's HTML, holding its externalized assets
+# The relative dir, beside each report's index.html, holding its externalized assets
 # (figures, data blobs) written by mini.reports.Publisher.
 ASSET_LINK = '_assets'
 
-# Source suffixes that the build renders into a sibling .html page (so an author link
-# to one resolves to the rendered result, not the dead source file).
+# Source suffixes that the build renders into a report page (so an author link to one
+# resolves to the rendered result, not the dead source file).
 _RENDERED_SUFFIXES = ('.py', '.ipynb', '.md')
+
+
+def report_notebooks(docs: Path) -> list[Path]:
+    """Every Marimo report notebook under *docs* (a ``.py`` that declares ``marimo.App(``).
+
+    The notebooks are the only source of truth for the report set — a report is on the
+    site iff its ``.py`` is in the repo and its bundle is synced/exported.
+    """
+    return sorted(p for p in docs.rglob('*.py') if 'marimo.App(' in p.read_text('utf-8', errors='ignore'))
 
 
 def prepare_dirs():
@@ -35,38 +54,13 @@ def prepare_dirs():
 def _resolve_store():
     """The project store — an HF bucket if configured + authed, else local.
 
-    Drives the two asset modes: a bucket means *externalize* (upload + ``<base>``); a
-    local store means *localize* (copy assets beside the HTML in ``_site``).
+    Drives the two modes: a bucket means *externalize* (pull synced exports + ``<base>``
+    at the bucket); a local store means *localize* (read ``.mini/exports`` and copy
+    assets beside the HTML in ``_site``).
     """
-    from mini.store import default_store
+    from mini.store import store_for
 
-    return default_store(WORKSPACE_ROOT / '.mini' / 'store')
-
-
-def _bundle_key(rel_parent: Path) -> str:
-    """A bucket namespace for a report's assets, from its dir relative to docs/."""
-    posix = rel_parent.as_posix()
-    return posix if posix != '.' else '_root'
-
-
-def _externalize_assets(assets_dir: Path, store, key: str) -> str:
-    """Upload a bundle's assets to the bucket; return the ``<base href>`` they sit under.
-
-    The relative ``_assets/<sha>/<name>`` references then resolve against this base to
-    the published bucket URL — content-addressed, so ``put`` is a no-op when bytes
-    recur. Walks recursively so the ``<sha>/<name>`` layout is preserved under the key.
-
-    Idempotent and read-only-safe: an already-published asset path is skipped (no
-    ``put``/``publish`` write), so the CI Pages build — which holds only a read-only
-    token and relies on the agent having published the assets at export time — just
-    derives the ``<base>`` without writing to the bucket.
-    """
-    for f in sorted(p for p in assets_dir.rglob('*') if p.is_file()):
-        rel = f.relative_to(assets_dir).as_posix()
-        dest = f'reports/{key}/{ASSET_LINK}/{rel}'
-        if not store.is_published(dest):
-            store.publish(store.put(f, name=f.name), dest)
-    return f'https://huggingface.co/buckets/{store.bucket}/resolve/published/reports/{key}/'
+    return store_for(WORKSPACE_ROOT / '.mini' / 'store')
 
 
 # ---------------------------------------------------------------------------
@@ -104,9 +98,10 @@ class LinkResolver:
     """Maps an author-written relative link to its published target.
 
     ``render_map`` is docs-relative *source* path → site-relative *output* path for
-    every page the build emits; ``source_files`` is every file under ``docs/`` (the
-    GitHub-source fallback). ``site_base``/``source_base`` are the absolute roots used
-    when a link must be made absolute (externalize mode).
+    every page the build emits (reports render to ``<key>/index.html``, markdown to
+    ``<name>.html``); ``source_files`` is every file under ``docs/`` (the GitHub-source
+    fallback). ``site_base``/``source_base`` are the absolute roots used when a link must
+    be made absolute (externalize mode).
     """
 
     render_map: dict[str, str]
@@ -123,19 +118,13 @@ class LinkResolver:
                 continue
             rel = md.relative_to(DOCS_DIR).as_posix()
             render_map[rel] = PurePosixPath(rel).with_suffix('.html').as_posix()
-        for marimo_dir in DOCS_DIR.rglob('__marimo__'):
-            if not marimo_dir.is_dir():
-                continue
-            rel_parent = marimo_dir.parent.relative_to(DOCS_DIR)
-            for html in marimo_dir.rglob('*.html'):
-                if ASSET_LINK in html.relative_to(marimo_dir).parts:
-                    continue
-                stem = html.stem
-                out = (rel_parent / f'{stem}.html').as_posix()
-                # The export came from a sibling notebook; register every suffix an
-                # author might have linked (``report.py`` → its rendered ``report.html``).
-                for suffix in _RENDERED_SUFFIXES:
-                    render_map[(rel_parent / f'{stem}{suffix}').as_posix()] = out
+        for nb in report_notebooks(DOCS_DIR):
+            out = f'{export_key(nb)}/index.html'
+            stem_rel = nb.relative_to(DOCS_DIR)
+            # The report came from this notebook; register every suffix an author might
+            # have linked (``report.py`` → its rendered ``<key>/index.html``).
+            for suffix in _RENDERED_SUFFIXES:
+                render_map[stem_rel.with_suffix(suffix).as_posix()] = out
 
         source_files = frozenset(p.relative_to(DOCS_DIR).as_posix() for p in DOCS_DIR.rglob('*') if p.is_file())
 
@@ -148,11 +137,13 @@ class LinkResolver:
             source_base = source_base or f'https://github.com/{slug}/blob/main/'
         return cls(render_map, source_files, site_base, source_base, repo_root=WORKSPACE_ROOT)
 
-    def resolve(self, token: str, *, from_dir: str, externalizing: bool) -> str | None:
-        """The rewritten target for relative link *token* (authored under ``docs/<from_dir>``).
+    def resolve(self, token: str, *, from_dir: str, out_dir: str, externalizing: bool) -> str | None:
+        """The rewritten target for relative link *token* authored under ``docs/<from_dir>``.
 
-        ``None`` means "leave it alone" — an external/absolute link, or one whose target
-        the build doesn't know how to reach (a dangling or not-yet-rendered path).
+        The token is interpreted against ``from_dir`` (where it was written); a localized
+        link is made relative to ``out_dir`` (where the emitting page *renders*, which for
+        a report differs from its source dir). ``None`` means "leave it alone" — an
+        external/absolute link, or one whose target the build doesn't know how to reach.
         """
         if not token or _ANCHORED.match(token):
             return None
@@ -175,10 +166,12 @@ class LinkResolver:
             return f'{self.source_base}{repo_rel}{frag}'
 
         if norm in self.render_map:
+            out = self.render_map[norm]
             if externalizing:
-                return None if self.site_base is None else f'{self.site_base}{self.render_map[norm]}{frag}'
-            # localize: keep it relative (resolves within _site), just swap the suffix
-            return f'{PurePosixPath(path_part).with_suffix(".html").as_posix()}{frag}'
+                return None if self.site_base is None else f'{self.site_base}{out}{frag}'
+            # localize: keep it relative, resolved from where this page renders (out_dir)
+            rel = os.path.relpath(out, out_dir or '.')
+            return f'{PurePosixPath(rel).as_posix()}{frag}'
         if norm in self.source_files:
             return None if self.source_base is None else f'{self.source_base}docs/{norm}{frag}'
         return None
@@ -192,58 +185,54 @@ def prepare_dirs_and_resolver() -> LinkResolver:
 # ---------------------------------------------------------------------------
 
 
-def copy_marimo_output(links: LinkResolver):
-    """Copy each ``__marimo__`` report's HTML to ``_site/``, resolving its asset bundle.
+def build_reports(links: LinkResolver, store, externalizing: bool):
+    """Assemble each report bundle into ``_site/<key>/index.html``.
 
-    Local store → copy ``_assets/`` beside the HTML (relative URLs resolve in ``_site``).
-    HF bucket   → upload ``_assets/`` and insert one ``<base>`` so the same relative
-    URLs resolve at the bucket; ``_site`` then carries only HTML. Author-written links
-    are resolved to absolute targets either way (so the ``<base>`` doesn't break them).
+    Externalize: pull the synced bundle from the bucket, insert one ``<base>`` at
+    ``exports/<key>/`` so its relative ``_assets/`` resolve there, and write only the
+    HTML into ``_site`` (the bytes stay on the bucket CDN). Localize: read the bundle
+    from ``.mini/exports`` and copy its ``_assets/`` beside the HTML so it works offline.
+    Author links are resolved to absolute/relative targets either way.
     """
-    print('Copying Marimo HTML output...')
-    from mini.hf_store import HFStore
+    print('Building reports...')
+    for nb in report_notebooks(DOCS_DIR):
+        key = export_key(nb)
+        from_dir = nb.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
+        from_dir = '' if from_dir == '.' else from_dir
+        nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
 
-    store = _resolve_store()
-    externalizing = isinstance(store, HFStore)
-    print(f'  asset mode: {"externalize → " + store.bucket if externalizing else "localize (no bucket)"}')
+        with tempfile.TemporaryDirectory() as tmp:
+            if externalizing:
+                bundle = Path(tmp)
+                if not store.fetch_export(key, bundle):
+                    print(f'  ! {key}: no synced export on the bucket — run `./go publish` (skipping)')
+                    continue
+                base_href = store.export_base(key)
+            else:
+                bundle = export_dir(nb)
+                if not (bundle / 'index.html').exists():
+                    print(f'  ! {key}: not exported locally — run `./go run {nb_rel}` (skipping)')
+                    continue
+                base_href = None
 
-    for marimo_dir in sorted(DOCS_DIR.rglob('__marimo__')):
-        if not marimo_dir.is_dir():
-            continue
-        rel_parent = marimo_dir.parent.relative_to(DOCS_DIR)
-        assets_dir = marimo_dir / ASSET_LINK
-        has_assets = assets_dir.is_dir() and any(assets_dir.rglob('*'))
-
-        base_href = None
-        if has_assets and externalizing:
-            base_href = _externalize_assets(assets_dir, store, _bundle_key(rel_parent))
-
-        for html_file in sorted(marimo_dir.rglob('*.html')):
-            rel = html_file.relative_to(marimo_dir)
-            if ASSET_LINK in rel.parts:
-                continue
-            dest = SITE_DIR / rel_parent / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            html = html_file.read_text('utf-8')
-            html = _resolve_html_links(html, links, from_dir=rel_parent.as_posix(), externalizing=externalizing)
+            html = (bundle / 'index.html').read_text('utf-8')
+            html = _resolve_html_links(html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
             if base_href:
                 html = insert_base(html, base_href)
+            dest = SITE_DIR / key / 'index.html'
+            dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(html, 'utf-8')
-            print(
-                f'  {html_file.relative_to(WORKSPACE_ROOT)} -> {dest.relative_to(WORKSPACE_ROOT)}{" [+base]" if base_href else ""}'
-            )
 
-        if has_assets and not externalizing:
-            out = SITE_DIR / rel_parent / ASSET_LINK
-            shutil.copytree(assets_dir, out, dirs_exist_ok=True)
-            print(f'  {assets_dir.relative_to(WORKSPACE_ROOT)}/ -> {out.relative_to(WORKSPACE_ROOT)}/')
+            if not externalizing and (bundle / ASSET_LINK).is_dir():
+                shutil.copytree(bundle / ASSET_LINK, dest.parent / ASSET_LINK, dirs_exist_ok=True)
+            print(f'  {key} -> _site/{key}/index.html{" [+base]" if base_href else ""}')
 
 
-def _resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, externalizing: bool) -> str:
+def _resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, out_dir: str, externalizing: bool) -> str:
     """Rewrite resolvable author links in *html*; warn on the ones left dangling."""
     mapping: dict[str, str] = {}
     for token in stray_links(html, link=ASSET_LINK):
-        target = links.resolve(token, from_dir=from_dir, externalizing=externalizing)
+        target = links.resolve(token, from_dir=from_dir, out_dir=out_dir, externalizing=externalizing)
         if target is not None:
             mapping[token] = target
         else:
@@ -290,13 +279,13 @@ def _rewrite_md_links(text: str, links: LinkResolver, *, from_dir: str) -> str:
     """Resolve relative Markdown link targets (``](./experiment.py)``) before conversion.
 
     Markdown pages never carry an asset ``<base>``, so they're resolved in *localize*
-    mode: a rendered target stays a relative ``.html`` link (clickable offline), a
-    source file becomes an absolute GitHub link, and anything else is left untouched.
+    mode: a rendered target stays a relative link (clickable offline), a source file
+    becomes an absolute GitHub link, and anything else is left untouched.
     """
 
     def repl(m: re.Match) -> str:
         token = m.group(1)
-        target = links.resolve(token, from_dir=from_dir, externalizing=False)
+        target = links.resolve(token, from_dir=from_dir, out_dir=from_dir, externalizing=False)
         return f']({target})' if target is not None else m.group(0)
 
     return re.sub(r'\]\(([^)\s]+)\)', repl, text)
@@ -313,6 +302,7 @@ def convert_markdown(links: LinkResolver):
         dest = SITE_DIR / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         from_dir = md_file.parent.relative_to(DOCS_DIR).as_posix()
+        from_dir = '' if from_dir == '.' else from_dir
         text = _rewrite_md_links(md_file.read_text('utf-8'), links, from_dir=from_dir)
         body = md_lib.markdown(text, extensions=['extra'])
         title_match = re.search(r'^#\s+(.+)$', text, re.MULTILINE)
@@ -338,8 +328,13 @@ def add_nojekyll():
 
 
 def main():
+    from mini.hf_store import HFStore
+
     links = prepare_dirs_and_resolver()
-    copy_marimo_output(links)
+    store = _resolve_store()
+    externalizing = isinstance(store, HFStore)
+    print(f'  asset mode: {"externalize ← " + store.bucket if externalizing else "localize (no bucket)"}')
+    build_reports(links, store, externalizing)
     copy_assets()
     copy_md_stylesheet()
     convert_markdown(links)

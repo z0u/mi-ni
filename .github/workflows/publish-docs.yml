@@ -27,8 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        # Reports are plain-file HTML now (no Git LFS); their heavy assets live on
-        # the HF bucket and are inserted via <base> at build time.
+        # No report HTML in the repo (and no Git LFS). The notebooks are the source;
+        # their exported bundles live on the HF bucket, synced by `./go publish`.
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -39,10 +39,12 @@ jobs:
         run: uv sync --group pages
 
       - name: Build Site
-        # With the bucket configured + a (read-only) token, build_site externalizes:
-        # it derives each report's <base href> at the bucket and mirrors the light
-        # HTML + index into _site. The assets themselves were published to the bucket
-        # by the agent at export time, so this build only reads (no bucket writes).
+        # Read-only, deterministic half of publishing: build_site pulls each synced
+        # bundle from the bucket, resolves author links against this checkout, inserts
+        # one <base href> at exports/<key>/, and writes the HTML into _site. The assets
+        # stay on the bucket CDN; the agent did the export+upload (`./go publish`). A
+        # read-only HF_TOKEN suffices — this job never writes to the bucket or runs a
+        # notebook. (A report not yet published is skipped with a warning, not an error.)
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           MINI_STORE_BUCKET: ${{ vars.MINI_STORE_BUCKET }}

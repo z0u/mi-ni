@@ -5,20 +5,18 @@ project site. The site is built by `./go build` into `_site/`.
 
 ## File types
 
-**Marimo notebooks** (`.py`) are the primary content. When a notebook is
-executed, Marimo captures the output and exports it as an HTML file in a
-`__marimo__/` subdirectory. For example, executing `docs/getting_started.py` in
-Marimo produces `docs/__marimo__/getting_started.html`.
-
-The build script picks up all HTML files from `__marimo__/` subdirectories and
-copies them into `_site/`, preserving the directory structure relative to
-`docs/`. A notebook at `docs/foo/bar.py` would be exported to
-`docs/foo/__marimo__/bar.html` and end up at `_site/foo/bar.html`.
+**Marimo notebooks** (`.py`) are the primary content — and the *only* thing in Git;
+the exported HTML is never committed. `./go publish` exports each notebook to a
+self-contained bundle (`index.html` + named-keyed `_assets/`) and mirrors it to the
+HF bucket under `exports/<key>/`, where `<key>` is the notebook's docs-relative path
+without suffix (`docs/getting_started.py` → `getting_started`, `docs/foo/bar.py` →
+`foo/bar`). `./go build` then assembles `_site/` from the synced bundles, serving each
+report at `_site/<key>/index.html` (URL `<key>/`). With no bucket, the build *localizes*
+from `.mini/exports/` (produced by `./go run`) so it works offline.
 
 **Markdown files** (`.md`) are converted to HTML and written to `_site/` at the
-same relative path. Links to `.py` files are automatically rewritten to `.html`
-in order to point to notebook output. This `README.md` is excluded from the
-build.
+same relative path. Links to a report's `.py` are automatically rewritten to its
+rendered `<key>/` page. This `README.md` is excluded from the build.
 
 **Other assets** (images, SVGs, etc.) are copied as-is into `_site/`.
 
@@ -28,15 +26,14 @@ build.
 docs/
 ├── README.md                This file (excluded from build)
 ├── index.md                 Built as _site/index.html
-├── getting_started.py       Marimo notebook (source, excluded from build)
-├── __marimo__/              Marimo output
-│   └── getting_started.html Built as _site/getting_started.html
+├── getting_started.py       Marimo notebook → exported bundle, served at _site/getting_started/
 └── pipeline/                A heavier experiment, split into definition + report
     ├── experiment.py        Importable main(ctx) DAG — not a notebook, so the build ignores it
-    ├── report.py            Marimo notebook that reads durable results
-    └── __marimo__/
-        └── report.html      Built as _site/pipeline/report.html
+    └── report.py            Marimo notebook → served at _site/pipeline/report/
 ```
+
+Exported bundles live (gitignored) under `.mini/exports/<key>/` locally; their durable
+home is the bucket. Nothing under `docs/` holds generated HTML.
 
 Heavier or multi-step experiments live in a subdirectory as an importable
 `experiment.py` (the definition, driven by the `mini` CLI) plus a `report.py`

@@ -82,9 +82,9 @@ def test_publish_externalizes_to_relative_urls(tmp_path: Path):
     assert 'src="data:image' not in result
     srcs = re.findall(r'src="([^"]+)"', result)
     assert len(srcs) == 2
-    # Path is <sha>/<readable leaf>: the sha addresses the content, the leaf (derived
-    # from the plot fn name) is what a "Save as" suggests.
-    assert all(re.fullmatch(r'_assets/[0-9a-f]{64}/dummy_plot-(light|dark)\.png', s) for s in srcs), srcs
+    # Path is the readable leaf (derived from the plot fn name) — the stable URL and
+    # what a "Save as" suggests; no content hash in the path.
+    assert all(re.fullmatch(r'_assets/dummy_plot-(light|dark)\.png', s) for s in srcs), srcs
     # …and the referenced files actually exist on disk and are valid PNGs.
     for s in srcs:
         f = tmp_path / '__marimo__' / s
@@ -95,7 +95,7 @@ def test_name_overrides_the_asset_leaf(tmp_path: Path):
     pub = Publisher(tmp_path / '_assets')
     result = themed(_dummy_plot, name='loss-curve', publish=pub)(1, 2)
     srcs = re.findall(r'src="([^"]+)"', result)
-    assert all(re.fullmatch(r'_assets/[0-9a-f]{64}/loss-curve-(light|dark)\.png', s) for s in srcs), srcs
+    assert all(re.fullmatch(r'_assets/loss-curve-(light|dark)\.png', s) for s in srcs), srcs
     # The readable name is also surfaced for provenance.
     assert result.count('data-asset-name="loss-curve"') == 2
 
@@ -106,32 +106,61 @@ def test_distinct_light_dark_files(tmp_path: Path):
     assert 'data:image' in result
     out = themed(_dummy_plot, publish=pub)(1, 2)
     srcs = set(re.findall(r'src="([^"]+)"', out))
-    assert len(srcs) == 2  # light and dark hash differently → two files
+    assert len(srcs) == 2  # distinct -light/-dark names → two files
 
 
-def test_content_addressed_write_once(tmp_path: Path):
+def test_stable_url_overwrites_in_place(tmp_path: Path):
+    # A re-export is a fresh Publisher over the same dir; the same name overwrites.
+    u1 = Publisher(tmp_path).asset_url(b'first', name='pts.json')
+    u2 = Publisher(tmp_path).asset_url(b'second', name='pts.json')
+    assert u1 == u2 == '_assets/pts.json'  # stable URL, no content hash
+    assert len(list(tmp_path.rglob('*.json'))) == 1  # one file, overwritten
+    assert (tmp_path / 'pts.json').read_bytes() == b'second'
+
+
+def test_distinct_blobs_same_name_in_one_report_raise(tmp_path: Path):
+    import pytest
+
     pub = Publisher(tmp_path)
-    u1 = pub.asset_url(b'same-bytes', name='pts.json')
-    u2 = pub.asset_url(b'same-bytes', name='pts.json')
-    assert u1 == u2  # identical content + name → identical URL, written once
-    assert len(list(tmp_path.rglob('*.json'))) == 1
+    pub.asset_url(b'first', name='fig.png')
+    pub.asset_url(b'first', name='fig.png')  # same bytes again is fine (idempotent)
+    with pytest.raises(ValueError, match='distinct'):
+        pub.asset_url(b'different', name='fig.png')  # two different figures, one name
 
 
 def test_use_publisher_default_is_picked_up(tmp_path: Path):
     use_publisher(Publisher(tmp_path / '_assets'))
     result = themed(_dummy_plot)(1, 2)  # no per-figure publish=
-    assert re.search(r'src="_assets/[0-9a-f]{64}/dummy_plot-light\.png"', result)
+    assert re.search(r'src="_assets/dummy_plot-light\.png"', result)
 
 
 def test_asset_url_writes_file_and_returns_relative_url(tmp_path: Path):
     pub = Publisher(tmp_path / '_assets')
     url = pub.asset_url(b'{"hello": "world"}', name='points.json')
-    # <sha>/<name>: addressed by content, named for a readable download.
-    assert re.fullmatch(r'_assets/[0-9a-f]{64}/points\.json', url)
+    # Named for a readable download; the name is the stable key (no content hash).
+    assert url == '_assets/points.json'
     assert (tmp_path / url).read_bytes() == b'{"hello": "world"}'
 
 
-def test_report_bundle_targets_marimo_dir():
-    pub = report_bundle('/proj/docs/probe/report.py')
-    assert pub.asset_dir == Path('/proj/docs/probe/__marimo__/_assets')
+def test_report_bundle_targets_export_dir(tmp_path: Path):
+    from mini.reports import export_dir, export_key
+
+    (tmp_path / 'pyproject.toml').write_text('')
+    nb = tmp_path / 'docs' / 'gpt-sweep' / 'report.py'
+    nb.parent.mkdir(parents=True)
+    nb.write_text('')
+    assert export_key(nb) == 'gpt-sweep/report'
+    assert export_dir(nb) == tmp_path / '.mini' / 'exports' / 'gpt-sweep' / 'report'
+    pub = report_bundle(nb)
+    assert pub.asset_dir == tmp_path / '.mini' / 'exports' / 'gpt-sweep' / 'report' / '_assets'
     assert pub.link == '_assets'
+
+
+def test_export_key_top_level_notebook(tmp_path: Path):
+    from mini.reports import export_key
+
+    (tmp_path / 'pyproject.toml').write_text('')
+    nb = tmp_path / 'docs' / 'gpt.py'
+    nb.parent.mkdir(parents=True)
+    nb.write_text('')
+    assert export_key(nb) == 'gpt'  # top-level report → bare stem, served at /gpt/

@@ -3,10 +3,10 @@ Notebook utilities for rendering themed matplotlib figures as HTML.
 
 A report's figures are heavy (a themed plot is *two* PNGs, light and dark). Inlined
 as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry. A
-:class:`~mini.reports.Publisher` instead writes each blob out as a content-addressed
-file beside the report and references it by a **relative** URL, so the report HTML
-stays light. Set one up once per report and every ``@themed`` figure externalizes with
-no per-figure ceremony::
+:class:`~mini.reports.Publisher` instead writes each blob out as a file beside the
+report (keyed by its readable name) and references it by a **relative** URL, so the
+report HTML stays light. Set one up once per report and every ``@themed`` figure
+externalizes with no per-figure ceremony::
 
     # in the report's setup cell
     from mini.vis import themed

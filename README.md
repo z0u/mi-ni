@@ -111,15 +111,19 @@ A pre-commit hook runs [`scripts/clean_docs.py`](scripts/clean_docs.py) on stage
 </details>
 
 <details>
-<summary>Working with large files (Git LFS)</summary>
+<summary>Working with large files (the artifact store)</summary>
 
-This project is preconfigured to use [Git LFS](https://git-lfs.com). If you commit a matching file, it won't clog up your main Git history. By default, files in `docs/**/__marimo__/` are stored in LFS; see [`.gitattributes`](.gitattributes).
+Large bytes don't go in Git (no Git LFS). Instead they live in a content-addressed
+**artifact store** (`mini.store`) — local by default, or a shared [Hugging Face
+bucket](https://huggingface.co/docs/hub/storage-backends) when `[tool.mini] store-bucket`
+is set. A step `put`s its bytes and returns a small `Artifact` handle; another
+experiment or a report resolves it by content hash or by a named ref. Typically:
 
-Typically, you would store _data_ rather than code in LFS:
+- training data, tokenized corpora, activation caches
+- model weights and checkpoints
+- report figures and data blobs (exported per report, synced to the bucket by `./go publish`)
 
-- training data
-- model weights
-- visualizations (images and video)
+See the `mi-ni` skill's storage reference for `put`/`get`/`publish` and report bundles.
 
 </details>
 
