@@ -13,6 +13,21 @@ build_site = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(build_site)
 
 
+@pytest.mark.parametrize(
+    'url, want',
+    [
+        ('probe/report/index.html', 'probe/report/'),
+        ('probe/report/index.html#cell-3', 'probe/report/#cell-3'),
+        ('index.html', ''),
+        ('../acts/report/index.html', '../acts/report/'),
+        ('guide.html', 'guide.html'),  # not an index page — untouched
+        ('reindex.html', 'reindex.html'),  # only a whole index.html segment is stripped
+    ],
+)
+def test_strip_index(url, want):
+    assert build_site._strip_index(url) == want
+
+
 @pytest.fixture
 def resolver() -> 'build_site.LinkResolver':
     # Reports render to <key>/index.html (per-report dirs); markdown to <name>.html.
@@ -29,8 +44,9 @@ def resolver() -> 'build_site.LinkResolver':
 
 
 def test_rendered_link_is_absolute_pages_url_when_externalizing(resolver):
+    # Published links drop index.html — GitHub Pages serves the directory form.
     got = resolver.resolve('../acts/report.py', from_dir='probe', out_dir='probe/report', externalizing=True)
-    assert got == 'https://o.github.io/r/acts/report/index.html'
+    assert got == 'https://o.github.io/r/acts/report/'
 
 
 def test_rendered_link_stays_relative_when_localizing(resolver):
@@ -47,7 +63,7 @@ def test_source_file_resolves_to_github(resolver):
 
 def test_fragment_is_preserved(resolver):
     got = resolver.resolve('../acts/report.py#cell-3', from_dir='probe', out_dir='probe/report', externalizing=True)
-    assert got == 'https://o.github.io/r/acts/report/index.html#cell-3'
+    assert got == 'https://o.github.io/r/acts/report/#cell-3'
 
 
 def test_repo_source_link_outside_docs_resolves_to_github(resolver):

@@ -48,13 +48,13 @@ app_type = mo.cli_args().get('app', 'local')   # a marimo radio in edit mode; a 
 app = ModalApparatus('demo').w(gpu='L4') if app_type == 'modal' else LocalApparatus('demo')
 ```
 
-Export it headless with `./go run`, passing notebook options after a `--`:
+Export it headless with `./go export`, passing notebook options after a `--`:
 
 ```bash
-./go run docs/gpt.py -- --app=modal --arch=ngpt
+./go export docs/gpt.py -- --app=modal --arch=ngpt
 ```
 
-The `--` delimits notebook options from `./go`'s own args (and `./go` forwards them to `marimo export`). It's optional — `./go run docs/gpt.py --app=modal` also works — but explicit is clearer.
+The `--` delimits notebook options from `./go`'s own args (and `./go` forwards them to `marimo export`). It's optional — `./go export docs/gpt.py --app=modal` also works — but explicit is clearer.
 
 **Syntax gotcha:** the options are flags — marimo's `cli_args()` only parses `--key=value` or `--key value`. A bare `key=value` parses to *nothing*, so the notebook silently falls back to its default (here `local`) with no error. Confirm which backend actually ran from the logs — a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally`.
 

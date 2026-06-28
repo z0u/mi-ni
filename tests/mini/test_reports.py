@@ -5,6 +5,7 @@ from mini.reports import (
     relative_urls,
     report_notebooks,
     rewrite_links,
+    set_theme,
     stray_links,
 )
 
@@ -78,6 +79,28 @@ def test_insert_base_only_first_head():
     # A literal "<head>" appearing later (e.g. in escaped content) is not touched.
     out = insert_base('<head></head><script>"\\u003chead\\u003e"</script>', 'https://h/')
     assert out.count('<base ') == 1
+
+
+# Mimics the flat display block in Marimo's frozen mount config.
+_MOUNT = '<script>{"config": {"display": {"cell_output": "below", "theme": "light"}, "save": {}}}</script>'
+
+
+def test_set_theme_rewrites_display_theme():
+    out = set_theme(_MOUNT)
+    assert '"theme": "system"' in out
+    assert '"theme": "light"' not in out
+    # only the display theme changed; the rest of the config is intact
+    assert '"cell_output": "below"' in out
+    assert '"save": {}' in out
+
+
+def test_set_theme_accepts_existing_dark_and_custom_target():
+    assert '"theme": "dark"' in set_theme(_MOUNT.replace('"light"', '"dark"'), theme='dark')
+
+
+def test_set_theme_is_noop_without_a_theme():
+    html = '<html><head></head><body></body></html>'
+    assert set_theme(html) == html
 
 
 _APP = 'import marimo\napp = marimo.App()\n'

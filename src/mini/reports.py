@@ -53,6 +53,7 @@ __all__ = [
     'stray_links',
     'rewrite_links',
     'insert_base',
+    'set_theme',
 ]
 
 # Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
@@ -281,3 +282,20 @@ def insert_base(html: str, href: str) -> str:
     for a build step: it rewrites the first ``<head>`` only.
     """
     return re.sub(r'(<head[^>]*>)', lambda m: f'{m.group(1)}\n    <base href="{href}" />', html, count=1)
+
+
+# The ``display.theme`` inside Marimo's frozen mount config. The block is flat JSON
+# (no nested objects), so ``[^{}]*?`` stays within it; ``count=1`` guards the rest.
+_DISPLAY_THEME = re.compile(r'("display"\s*:\s*\{[^{}]*?"theme"\s*:\s*")(?:light|dark|system)(")')
+
+
+def set_theme(html: str, theme: str = 'system') -> str:
+    """Rewrite the theme baked into a Marimo export so a published report follows the device.
+
+    Marimo bakes the *exporting* machine's ``display.theme`` into the mount config and a
+    bit of JS applies it on load (``<body class="light light-theme" data-theme="light">``).
+    For a report served to other people that hard-codes one author's preference; rewriting
+    it to ``system`` makes the frontend honor the visitor's ``prefers-color-scheme``
+    instead. A no-op if no theme is present (e.g. a non-Marimo page).
+    """
+    return _DISPLAY_THEME.sub(lambda m: f'{m.group(1)}{theme}{m.group(2)}', html, count=1)

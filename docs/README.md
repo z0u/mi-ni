@@ -12,7 +12,7 @@ HF bucket under `exports/<key>/`, where `<key>` is the notebook's docs-relative 
 without suffix (`docs/getting_started.py` → `getting_started`, `docs/foo/bar.py` →
 `foo/bar`). `./go build` then assembles `_site/` from the synced bundles, serving each
 report at `_site/<key>/index.html` (URL `<key>/`). With no bucket, the build *localizes*
-from `.mini/exports/` (produced by `./go run`) so it works offline.
+from `.mini/exports/` (produced by `./go export`) so it works offline.
 
 **Markdown files** (`.md`) are converted to HTML and written to `_site/` at the
 same relative path. Links to a report's `.py` are automatically rewritten to its
