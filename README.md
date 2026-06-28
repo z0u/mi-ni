@@ -21,7 +21,11 @@ metrics = list(app.map(train, sweep_configs))
 app.volume.download('outputs', 'local/outputs')
 ```
 
-[Getting started notebook →](./docs/getting_started.py)
+```bash
+./go open ./docs/getting_started.py  # Edit in Marimo
+```
+
+[See: getting started notebook](./docs/getting_started.py).
 
 **Detached & memoized.** For sweeps, multi-step pipelines, and long runs. Define the experiment as an importable `main(ctx)` DAG; drive and monitor it from the CLI across separate processes. Work is launched detached, and its results, progress, and errors are written to durable storage — so you can close your laptop and check back later, and so can an agent:
 
@@ -35,12 +39,33 @@ experiment = Experiment(name='pipeline', main=main)
 ```
 
 ```bash
-bin/mini run docs/pipeline/experiment.py --watch   # drive to completion, live bar
-bin/mini status pipeline                            # poll later, from any process
-bin/mini watch  pipeline                            # ...or follow it live (read-only)
+mini run docs/pipeline/experiment.py --watch   # drive to completion, live bar
+mini status pipeline                            # poll later, from anywhere
 ```
 
-[Pipeline example →](./docs/pipeline/report.py)
+[See: pipeline experiment module](./docs/pipeline/experiment.py).
+
+**Report, then publish.** `report.py` is a Marimo notebook that reads the durable results from the experiment and renders them. Figures are externalized and bundled, allowing agents to view them and keeping the report light:
+
+```python
+from mini.reports import report_bundle, use_publisher
+from mini.vis import themed
+
+use_publisher(report_bundle(__file__))   # themed figures → _assets/, by name
+
+@themed(alt_text='Final validation loss...')
+def _loss_chart() -> plt.Figure: ...
+```
+
+```bash
+./go run     docs/pipeline/report.py   # export the bundle locally (offline preview)
+./go publish docs/pipeline/report.py   # export + mirror to the bucket (needs ./go auth)
+./go serve                             # build the static site and serve it
+```
+
+At export the HTML is cleaned: progress-bar terminal sequences are collapsed, and Modal app URLs (which would leak your username) are redacted.
+
+[See: pipeline report notebook](./docs/pipeline/report.py).
 
 &nbsp;
 
@@ -88,39 +113,6 @@ Use [uv] to add and remove packages, and to run scripts:
 uv add plotly --group local
 uv run python example.py
 ```
-
-</details>
-
-<details>
-<summary>Notebook output cleaning</summary>
-
-[`scripts/clean_docs.py`](scripts/clean_docs.py) runs automatically at export time and can also be triggered manually with `./go clean`. It does two things:
-
-- **Terminal sequences** — collapses `\r`/cursor-up/erase sequences that progress bars leave behind, keeping colour codes intact.
-- **Redaction** — replaces patterns that shouldn't appear in published notebooks. By default, Modal app URLs are redacted (they expose your username and app IDs). Add your own patterns to the `REDACT` list at the top of `clean_docs.py`:
-
-  ```python
-  REDACT: list[tuple[re.Pattern, str]] = [
-      (re.compile(r'https://modal\.com/apps/\S+'), '[modal.com/apps/…]'),
-  ]
-  ```
-
-</details>
-
-<details>
-<summary>Working with large files (the artifact store)</summary>
-
-Large bytes don't go in Git. Instead they live in a content-addressed
-**artifact store** (`mini.store`) — local by default, or a shared [Hugging Face
-bucket](https://huggingface.co/docs/hub/storage-backends) when `[tool.mini] store-bucket`
-is set. A step `put`s its bytes and returns a small `Artifact` handle; another
-experiment or a report resolves it by content hash or by a named ref. Typically:
-
-- training data, tokenized corpora, activation caches
-- model weights and checkpoints
-- report figures and data blobs (exported per report, synced to the bucket by `./go publish`)
-
-See the `mi-ni` skill's storage reference for `put`/`get`/`publish` and report bundles.
 
 </details>
 
