@@ -89,14 +89,21 @@ def test_publish_serves_with_content_type_from_extension(hf):
     assert head.headers['content-type'].startswith('image/png')  # inferred from the extension
 
 
-def test_is_published_reflects_publish(hf):
+def test_export_round_trips_over_the_bucket(hf, tmp_path: Path):
+    """A report bundle syncs as-is and fetches back — the publish→build handoff."""
     store, tag, created = hf
-    path = f'_test/{tag}/fig.png'
-    assert not store.is_published(path)  # absent before publish (a read; read-only-safe)
+    key = f'_test/{tag}/report'
+    src = tmp_path / 'export'
+    (src / '_assets').mkdir(parents=True)
+    (src / 'index.html').write_text(f'<img src="_assets/fig.png"> {tag}')
+    (src / '_assets' / 'fig.png').write_bytes(b'\x89PNG\r\n\x1a\n' + tag.encode())
 
-    art = store.put(b'\x89PNG\r\n\x1a\n' + tag.encode(), name='fig.png')
-    created.append(f'cas/{art.sha256}')
-    store.publish(art, path)
-    created.append(f'published/{path}')
+    assert store.fetch_export(key, tmp_path / 'miss') is False  # nothing synced yet
+    store.sync_export(src, key)
+    created += [f'exports/{key}/index.html', f'exports/{key}/_assets/fig.png']
 
-    assert store.is_published(path)  # lets a rebuild skip the publish write
+    dest = tmp_path / 'pulled'
+    assert store.fetch_export(key, dest) is True
+    assert (dest / 'index.html').read_text().endswith(tag)
+    assert (dest / '_assets' / 'fig.png').read_bytes().endswith(tag.encode())
+    assert store.export_base(key) == f'https://huggingface.co/buckets/{BUCKET}/resolve/exports/{key}/'

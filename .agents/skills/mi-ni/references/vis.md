@@ -28,15 +28,15 @@ mo.Html(plot_factory())
 
 By default a `themed` figure inlines as a `data:` URI — fine to view, heavy for a
 report (two PNGs per figure, light + dark). To keep the report HTML light, set a
-**publisher** once in the setup cell and `themed` writes each figure out to a
-content-addressed file referenced by a relative URL instead. Figure cells don't
+**publisher** once in the setup cell and `themed` writes each figure out to a file
+(keyed by its readable name) referenced by a relative URL instead. Figure cells don't
 change:
 
 ```py
 from mini.vis import themed
 from mini.reports import use_publisher, report_bundle
 
-use_publisher(report_bundle(__file__))   # assets → this report's __marimo__/_assets/
+use_publisher(report_bundle(__file__))   # assets → this report's bundle dir (_assets/)
 
 @themed(alt_text='…', name='loss-curve')  # name → loss-curve-{light,dark}.png
 def _plot(): ...
