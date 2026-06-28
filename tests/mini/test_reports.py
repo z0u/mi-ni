@@ -81,8 +81,10 @@ def test_insert_base_only_first_head():
     assert out.count('<base ') == 1
 
 
-# Mimics the flat display block in Marimo's frozen mount config.
-_MOUNT = '<script>{"config": {"display": {"cell_output": "below", "theme": "light"}, "save": {}}}</script>'
+# Mimics a Marimo export: the flat display block in the frozen mount config, plus the
+# <head>/<body> the flicker guard hooks into.
+_MOUNT_CONFIG = '<script>{"config": {"display": {"cell_output": "below", "theme": "light"}, "save": {}}}</script>'
+_MOUNT = f'<html><head><meta charset="utf-8" /></head><body>{_MOUNT_CONFIG}<div id="root"></div></body></html>'
 
 
 def test_set_theme_rewrites_display_theme():
@@ -94,8 +96,21 @@ def test_set_theme_rewrites_display_theme():
     assert '"save": {}' in out
 
 
-def test_set_theme_accepts_existing_dark_and_custom_target():
-    assert '"theme": "dark"' in set_theme(_MOUNT.replace('"light"', '"dark"'), theme='dark')
+def test_set_theme_system_suppresses_flicker():
+    out = set_theme(_MOUNT)
+    # color-scheme meta (UA chrome) goes in <head>; the blocking guard (content) in <body>
+    assert '<meta name="color-scheme" content="light dark" />' in out
+    assert 'prefers-color-scheme: dark' in out
+    assert out.index('color-scheme" content') < out.index('</head>')
+    assert out.index('<body>') < out.index('prefers-color-scheme')
+
+
+def test_set_theme_fixed_target_skips_the_flash_guard():
+    out = set_theme(_MOUNT.replace('"light"', '"dark"'), theme='dark')
+    assert '"theme": "dark"' in out
+    # a baked theme doesn't flash, so no blocking script — just declare the scheme
+    assert '<meta name="color-scheme" content="dark" />' in out
+    assert 'prefers-color-scheme' not in out
 
 
 def test_set_theme_is_noop_without_a_theme():
