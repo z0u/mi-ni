@@ -4,15 +4,15 @@
 
 mi-ni is a template repository and library for doing AI research. Features:
 
-- **Local Python notebooks** with Marimo, with outputs stored in Git LFS and published to GitHub Pages
+- **Local Python notebooks** with Marimo, published to GitHub Pages
 - **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
 - **Agentic coding config** for Claude Code
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni)
 
-There are two ways to compute, sharing one storage abstraction.
+There are two ways to compute: interactive, and detached.
 
-**Interactive.** Map a function over a sweep, right in a notebook. Swap the apparatus to change _where_ it runs; the code stays the same:
+**Interactive.** Map a function over a sweep, right in a notebook. Swap the apparatus to change where it runs; the code stays the same:
 
 ```py
 # app = LocalApparatus('my-experiment', max_workers=4)
@@ -39,8 +39,6 @@ bin/mini run docs/pipeline/experiment.py --watch   # drive to completion, live b
 bin/mini status pipeline                            # poll later, from any process
 bin/mini watch  pipeline                            # ...or follow it live (read-only)
 ```
-
-`bin/mini` wraps the `mini` console-script so it works from any directory; the store lives at the project root, so `status`/`watch` find your run no matter where you invoke them.
 
 [Pipeline example →](./docs/pipeline/report.py)
 
@@ -74,9 +72,9 @@ This template is set up for agentic coding (Claude Code and friends). The detach
 
 Ask for something like:
 
-> Write an experiment under `docs/<name>/` that compares X and Y, run it on Modal, watch for failures, and summarise the results in the report notebook.
+> Write an experiment that compares X and Y, run it on Modal, watch for failures, and summarise the results in a report notebook.
 
-The `mi-ni` skill teaches the assistant the conventions: define `main(ctx)`, drive with `mini run`, poll with `mini status` (or `mini watch` for a live bar; never by re-running), read tracebacks with `mini logs`, and recover with `mini retry`. For a long run, it delegates launching and babysitting to a cheap monitor agent and can schedule periodic check-ins.
+The `mi-ni` skill teaches the assistant the conventions: define `main(ctx)`, drive with `mini run`, poll with `mini status`, read tracebacks with `mini logs`, and recover with `mini retry`. For a long run, it delegates launching and babysitting to a cheap monitor agent and can schedule periodic check-ins.
 
 [codespaces]: https://github.com/features/codespaces
 
@@ -96,7 +94,7 @@ uv run python example.py
 <details>
 <summary>Notebook output cleaning</summary>
 
-A pre-commit hook runs [`scripts/clean_docs.py`](scripts/clean_docs.py) on staged Marimo outputs. It does two things:
+[`scripts/clean_docs.py`](scripts/clean_docs.py) runs automatically at export time and can also be triggered manually with `./go clean`. It does two things:
 
 - **Terminal sequences** — collapses `\r`/cursor-up/erase sequences that progress bars leave behind, keeping colour codes intact.
 - **Redaction** — replaces patterns that shouldn't appear in published notebooks. By default, Modal app URLs are redacted (they expose your username and app IDs). Add your own patterns to the `REDACT` list at the top of `clean_docs.py`:
@@ -104,7 +102,6 @@ A pre-commit hook runs [`scripts/clean_docs.py`](scripts/clean_docs.py) on stage
   ```python
   REDACT: list[tuple[re.Pattern, str]] = [
       (re.compile(r'https://modal\.com/apps/\S+'), '[modal.com/apps/…]'),
-      (re.compile(r'your-pattern'), '[replacement]'),
   ]
   ```
 
@@ -113,7 +110,7 @@ A pre-commit hook runs [`scripts/clean_docs.py`](scripts/clean_docs.py) on stage
 <details>
 <summary>Working with large files (the artifact store)</summary>
 
-Large bytes don't go in Git (no Git LFS). Instead they live in a content-addressed
+Large bytes don't go in Git. Instead they live in a content-addressed
 **artifact store** (`mini.store`) — local by default, or a shared [Hugging Face
 bucket](https://huggingface.co/docs/hub/storage-backends) when `[tool.mini] store-bucket`
 is set. A step `put`s its bytes and returns a small `Artifact` handle; another

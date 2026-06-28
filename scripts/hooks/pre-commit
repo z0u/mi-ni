@@ -9,5 +9,5 @@ cd "$ROOT"
 npx lint-staged
 
 # Note: exported report HTML is never committed (it syncs to the HF bucket via
-# `./go publish`), so there's no Marimo output to scrub here — cleaning now runs at
-# export time in scripts/export_reports.py.
+# `./go publish`), so there's no Marimo output to scrub here. Cleaning runs at
+# export time.
