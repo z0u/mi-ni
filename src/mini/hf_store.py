@@ -39,7 +39,7 @@ __all__ = ['HFStore']
 
 # Buckets need ``*.xethub.hf.co`` (byte transfer) and, for serving, ``*.cdn.hf.co``
 # on the network egress allow-list; metadata-only calls to ``huggingface.co`` work
-# without them but every transfer hangs on a 403. See research/hf-buckets.md.
+# without them but every transfer hangs on a 403. See research/design.md.
 
 
 class HFStore(Store):
