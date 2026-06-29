@@ -11,7 +11,8 @@
                 "*.modal-storage.com",
                 "huggingface.co",
                 "*.xethub.hf.co",
-                "*.cdn.hf.co"
+                "*.cdn.hf.co",
+                "cdn.jsdelivr.net"
             ]
         }
     },
