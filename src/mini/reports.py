@@ -348,31 +348,41 @@ def set_theme(html: str, theme: str = 'system') -> str:
 
 # Marimo's "Static marimo notebook — Run or Edit" banner is rendered *client-side* by
 # its bundle (it's nowhere in the exported HTML — only ``data-testid`` survives at
-# runtime), so we can't rewrite it as markup. Instead we inject our own bar into the
-# document and hide Marimo's once it mounts. The selector keys on that stable testid.
+# runtime), so we can't rewrite it as markup. We hide it via this rule on that stable
+# testid; if a future Marimo drops the testid the rule simply no-ops (its banner returns,
+# ours still shows) — no hard dependency on its internals.
 _HIDE_MARIMO_BANNER = '[data-testid="static-notebook-banner"]{display:none!important}'
 
-# Self-contained so it paints before (and independently of) Marimo's stylesheet/bundle:
-# neutral colors via ``currentColor`` work in either theme, and ``justify-content`` puts
-# the back-link at the start and the source link at the end. ``print:hidden`` equivalent
-# via ``@media print`` keeps it off printouts like Marimo's own bar.
+# Our nav is a ``position:fixed`` overlay, deliberately *out of normal flow*: Marimo
+# mounts its app as a full-viewport ``absolute`` layer, so an in-flow bar would both be
+# painted over by it and add its own height below it (a second scrollbar). Fixed + a top
+# z-index floats above that layer and touches nothing in Marimo's DOM. Pinned top-left to
+# clear Marimo's top-right actions (``…``) menu. ``Canvas``/``CanvasText`` are the UA's
+# theme-aware system colors (the export declares ``color-scheme``, so they track the
+# device theme); a blurred translucent backdrop keeps it legible over content.
 _BANNER_STYLE = (
-    'display:flex;justify-content:space-between;align-items:center;gap:1rem;'
-    'padding:.4rem 1rem;font-size:.8125rem;font-family:system-ui,sans-serif;'
-    'border-bottom:1px solid color-mix(in srgb, currentColor 15%, transparent);'
+    'position:fixed;top:.5rem;left:.5rem;z-index:2147483647;'
+    'display:flex;gap:.75rem;align-items:center;'
+    'padding:.3rem .65rem;font-size:.8125rem;line-height:1.4;'
+    'font-family:system-ui,sans-serif;border-radius:.375rem;'
+    'background:color-mix(in srgb, Canvas 80%, transparent);'
+    'border:1px solid color-mix(in srgb, CanvasText 18%, transparent);'
+    '-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);'
 )
 _BANNER_LINK = 'color:inherit;text-decoration:underline'
 
 
 def set_banner(html: str, *, index_url: str | None = None, source_url: str | None = None) -> str:
-    """Give a published report a nav bar — back to the index, out to the source — over Marimo's.
+    """Give a published report a floating nav — back to the index, out to the source.
 
     Marimo's static export shows a "Run or Edit" banner whose only action is a download
     popup; on a published site a back-link to the index and a link to the source notebook
-    are more useful. Marimo renders its banner client-side, so rather than edit markup
-    that isn't there we inject our own bar (left: ``← Index``, right: ``Source``) as the
-    first thing in ``<body>`` and add a style rule that hides Marimo's once it mounts.
-    Either link is omitted when its URL is ``None``; a no-op if neither is given.
+    are more useful. So we hide Marimo's banner (a CSS rule keyed on its ``data-testid``)
+    and inject our own — a small ``position:fixed`` overlay (``← Index`` · ``Source``).
+    It's fixed rather than in-flow because Marimo renders its app as a full-viewport
+    ``absolute`` layer that would otherwise paint over an in-flow bar and leave a second
+    scrollbar below it. Either link is omitted when its URL is ``None``; a no-op if
+    neither is given.
     """
     if index_url is None and source_url is None:
         return html
@@ -380,9 +390,8 @@ def set_banner(html: str, *, index_url: str | None = None, source_url: str | Non
     def link(href: str, label: str) -> str:
         return f'<a href="{href}" style="{_BANNER_LINK}">{label}</a>'
 
-    left = link(index_url, '&larr; Index') if index_url else '<span></span>'
-    right = link(source_url, 'Source') if source_url else '<span></span>'
-    bar = f'<nav data-mini-banner style="{_BANNER_STYLE}">{left}{right}</nav>'
+    links = [link(url, label) for url, label in ((index_url, '&larr; Index'), (source_url, 'Source')) if url]
+    bar = f'<nav data-mini-banner style="{_BANNER_STYLE}">{"".join(links)}</nav>'
 
     html = re.sub(
         r'(</head>)',
