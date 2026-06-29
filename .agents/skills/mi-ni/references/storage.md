@@ -162,7 +162,7 @@ rendered page, a link to a source file becomes its GitHub source, and anything i
 place is left alone with a warning. Write natural relative links
 (`[experiment](./experiment.py)`); the absolute targets are derived from the git remote
 (override with `MINI_SITE_URL` / `MINI_SOURCE_URL`). Design notes:
-`research/reports-hfstore-migration.md`.
+`research/design.md`.
 
 ## Checkpoints are different
 

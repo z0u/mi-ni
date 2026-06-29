@@ -71,6 +71,15 @@ calls it. Three rules keep the blast radius bounded:
 
 `cancel` is also the cost-control lever: stop in-flight work you no longer want.
 
+### Modal: stale serialized worker
+
+A long-lived **detached** Modal app can keep serving a *previously serialized*
+worker entry, so an edit to worker/store wiring won't take effect until its
+containers drain — the run looks like it's ignoring your fix. If a worker-side
+change isn't being picked up on Modal, stop the app (or launch under a fresh app
+name) to force a re-serialize. (This is a property of the detached app, not the
+artifact store.)
+
 ## Wall-clock budget (auto-teardown)
 
 A detached run outlives the process that launched it, so a forgotten or wedged
