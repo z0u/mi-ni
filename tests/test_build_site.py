@@ -43,6 +43,22 @@ def resolver() -> 'build_site.LinkResolver':
     )
 
 
+def test_nav_urls_absolute_when_externalizing(resolver):
+    # With an asset <base>, the index link must be absolute (the site root); source is
+    # always the notebook on GitHub.
+    index, source = build_site._nav_urls(resolver, key='pipeline', nb_rel='docs/pipeline/report.py', externalizing=True)
+    assert index == 'https://o.github.io/r/'
+    assert source == 'https://github.com/o/r/blob/main/docs/pipeline/report.py'
+
+
+def test_nav_urls_index_is_relative_when_localizing(resolver):
+    # No <base> offline, so climb back to _site/index.html from _site/<key>/index.html.
+    index, _ = build_site._nav_urls(resolver, key='pipeline', nb_rel='docs/pipeline/report.py', externalizing=False)
+    assert index == '../index.html'
+    index, _ = build_site._nav_urls(resolver, key='a/b', nb_rel='docs/a/b.py', externalizing=False)
+    assert index == '../../index.html'
+
+
 def test_rendered_link_is_absolute_pages_url_when_externalizing(resolver):
     # Published links drop index.html — GitHub Pages serves the directory form.
     got = resolver.resolve('../acts/report.py', from_dir='probe', out_dir='probe/report', externalizing=True)

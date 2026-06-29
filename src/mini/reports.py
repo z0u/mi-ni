@@ -54,6 +54,7 @@ __all__ = [
     'rewrite_links',
     'insert_base',
     'set_theme',
+    'set_banner',
 ]
 
 # Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
@@ -137,10 +138,14 @@ def _project_root(start: Path) -> Path:
 def export_key(notebook_file: str | Path) -> str:
     """The docs-relative, suffix-less key naming a report's self-contained bundle.
 
-    ``docs/gpt.py`` → ``gpt``; ``docs/gpt-sweep/report.py`` → ``gpt-sweep/report``. It
-    names the report's on-disk export dir *and* its ``exports/<key>/`` prefix on the
-    bucket, and (served as ``index.html``) its URL ``<key>/`` — so each report is one
-    independently syncable bundle.
+    ``docs/gpt.py`` → ``gpt``; ``docs/gpt-sweep/report.py`` → ``gpt-sweep``. A report
+    named ``report.py`` takes its *directory* as the key, so the common one-experiment,
+    one-report split publishes at ``gpt-sweep/`` rather than the redundant
+    ``gpt-sweep/report/``. A second report alongside it keeps its own stem
+    (``docs/foo/aside.py`` → ``foo/aside``), so the convention extends to multiple
+    reports per experiment without collision. The key names the report's on-disk export
+    dir *and* its ``exports/<key>/`` prefix on the bucket, and (served as ``index.html``)
+    its URL ``<key>/`` — so each report is one independently syncable bundle.
     """
     p = Path(notebook_file).resolve()
     docs = _project_root(p) / 'docs'
@@ -148,7 +153,10 @@ def export_key(notebook_file: str | Path) -> str:
         rel = p.relative_to(docs)
     except ValueError:
         rel = Path(p.name)
-    return rel.with_suffix('').as_posix()
+    key = rel.with_suffix('')
+    if key.name == 'report' and key.parent != Path('.'):
+        key = key.parent  # a directory's canonical report drops the redundant /report
+    return key.as_posix()
 
 
 def export_dir(notebook_file: str | Path) -> Path:
@@ -336,3 +344,52 @@ def set_theme(html: str, theme: str = 'system') -> str:
     if theme == 'system':
         html = re.sub(r'(<body[^>]*>)', lambda m: f'{m.group(1)}\n    {_FLASH_GUARD}', html, count=1)
     return html
+
+
+# Marimo's "Static marimo notebook — Run or Edit" banner is rendered *client-side* by
+# its bundle (it's nowhere in the exported HTML — only ``data-testid`` survives at
+# runtime), so we can't rewrite it as markup. Instead we inject our own bar into the
+# document and hide Marimo's once it mounts. The selector keys on that stable testid.
+_HIDE_MARIMO_BANNER = '[data-testid="static-notebook-banner"]{display:none!important}'
+
+# Self-contained so it paints before (and independently of) Marimo's stylesheet/bundle:
+# neutral colors via ``currentColor`` work in either theme, and ``justify-content`` puts
+# the back-link at the start and the source link at the end. ``print:hidden`` equivalent
+# via ``@media print`` keeps it off printouts like Marimo's own bar.
+_BANNER_STYLE = (
+    'display:flex;justify-content:space-between;align-items:center;gap:1rem;'
+    'padding:.4rem 1rem;font-size:.8125rem;font-family:system-ui,sans-serif;'
+    'border-bottom:1px solid color-mix(in srgb, currentColor 15%, transparent);'
+)
+_BANNER_LINK = 'color:inherit;text-decoration:underline'
+
+
+def set_banner(html: str, *, index_url: str | None = None, source_url: str | None = None) -> str:
+    """Give a published report a nav bar — back to the index, out to the source — over Marimo's.
+
+    Marimo's static export shows a "Run or Edit" banner whose only action is a download
+    popup; on a published site a back-link to the index and a link to the source notebook
+    are more useful. Marimo renders its banner client-side, so rather than edit markup
+    that isn't there we inject our own bar (left: ``← Index``, right: ``Source``) as the
+    first thing in ``<body>`` and add a style rule that hides Marimo's once it mounts.
+    Either link is omitted when its URL is ``None``; a no-op if neither is given.
+    """
+    if index_url is None and source_url is None:
+        return html
+
+    def link(href: str, label: str) -> str:
+        return f'<a href="{href}" style="{_BANNER_LINK}">{label}</a>'
+
+    left = link(index_url, '&larr; Index') if index_url else '<span></span>'
+    right = link(source_url, 'Source') if source_url else '<span></span>'
+    bar = f'<nav data-mini-banner style="{_BANNER_STYLE}">{left}{right}</nav>'
+
+    html = re.sub(
+        r'(</head>)',
+        lambda m: (
+            f'    <style>{_HIDE_MARIMO_BANNER}\n    @media print{{[data-mini-banner]{{display:none}}}}</style>\n{m.group(1)}'
+        ),
+        html,
+        count=1,
+    )
+    return re.sub(r'(<body[^>]*>)', lambda m: f'{m.group(1)}\n    {bar}', html, count=1)

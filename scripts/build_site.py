@@ -26,6 +26,7 @@ from mini.reports import (
     insert_base,
     report_notebooks,
     rewrite_links,
+    set_banner,
     set_theme,
     stray_links,
 )
@@ -227,6 +228,8 @@ def build_reports(links: LinkResolver, store, externalizing: bool):
             html = (bundle / 'index.html').read_text('utf-8')
             html = _resolve_html_links(html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
             html = set_theme(html)  # follow the visitor's device, not the exporter's setting
+            index_url, source_url = _nav_urls(links, key=key, nb_rel=nb_rel, externalizing=externalizing)
+            html = set_banner(html, index_url=index_url, source_url=source_url)
             if base_href:
                 html = insert_base(html, base_href)
             dest = SITE_DIR / key / 'index.html'
@@ -236,6 +239,23 @@ def build_reports(links: LinkResolver, store, externalizing: bool):
             if not externalizing and (bundle / ASSET_LINK).is_dir():
                 shutil.copytree(bundle / ASSET_LINK, dest.parent / ASSET_LINK, dirs_exist_ok=True)
             print(f'  {key} -> _site/{key}/index.html{" [+base]" if base_href else ""}')
+
+
+def _nav_urls(links: LinkResolver, *, key: str, nb_rel: str, externalizing: bool) -> tuple[str | None, str | None]:
+    """The report banner's (index, source) links — same absolute/relative policy as author links.
+
+    The source is the notebook on GitHub (``source_base`` + its repo path). The index is
+    the site root: absolute (``site_base``) when externalizing — the asset ``<base>`` would
+    otherwise repoint a relative link at the bucket — and relative back up from
+    ``_site/<key>/index.html`` when localizing, so offline navigation works. Either is
+    ``None`` if its base is unavailable.
+    """
+    source_url = f'{links.source_base}{nb_rel}' if links.source_base else None
+    if externalizing:
+        index_url = links.site_base  # the site root serves index.html
+    else:
+        index_url = '../' * (key.count('/') + 1) + 'index.html'
+    return index_url, source_url
 
 
 def _resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, out_dir: str, externalizing: bool) -> str:
