@@ -84,9 +84,3 @@ Deferred, in rough priority order:
 - **Smaller:** whether `Store` should be async to match `Volume`; the on-disk
   manifest format for trees if it ever needs to be read without Python; and a
   `mini publish` / artifact-aware CLI surface if reports want one.
-
-## Unrelated nit spotted
-
-- `utils.time.duration` accepts `min`/`h`/`d` but not `m`; the `mini` CLI help and
-  a couple of docstrings advertise `--budget 30m`, which raises. Either add an `m`
-  alias or fix the docs to `30min`.

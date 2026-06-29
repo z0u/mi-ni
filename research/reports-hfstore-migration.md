@@ -233,28 +233,26 @@ one `<base>`, and the *same* relative ref then resolved to a live, fetchable
 inline *and* separately publish; now it externalizes and its source links are
 absolute, per the convention).
 
-## What's left
+## Status: landed
 
-1. **Re-export the five real reports** with a publisher and commit the light HTML.
-   (`themed`/`subline_demo`/`getting_started` are standalone; `gpt`/`gpt_sweep`
-   need their run results.) Apply the absolute-source-links convention to each.
-2. **`.gitattributes`**: drop both LFS rules (`__marimo__/**`, `large-assets/**`)
-   so the light HTML commits to Git normally. (`_assets/` is already gitignored,
-   so exported assets never hit the LFS filter.)
-3. **`publish-docs.yml`**: drop `lfs: true`; and for the *externalize* build to run
-   in CI it needs the project installed (not just `--only-group pages`) plus the HF
-   token as a secret. Without them the CI build localizes — assets won't be on the
-   bucket — so externalization wants either the full-deps CI job or to happen at
-   export time on the agent. Worth deciding.
-4. **A Pages index/gallery** linking to the reports (keeps a stable front door).
-5. Defer: purge old LFS blobs from history (`git filter-repo`); the private-CAS /
-   public-publish two-bucket split tracked in `todo.md`.
+The migration is complete; the items this section used to list as pending are done
+(and the "commit the light HTML" framing was superseded by the *no-HTML-in-Git*
+revision in the update banner above):
 
-## Open questions
+- **Reports are notebooks only.** No exported HTML in Git; `.gitattributes` carries
+  no LFS rules. Each `docs/**/*.py` report exports on demand to a bundle synced under
+  `exports/<key>/` (see `docs/README.md`).
+- **`publish-docs.yml`** runs the read-only build (`uv sync --group pages` for the
+  full project, `HF_TOKEN` + `MINI_STORE_BUCKET` from CI) — the export+upload heavy
+  half is the agent's `./go publish`. So the CI-vs-export-time question is decided:
+  authenticated export-time publish, read-only build in CI.
+- **A Pages index** (`docs/index.md`) links to every report.
 
-- **Accumulation / GC.** Every re-export writes new content-addressed assets to the
-  bucket; old ones linger — the same CAS-only-grows problem `todo.md` flags, just
-  with a steady trickle from reports. Refcount-from-live-reports + sweep, later.
-- **Where externalization runs** (CI vs. export time) — item 3 above; the cleanest
-  answer probably ties report publishing to a `mini`-side command the agent runs,
-  rather than loading the full project into the Pages job.
+Deferred (tracked elsewhere, not in this note):
+
+- Purge old LFS blobs from history (`git filter-repo`) — cosmetic; the working tree
+  is already LFS-free.
+- The private-CAS / public-publish two-bucket split — `todo.md`.
+- **Asset GC.** Re-export writes name-keyed assets that overwrite in place, so a
+  given report doesn't accumulate; the broader CAS-only-grows sweep is `todo.md` /
+  issue #15.

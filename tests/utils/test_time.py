@@ -8,6 +8,7 @@ from utils.time import duration
     [
         ('1h', 3600.0),
         ('2 min', 120.0),
+        ('30m', 1800.0),  # `m` is an alias for `min` (the `--budget 30m` the CLI advertises)
         ('3s', 3.0),
         ('4.5d', 388800.0),
         ('5ms', 0.005),
