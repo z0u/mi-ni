@@ -54,6 +54,7 @@ __all__ = [
     'rewrite_links',
     'insert_base',
     'set_theme',
+    'set_banner',
 ]
 
 # Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
@@ -137,10 +138,14 @@ def _project_root(start: Path) -> Path:
 def export_key(notebook_file: str | Path) -> str:
     """The docs-relative, suffix-less key naming a report's self-contained bundle.
 
-    ``docs/gpt.py`` → ``gpt``; ``docs/gpt-sweep/report.py`` → ``gpt-sweep/report``. It
-    names the report's on-disk export dir *and* its ``exports/<key>/`` prefix on the
-    bucket, and (served as ``index.html``) its URL ``<key>/`` — so each report is one
-    independently syncable bundle.
+    ``docs/gpt.py`` → ``gpt``; ``docs/gpt-sweep/report.py`` → ``gpt-sweep``. A report
+    named ``report.py`` takes its *directory* as the key, so the common one-experiment,
+    one-report split publishes at ``gpt-sweep/`` rather than the redundant
+    ``gpt-sweep/report/``. A second report alongside it keeps its own stem
+    (``docs/foo/aside.py`` → ``foo/aside``), so the convention extends to multiple
+    reports per experiment without collision. The key names the report's on-disk export
+    dir *and* its ``exports/<key>/`` prefix on the bucket, and (served as ``index.html``)
+    its URL ``<key>/`` — so each report is one independently syncable bundle.
     """
     p = Path(notebook_file).resolve()
     docs = _project_root(p) / 'docs'
@@ -148,7 +153,10 @@ def export_key(notebook_file: str | Path) -> str:
         rel = p.relative_to(docs)
     except ValueError:
         rel = Path(p.name)
-    return rel.with_suffix('').as_posix()
+    key = rel.with_suffix('')
+    if key.name == 'report' and key.parent != Path('.'):
+        key = key.parent  # a directory's canonical report drops the redundant /report
+    return key.as_posix()
 
 
 def export_dir(notebook_file: str | Path) -> Path:
@@ -336,3 +344,61 @@ def set_theme(html: str, theme: str = 'system') -> str:
     if theme == 'system':
         html = re.sub(r'(<body[^>]*>)', lambda m: f'{m.group(1)}\n    {_FLASH_GUARD}', html, count=1)
     return html
+
+
+# Marimo's "Static marimo notebook — Run or Edit" banner is rendered *client-side* by
+# its bundle (it's nowhere in the exported HTML — only ``data-testid`` survives at
+# runtime), so we can't rewrite it as markup. We hide it via this rule on that stable
+# testid; if a future Marimo drops the testid the rule simply no-ops (its banner returns,
+# ours still shows) — no hard dependency on its internals.
+_HIDE_MARIMO_BANNER = '[data-testid="static-notebook-banner"]{display:none!important}'
+
+# Our nav is a ``position:fixed`` overlay, deliberately *out of normal flow*: Marimo
+# mounts its app as a full-viewport ``absolute`` layer, so an in-flow bar would both be
+# painted over by it and add its own height below it (a second scrollbar). Fixed + a top
+# z-index floats above that layer and touches nothing in Marimo's DOM. Pinned top-left to
+# clear Marimo's top-right actions (``…``) menu. ``Canvas``/``CanvasText`` are the UA's
+# theme-aware system colors (the export declares ``color-scheme``, so they track the
+# device theme); a blurred translucent backdrop keeps it legible over content.
+_BANNER_STYLE = (
+    'position:fixed;top:.5rem;left:.5rem;z-index:2147483647;'
+    'display:flex;gap:.75rem;align-items:center;'
+    'padding:.3rem .65rem;font-size:.8125rem;line-height:1.4;'
+    'font-family:system-ui,sans-serif;border-radius:.375rem;'
+    'background:color-mix(in srgb, Canvas 80%, transparent);'
+    'border:1px solid color-mix(in srgb, CanvasText 18%, transparent);'
+    '-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);'
+)
+_BANNER_LINK = 'color:inherit;text-decoration:underline'
+
+
+def set_banner(html: str, *, index_url: str | None = None, source_url: str | None = None) -> str:
+    """Give a published report a floating nav — back to the index, out to the source.
+
+    Marimo's static export shows a "Run or Edit" banner whose only action is a download
+    popup; on a published site a back-link to the index and a link to the source notebook
+    are more useful. So we hide Marimo's banner (a CSS rule keyed on its ``data-testid``)
+    and inject our own — a small ``position:fixed`` overlay (``← Index`` · ``Source``).
+    It's fixed rather than in-flow because Marimo renders its app as a full-viewport
+    ``absolute`` layer that would otherwise paint over an in-flow bar and leave a second
+    scrollbar below it. Either link is omitted when its URL is ``None``; a no-op if
+    neither is given.
+    """
+    if index_url is None and source_url is None:
+        return html
+
+    def link(href: str, label: str) -> str:
+        return f'<a href="{href}" style="{_BANNER_LINK}">{label}</a>'
+
+    links = [link(url, label) for url, label in ((index_url, '&larr; Index'), (source_url, 'Source')) if url]
+    bar = f'<nav data-mini-banner style="{_BANNER_STYLE}">{"".join(links)}</nav>'
+
+    html = re.sub(
+        r'(</head>)',
+        lambda m: (
+            f'    <style>{_HIDE_MARIMO_BANNER}\n    @media print{{[data-mini-banner]{{display:none}}}}</style>\n{m.group(1)}'
+        ),
+        html,
+        count=1,
+    )
+    return re.sub(r'(<body[^>]*>)', lambda m: f'{m.group(1)}\n    {bar}', html, count=1)

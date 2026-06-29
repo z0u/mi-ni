@@ -149,10 +149,10 @@ def test_report_bundle_targets_export_dir(tmp_path: Path):
     nb = tmp_path / 'docs' / 'gpt-sweep' / 'report.py'
     nb.parent.mkdir(parents=True)
     nb.write_text('')
-    assert export_key(nb) == 'gpt-sweep/report'
-    assert export_dir(nb) == tmp_path / '.mini' / 'exports' / 'gpt-sweep' / 'report'
+    assert export_key(nb) == 'gpt-sweep'  # a directory's report.py collapses to the dir
+    assert export_dir(nb) == tmp_path / '.mini' / 'exports' / 'gpt-sweep'
     pub = report_bundle(nb)
-    assert pub.asset_dir == tmp_path / '.mini' / 'exports' / 'gpt-sweep' / 'report' / '_assets'
+    assert pub.asset_dir == tmp_path / '.mini' / 'exports' / 'gpt-sweep' / '_assets'
     assert pub.link == '_assets'
 
 

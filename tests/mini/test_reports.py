@@ -1,10 +1,12 @@
 from mini.reports import (
     SOURCE_ONLY_MARKER,
+    export_key,
     insert_base,
     is_report_notebook,
     relative_urls,
     report_notebooks,
     rewrite_links,
+    set_banner,
     set_theme,
     stray_links,
 )
@@ -116,6 +118,54 @@ def test_set_theme_fixed_target_skips_the_flash_guard():
 def test_set_theme_is_noop_without_a_theme():
     html = '<html><head></head><body></body></html>'
     assert set_theme(html) == html
+
+
+def test_export_key_uses_docs_relative_stem(tmp_path):
+    (tmp_path / 'pyproject.toml').write_text('')
+    docs = tmp_path / 'docs'
+    (docs / 'gpt-sweep').mkdir(parents=True)
+    (docs / 'gpt.py').write_text(_APP)
+    (docs / 'gpt-sweep' / 'aside.py').write_text(_APP)
+    assert export_key(docs / 'gpt.py') == 'gpt'
+    assert export_key(docs / 'gpt-sweep' / 'aside.py') == 'gpt-sweep/aside'
+
+
+def test_export_key_drops_redundant_report_segment(tmp_path):
+    # The canonical report of a directory publishes at the directory, not <dir>/report.
+    (tmp_path / 'pyproject.toml').write_text('')
+    docs = tmp_path / 'docs'
+    (docs / 'pipeline').mkdir(parents=True)
+    (docs / 'pipeline' / 'report.py').write_text(_APP)
+    assert export_key(docs / 'pipeline' / 'report.py') == 'pipeline'
+    # A top-level report.py has no directory to take, so it keeps its stem.
+    (docs / 'report.py').write_text(_APP)
+    assert export_key(docs / 'report.py') == 'report'
+
+
+# Marimo renders its banner client-side, so the export only carries an empty shell; our
+# bar is injected into that, not matched against existing banner markup.
+_EXPORT_HTML = '<html><head><meta charset="utf-8" /></head><body><div id="root"></div></body></html>'
+
+
+def test_set_banner_injects_nav_and_hides_marimo():
+    out = set_banner(_EXPORT_HTML, index_url='https://o.github.io/r/', source_url='https://github.com/o/r/x.py')
+    # Our bar is the first thing in <body>, so it paints above the report.
+    assert out.index('<body>') < out.index('<nav data-mini-banner') < out.index('<div id="root">')
+    assert '<a href="https://o.github.io/r/" style=' in out and '&larr; Index' in out
+    assert '<a href="https://github.com/o/r/x.py" style=' in out and '>Source</a>' in out
+    # Marimo's own (client-rendered) banner is hidden via a rule in <head>.
+    assert '[data-testid="static-notebook-banner"]{display:none' in out
+    assert out.index('static-notebook-banner') < out.index('</head>')
+
+
+def test_set_banner_omits_missing_links():
+    out = set_banner(_EXPORT_HTML, index_url='../index.html', source_url=None)
+    assert '&larr; Index' in out
+    assert '>Source<' not in out
+
+
+def test_set_banner_is_noop_without_urls():
+    assert set_banner(_EXPORT_HTML) == _EXPORT_HTML
 
 
 _APP = 'import marimo\napp = marimo.App()\n'
