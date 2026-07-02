@@ -14,7 +14,7 @@ agent (or you) can drive, poll, and gather without holding a session open:
     python -m mini status pipeline                             # per-task state + metrics, by NAME
     python -m mini results pipeline                            # per-task results
     python -m mini logs   pipeline <key>                       # a failed task's traceback
-    python -m mini explain pipeline <key>                      # why this key: code/input hashes, dep diff
+    python -m mini explain pipeline <key>                      # why this re-ran: evidence + attempt timeline
     python -m mini cancel pipeline                             # stop in-flight tasks
 
 State is addressed by experiment NAME (one memo store per experiment). Read
@@ -135,8 +135,9 @@ def _print_records(store: MemoStore, records: list[dict] | None = None) -> tuple
     so a completed run reads DONE even when an old key settled FAILED.
     """
     current, stale = store.split_current(store.records() if records is None else records)
+    kept = set(store.meta().get('kept_stale') or ())  # DONE served under old code (--keep-stale-done)
     for rec in current:
-        print(_memo_line(rec))
+        print(_memo_line(rec) + ('  (stale code — kept)' if rec['key'] in kept else ''))
     for rec in stale:
         print(f'{_memo_line(rec)}  (superseded)')
     return current, stale
@@ -175,9 +176,11 @@ def cmd_run(args: argparse.Namespace) -> None:
 def cmd_retry(args: argparse.Namespace) -> None:
     """Reset FAILED/CANCELLED tasks (or one ``--key``) then advance the DAG.
 
-    FAILED/CANCELLED are terminal, so a plain ``run`` won't re-launch them; this is
-    the explicit lever. DONE tasks stay memo hits — to re-run one, edit its fn or
-    bump ``version=``.
+    FAILED/CANCELLED are terminal under unchanged code, so a plain ``run`` won't
+    re-launch them; this is the explicit lever for a *flaky* failure. (After a
+    code fix, plain ``run`` relaunches them by itself — the record's evidence is
+    stale.) Fresh DONE tasks stay memo hits — to re-run one, edit its fn or bump
+    ``version=``.
     """
     exp = load_experiment(args.path)
     apparatus = _build_apparatus(exp.name, args)
@@ -190,8 +193,9 @@ def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
     """Drive one wake (or to completion with ``--watch``) and report."""
     store = apparatus.memo_store()
     _arm_budget(store, args)
+    keep_stale = getattr(args, 'keep_stale', False)
     if args.watch:
-        _watch(exp, apparatus, poll=args.poll)
+        _watch(exp, apparatus, poll=args.poll, keep_stale=keep_stale)
         return
     if store.budget_expired():  # over budget — settle in-flight work, don't launch a new stage
         cancelled = apparatus.enforce_budget(store)
@@ -200,7 +204,7 @@ def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
         print(f'⊘ wall-clock budget elapsed — cancelled {len(cancelled)} in-flight task(s); run settled CANCELLED')
         return
     try:
-        done, payload = tick(exp, apparatus)
+        done, payload = tick(exp, apparatus, keep_stale=keep_stale)
     except ExceptionGroup, TaskFailed:  # a depended-on task settled terminally
         done, payload = False, None
     print(f'{exp.name}:')
@@ -214,12 +218,12 @@ def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
         print(f'… suspended — {payload} (re-run to advance)')
 
 
-def _watch(exp, apparatus: Apparatus, poll: float) -> None:
+def _watch(exp, apparatus: Apparatus, poll: float, keep_stale: bool = False) -> None:
     """Drive an orchestration to completion with a live bar (the ``--watch`` path)."""
     from mini.monitor import drive_and_watch
 
     try:
-        payload = drive_and_watch(exp, apparatus, poll=poll)
+        payload = drive_and_watch(exp, apparatus, poll=poll, keep_stale=keep_stale)
     except KeyboardInterrupt:
         print('\n… stopped watching; tasks keep running. Re-run the same command to resume.')
         return
@@ -313,13 +317,27 @@ def cmd_logs(args: argparse.Namespace) -> None:
     print(_store_for(args.name, args).error(args.key))
 
 
-def cmd_explain(args: argparse.Namespace) -> None:
-    """Show the evidence behind a task's memo key — and why it differs from a sibling.
+def _attempt_delta(prev: dict, cur: dict) -> str:
+    """Name what moved between two attempts' evidence — why *cur* re-ran."""
+    bits: list[str] = []
+    if prev.get('version') != cur.get('version'):
+        bits.append(f'version: {prev.get("version", "-")} → {cur.get("version", "-")}')
+    a, b = prev.get('deps') or {}, cur.get('deps') or {}
+    for name in sorted(a.keys() | b.keys()):
+        if a.get(name) == b.get(name):
+            continue
+        bits.append(f'{name}: {"changed" if name in a and name in b else ("added" if name in b else "removed")}')
+    return ', '.join(bits) or 'retried (evidence unchanged)'
 
-    Each record stores its fingerprint parts (code vs. input hash, plus a short
-    hash per tracked dependency). ``explain`` prints them and, when another record
-    ran the same fn under a different key, diffs the two — answering "why did this
-    re-run" / "why is that record superseded" down to the dependency that moved.
+
+def cmd_explain(args: argparse.Namespace) -> None:
+    """Show a task's identity evidence and its attempt timeline.
+
+    A record's key is *identity* (fn + inputs); each launch stamps the evidence it
+    ran under (code hash, ``version=``, a short hash per tracked dependency), and
+    prior attempts stay compacted on the record. ``explain`` prints the current
+    evidence and walks the timeline, answering "why did this re-run" down to the
+    dependency that moved between attempts.
     """
     store = _store_for(args.name, args)
     rec = store.record(args.key)
@@ -335,29 +353,18 @@ def cmd_explain(args: argparse.Namespace) -> None:
     if not deps:
         print('    (no dependency manifest — record predates `explain`)')
         return
-    # Diff against the best sibling: another record of the same fn, preferring one
-    # the current DAG requests (the "replacement"), then the most recent.
-    siblings = [
-        r
-        for r in store.records()
-        if r.get('fn') == rec.get('fn') and r['key'] != rec['key'] and r.get('deps') and r.get('input_fp')
-    ]
-    if not siblings:
+    attempts = [*(rec.get('history') or ()), rec]
+    if len(attempts) < 2:
         return
-    other = max(siblings, key=lambda r: (r['key'] in requested, r.get('created_at', 0)))
-    other_deps: dict[str, str] = other['deps']
-    print(f'  vs {other["key"]} ({_rec_state(other)}{"" if other["key"] in requested else ", superseded"}):')
-    print(f'    inputs: {"unchanged" if other.get("input_fp") == rec.get("input_fp") else "changed"}')
-    if other.get('version') != rec.get('version'):
-        print(f'    version: {rec.get("version", "-")} → {other.get("version", "-")}')
-    for name in sorted(deps.keys() | other_deps.keys()):
-        a, b = deps.get(name), other_deps.get(name)
-        if a == b:
-            continue
-        what = 'changed' if a and b else ('only here' if a else 'only there')
-        print(f'    {name}: {what}' + (f' ({a} → {b})' if a and b else ''))
-    if deps == other_deps:
-        print('    code: unchanged')
+    print(f'  attempts ({len(attempts)}):')
+    for i, att in enumerate(attempts, 1):
+        state = att.get('state') or '?'
+        line = f'    #{i} {state:9}  code {att.get("code_fp", "?")}'
+        if att.get('error'):
+            line += f'  !! {att["error"]}'
+        if i > 1:
+            line += f'  ⇐ {_attempt_delta(attempts[i - 2], att)}'
+        print(line)
 
 
 def cmd_cancel(args: argparse.Namespace) -> None:
@@ -384,6 +391,13 @@ def main() -> None:
         p.add_argument('--workers', type=int, default=1, help='local worker threads / task concurrency')
         p.add_argument('--gpu', default=None, help='Modal GPU type, e.g. L4, A100 (--app modal)')
         p.add_argument('--timeout', type=int, default=None, help='per-task timeout in seconds (--app modal)')
+        p.add_argument(
+            '--keep-stale-done',
+            action='store_true',
+            dest='keep_stale',
+            help='bounded hotfix: serve DONE results even where the code has since changed, '
+            're-running only cells that never finished (default: a stale DONE re-runs too)',
+        )
         p.add_argument(
             '--budget',
             default=None,
@@ -432,7 +446,7 @@ def main() -> None:
     _add_app_flag(p)
     p.set_defaults(func=cmd_logs)
 
-    p = sub.add_parser('explain', help="show a task's memo-key evidence and diff it against its sibling")
+    p = sub.add_parser('explain', help="show a task's identity evidence and attempt timeline (why did this re-run)")
     p.add_argument('name')
     p.add_argument('key')
     _add_app_flag(p)

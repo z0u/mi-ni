@@ -23,10 +23,10 @@ whole design:
 
 - **Durable results.** A handle carries no location, so the result pickles durably and
   resolves from anywhere that can reach the store.
-- **Stable downstream memo keys.** The memo key is `fingerprint(fn, args, version)`.
-  Passing a `Path` into the next step fingerprints it *by location*; passing an
-  `Artifact` fingerprints it *by content*, so a consumer's key only moves when the
-  bytes actually change.
+- **Stable downstream memo keys.** The memo key is the task's identity,
+  `fn + fingerprint(args)`. Passing a `Path` into the next step fingerprints it
+  *by location*; passing an `Artifact` fingerprints it *by content*, so a
+  consumer's key only moves when the bytes actually change.
 - **Dedup, and idempotent `put`.** Identical bytes coincide; `put` hashes first and
   skips the upload if the blob is already present, so re-runs and cross-step duplicates
   are free.

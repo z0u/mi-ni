@@ -2,18 +2,24 @@
 Memoized orchestration for multi-step experiments.
 
 An experiment is a plain function ``main(ctx)`` that expresses the DAG in
-ordinary Python. Each ``ctx.run`` / ``ctx.map`` is content-addressed: cached ->
-return the stored result; otherwise launch a detached task and *suspend* the
-wake by raising ``Pending``. A driver re-runs ``main`` each wake; completed steps
-are memo hits, so only the un-run / failed pieces execute — crash-recovery by
-re-run.
+ordinary Python. Each ``ctx.run`` / ``ctx.map`` resolves to an identity key
+(fn + inputs): a record with a *current* result -> return it; otherwise launch
+a detached task and *suspend* the wake by raising ``Pending``. A driver re-runs
+``main`` each wake; completed steps are memo hits, so only the un-run / stale /
+failed pieces execute — crash-recovery by re-run.
+
+"Current" is judged per record against the attempt's stored evidence (code
+fingerprint + ``version=``): an edit re-runs the task **in place** under the
+same key. A FAILED task whose code has since changed relaunches automatically —
+the fix is what it was waiting for; a DONE one re-runs too unless the tick is
+told ``keep_stale`` (the bounded sweep-hotfix lever).
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Literal, Sequence, overload
 
-from mini.memo import MemoStore, fingerprint_parts
+from mini.memo import MemoStore, task_key_parts
 from mini.runs import SETTLED, RunState
 
 if TYPE_CHECKING:
@@ -122,18 +128,28 @@ class Ctx:
     per-step ``before_each`` hooks.
     """
 
-    def __init__(self, store: MemoStore, apparatus: Apparatus, roles: dict[str, Apparatus] | None = None):
+    def __init__(
+        self,
+        store: MemoStore,
+        apparatus: Apparatus,
+        roles: dict[str, Apparatus] | None = None,
+        keep_stale: bool = False,
+    ):
         self.store = store
         self.apparatus = apparatus
         self.roles = roles or {}
+        self.keep_stale = keep_stale
         self.launched: list[str] = []
         self.pending: list[str] = []
         # Every key this wake resolved (hit, in-flight, or launched) — the DAG's
-        # *requested set*. A record whose key a wake no longer requests (its fn was
-        # edited, its config removed) is superseded: still on disk, but not part of
+        # *requested set*. A record whose key a wake no longer requests (its fn
+        # renamed, its config removed) is superseded: still on disk, but not part of
         # the run's state. ``tick`` persists this so read-only views can tell the two
         # apart without re-running ``main``.
         self.requested: list[str] = []
+        # DONE results served despite stale evidence (keep_stale) — persisted so
+        # read-only views can badge them (they can't fingerprint code themselves).
+        self.stale_kept: list[str] = []
 
     def _route(self, on: Apparatus | None, role: str | None) -> Apparatus:
         """Resolve which apparatus a step runs on: ``role`` label, ``on=``, or default."""
@@ -152,12 +168,29 @@ class Ctx:
         """Resolve a call's key/state and, if it needs launching, mark it RUNNING
         and return its batch entry — *without* spawning. The caller batches the
         spawn so a ``map`` fans out in one ``spawn_tasks`` call.
+
+        The key is identity; whether a settled record still *counts* is judged
+        against its attempt's evidence. Stale FAILED/CANCELLED relaunches — the
+        edit is the fix a terminal task was waiting for, so no ``retry`` needed.
+        Stale DONE re-runs too (bias to over-invalidate) unless ``keep_stale``,
+        which bounds a sweep hotfix to the cells that actually need the new code.
+        Same-evidence FAILED/CANCELLED stays terminal (retry takes intent), and a
+        RUNNING task is never relaunched out from under its worker — staleness
+        waits for it to settle.
         """
-        key, parts = fingerprint_parts(fn, args, version)
+        key, parts = task_key_parts(fn, args, version)
         self.requested.append(key)
-        state = self.store.state(key)
+        rec = self.store.record(key)
+        state = RunState(rec['state']) if rec.get('state') else None
+        stale = state is not None and (rec.get('code_fp'), rec.get('version')) != (
+            parts['code_fp'],
+            parts.get('version'),
+        )
+        keep = stale and state == RunState.DONE and self.keep_stale
+        if keep:
+            self.stale_kept.append(key)
         to_launch: tuple[str, Callable, tuple, list] | None = None
-        if state is None:  # never run; FAILED/CANCELLED are terminal (retry takes intent)
+        if state is None or (stale and state != RunState.RUNNING and not keep):
             self.store.mark_running(fn, key, parts)
             to_launch = (key, fn, args, getattr(app, '_before_hooks', []))
             self.launched.append(key)
@@ -264,7 +297,7 @@ class Ctx:
         return results
 
 
-def tick(experiment: Experiment, apparatus: Apparatus) -> tuple[bool, Any]:
+def tick(experiment: Experiment, apparatus: Apparatus, keep_stale: bool = False) -> tuple[bool, Any]:
     """Run one wake of an experiment's orchestration on *apparatus*.
 
     Returns ``(done, payload)``: ``(True, result)`` if the DAG completed, or
@@ -273,9 +306,13 @@ def tick(experiment: Experiment, apparatus: Apparatus) -> tuple[bool, Any]:
     step the DAG depends on has settled terminally — the run can't progress without
     a ``retry``. Steps can override the apparatus per call via ``ctx.run(...,
     on=)`` / ``ctx.map(..., on=)``.
+
+    *keep_stale* is the bounded-hotfix lever (``--keep-stale-done``): serve DONE
+    results even when their code has since changed, so an edit re-runs only the
+    cells that never finished. Stale FAILED/CANCELLED always relaunches.
     """
     store = apparatus.memo_store()
-    ctx = Ctx(store, apparatus, experiment.resolve_roles(apparatus))
+    ctx = Ctx(store, apparatus, experiment.resolve_roles(apparatus), keep_stale=keep_stale)
     try:
         result = experiment.orchestration()(ctx)
     except Pending as p:
@@ -285,22 +322,30 @@ def tick(experiment: Experiment, apparatus: Apparatus) -> tuple[bool, Any]:
         # can split current records from superseded ones. ``main`` replays from the
         # top each wake, so the set is complete up to the suspension point; keys past
         # it aren't known yet and their old records read as superseded until a later
-        # wake requests them again — honest, since an upstream edit may re-key them.
-        store.set_meta(requested=list(dict.fromkeys(ctx.requested)))
+        # wake requests them again — honest, since an upstream edit may have changed
+        # what they'll ask for. ``kept_stale`` rides along so read-only views can
+        # badge results served under old code (they can't fingerprint code
+        # themselves — reads never import or tick).
+        store.set_meta(
+            requested=list(dict.fromkeys(ctx.requested)),
+            kept_stale=list(dict.fromkeys(ctx.stale_kept)),
+        )
     return True, result
 
 
 def retry(store: MemoStore, key: str | None = None) -> list[str]:
     """Reset settled-but-not-DONE tasks so the next ``tick`` reruns them.
 
-    ``FAILED``/``CANCELLED`` are terminal — ``tick`` won't auto-relaunch them — so
-    re-running takes intent. This clears their records (state → un-run); the next
-    ``tick`` then relaunches. Pass *key* to retry one task; otherwise all
-    failed/cancelled tasks. Returns the keys reset (a `DONE` task is never reset —
-    edit the fn or bump ``version=`` to force that). DONE results stay memo hits.
+    ``FAILED``/``CANCELLED`` are terminal *under the code that produced them* —
+    ``tick`` won't auto-relaunch them — so re-running takes intent: this, or
+    editing the fn (stale evidence relaunches on the next tick), or bumping
+    ``version=``. This clears their records (state → un-run, prior attempt kept
+    in history); the next ``tick`` then relaunches. Pass *key* to retry one task;
+    otherwise all failed/cancelled tasks. Returns the keys reset (a `DONE` task
+    is never reset — edit the fn or bump ``version=`` to force that).
 
     Superseded records — keys the last tick no longer requested (their fn was
-    edited, their config removed) — are skipped: no tick will ever relaunch them,
+    renamed, their config removed) — are skipped: no tick will ever relaunch them,
     so resetting one just plants a phantom forever-pending record. An explicit
     *key* overrides (deliberate intent beats the manifest).
     """

@@ -7,9 +7,10 @@ asks for an L4, so on Modal the records show one step saw no GPU and the other a
     bin/mini run docs/role-demo/experiment.py --app modal
     bin/mini results role-demo --app modal
 
-Note the ``label`` argument: the memo key is ``fingerprint(fn, args)`` and excludes
-the hardware, so calling the same fn with the same args twice would be a memo *hit*
-(both steps returning the first's result). The label keeps the two keys distinct.
+Note the ``label`` argument: the memo key is the task's identity — ``(fn, args)``
+— and excludes the hardware, so calling the same fn with the same args twice would
+be a memo *hit* (both steps returning the first's result). The label keeps the two
+identities distinct.
 """
 
 from __future__ import annotations
