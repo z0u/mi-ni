@@ -45,11 +45,21 @@ into a task's inputs so the same inputs really do produce the same result.
 <!-- prettier-ignore -->
 | You want to… | Do this | What re-runs |
 | --- | --- | --- |
-| Fix a bug in a step | Edit the fn, `mini run` | That step (new source key); siblings stay hits |
+| Fix a bug in a step | Edit the fn, `mini run` | Every call of that fn — one step, or a whole `map` (all cells share its source); *other* steps stay hits |
 | Add a config to a sweep | Append to `configs`, `mini run` | Only the new key |
-| Remove a config | Delete it from `configs` | Nothing — it's just not requested |
+| Remove a config | Delete it from `configs` | Nothing — its old record shows `(superseded)` |
 | Re-run a finished step | Edit the fn, or pass `version=` | That step |
 | Recover a failed step | `mini logs`, fix, `mini retry` | The reset (FAILED/CANCELLED) tasks |
+
+### Superseded records
+
+Records are keyed by content, so an edited fn or a removed config leaves its old
+record behind under a key no wake will request again. Each tick persists the set
+of keys the DAG requested; the read commands aggregate over that set, showing
+the orphans as `(superseded)` without letting them poison the run's state — a
+completed run reads DONE even if an old key once settled FAILED. `retry` skips
+superseded records too (resetting one would plant a phantom that never runs);
+target one explicitly with `--key` if you really mean it.
 
 ### Failure is terminal by design
 

@@ -68,6 +68,46 @@ def test_ls_and_status_surface_memo_experiments(tmp_path: Path, monkeypatch, cap
     assert 'train-' in status_out and '2 tasks' in status_out  # per-task memo records
 
 
+def test_status_and_ls_report_done_despite_superseded_failure(tmp_path: Path, monkeypatch, capsys):
+    """The scenario a monitor agent hits: a task fails, the fn is edited (re-keying
+    every cell), and the run completes under the new keys. ``status``/``ls`` must
+    report the *run* as done — aggregating over the requested set — with the
+    orphaned old records shown but marked, not poisoning the state a poller acts on."""
+    monkeypatch.chdir(tmp_path)
+
+    def bad(x):
+        raise RuntimeError('bug')
+
+    def good(x):
+        return x
+
+    def sweep(fn):
+        return Experiment(name='super', main=lambda ctx: ctx.map(fn, [(1,)]))
+
+    app = LocalApparatus('super')  # default data_dir → .mini/super
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:  # drive the buggy version to its failure
+        try:
+            tick(sweep(bad), app)
+        except ExceptionGroup:
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError('map never surfaced the failure')
+    _drive(sweep(good), LocalApparatus('super'))  # the "hotfix": new source, new keys
+
+    from mini.__main__ import cmd_ls, cmd_status
+
+    cmd_status(argparse.Namespace(name='super', app='local'))
+    status_out = capsys.readouterr().out
+    assert '—  done  (1 tasks)' in status_out  # aggregate ignores the orphan
+    assert '(superseded)' in status_out  # …but the orphan stays visible, marked
+
+    cmd_ls(argparse.Namespace())
+    ls_out = capsys.readouterr().out
+    assert 'done' in ls_out and '+1 superseded' in ls_out
+
+
 def test_cancel_stops_running_task(tmp_path: Path):
     def slow(x):
         import time

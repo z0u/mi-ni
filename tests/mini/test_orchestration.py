@@ -315,6 +315,74 @@ def test_prune_and_memo_hits_across_config_edits(tmp_path: Path):
     assert {p.name for p in counts.iterdir()} == {'1', '2', '3'}  # 1 retained, never re-run
 
 
+def test_tick_persists_requested_keys(tmp_path: Path):
+    """Each tick records the keys the DAG requested (the ``__run__`` manifest), so
+    read-only views can split current records from superseded ones without
+    re-running ``main`` (reads must never tick)."""
+
+    def work(x):
+        return x * 10
+
+    def sweep(items):
+        return Experiment(name='req', main=lambda ctx: ctx.map(work, [(i,) for i in items]))
+
+    data_dir = tmp_path / 'req'
+    _drive(sweep([1, 2]), LocalApparatus('req', data_dir=data_dir))
+    store = MemoStore(data_dir)
+    assert set(store.requested_keys() or []) == {r['key'] for r in store.records()}
+
+    # Prune a config: its record survives on disk, but the manifest no longer
+    # requests it — so the run's *current* view is just the surviving cell.
+    _drive(sweep([2]), LocalApparatus('req', data_dir=data_dir))
+    current, stale = store.split_current(store.records())
+    assert len(current) == 1 and len(stale) == 1
+
+
+def test_superseded_records_are_excluded_and_not_retried(tmp_path: Path):
+    """Editing a task fn re-keys every cell that calls it, orphaning the old
+    records. The orphaned FAILED record must not poison the run: ``retry`` skips
+    it (resetting it would plant a phantom no tick ever relaunches), and the
+    manifest marks it superseded for read-only views. Explicit ``--key`` intent
+    still beats the manifest."""
+
+    def bad(x):
+        if x == 2:
+            raise RuntimeError('bug')
+        return x * 10
+
+    def good(x):
+        return x * 10
+
+    def sweep(fn):
+        return Experiment(name='hotfix', main=lambda ctx: ctx.map(fn, [(1,), (2,)]))
+
+    data_dir = tmp_path / 'hotfix'
+    exp, app = sweep(bad), LocalApparatus('hotfix', data_dir=data_dir)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            tick(exp, app)
+        except ExceptionGroup:
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError('map never surfaced the failure')
+    store = app.memo_store()
+    (failed_key,) = [r['key'] for r in store.records() if r.get('state') == RunState.FAILED]
+
+    # The "hotfix": the fixed fn has new source, so every cell re-keys and the old
+    # records are superseded. The fixed sweep completes despite the old failure.
+    assert _drive(sweep(good), LocalApparatus('hotfix', data_dir=data_dir)) == [10, 20]
+    assert retry(store) == []  # the orphaned FAILED is skipped, not reset
+    assert store.state(failed_key) == RunState.FAILED  # left as-is — no phantom pending
+
+    current, stale = store.split_current(store.records())
+    assert failed_key in {r['key'] for r in stale}
+    assert all(r.get('state') == RunState.DONE for r in current)
+
+    assert retry(store, key=failed_key) == [failed_key]  # explicit key overrides
+
+
 def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
     """``on=`` routes a step to a different apparatus — here proven via its hooks."""
 

@@ -128,6 +128,12 @@ class Ctx:
         self.roles = roles or {}
         self.launched: list[str] = []
         self.pending: list[str] = []
+        # Every key this wake resolved (hit, in-flight, or launched) — the DAG's
+        # *requested set*. A record whose key a wake no longer requests (its fn was
+        # edited, its config removed) is superseded: still on disk, but not part of
+        # the run's state. ``tick`` persists this so read-only views can tell the two
+        # apart without re-running ``main``.
+        self.requested: list[str] = []
 
     def _route(self, on: Apparatus | None, role: str | None) -> Apparatus:
         """Resolve which apparatus a step runs on: ``role`` label, ``on=``, or default."""
@@ -148,6 +154,7 @@ class Ctx:
         spawn so a ``map`` fans out in one ``spawn_tasks`` call.
         """
         key = fingerprint(fn, args, version)
+        self.requested.append(key)
         state = self.store.state(key)
         to_launch: tuple[str, Callable, tuple, list] | None = None
         if state is None:  # never run; FAILED/CANCELLED are terminal (retry takes intent)
@@ -273,6 +280,13 @@ def tick(experiment: Experiment, apparatus: Apparatus) -> tuple[bool, Any]:
         result = experiment.orchestration()(ctx)
     except Pending as p:
         return False, str(p)
+    finally:
+        # Persist the requested set (even on Pending/TaskFailed) so read-only views
+        # can split current records from superseded ones. ``main`` replays from the
+        # top each wake, so the set is complete up to the suspension point; keys past
+        # it aren't known yet and their old records read as superseded until a later
+        # wake requests them again — honest, since an upstream edit may re-key them.
+        store.set_meta(requested=list(dict.fromkeys(ctx.requested)))
     return True, result
 
 
@@ -284,12 +298,20 @@ def retry(store: MemoStore, key: str | None = None) -> list[str]:
     ``tick`` then relaunches. Pass *key* to retry one task; otherwise all
     failed/cancelled tasks. Returns the keys reset (a `DONE` task is never reset —
     edit the fn or bump ``version=`` to force that). DONE results stay memo hits.
+
+    Superseded records — keys the last tick no longer requested (their fn was
+    edited, their config removed) — are skipped: no tick will ever relaunch them,
+    so resetting one just plants a phantom forever-pending record. An explicit
+    *key* overrides (deliberate intent beats the manifest).
     """
+    requested = store.requested_keys()
     targets: list[str] = []
     for rec in store.records():
         k = rec['key']
         if key is not None and k != key:
             continue
+        if key is None and requested is not None and k not in requested:
+            continue  # superseded — the DAG no longer requests this key
         state = RunState(rec['state']) if rec.get('state') else None
         if state in (RunState.FAILED, RunState.CANCELLED):
             store.reset(k)
