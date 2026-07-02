@@ -13,21 +13,27 @@ churn (site-packages and the mini framework itself are excluded).
 from __future__ import annotations
 
 import dataclasses
+import dis
+import enum
+import functools
 import hashlib
 import inspect
 import json
+import logging
 import time
 import types
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from pathlib import Path
-from typing import Any, Callable
+from pathlib import Path, PurePath
+from typing import Any, Callable, Iterator
 
 import cloudpickle
 
 from mini.runs import SETTLED, RunState, _atomic_write, _merge_json
 
-__all__ = ['fingerprint', 'RecordStore', 'LocalRecordStore', 'MemoStore', 'PollCache', 'META_KEY']
+__all__ = ['fingerprint', 'fingerprint_parts', 'RecordStore', 'LocalRecordStore', 'MemoStore', 'PollCache', 'META_KEY']
+
+log = logging.getLogger(__name__)
 
 # Source under these roots is treated as an opaque, stable dependency: the
 # stdlib, installed packages, and the mini framework itself (so editing mini
@@ -53,6 +59,104 @@ def _is_project_source(obj: Any) -> bool:
     return 'site-packages' not in rf and '/lib/python3' not in rf and not rf.startswith(_MINI_DIR)
 
 
+def _nested_codes(code: types.CodeType) -> Iterator[types.CodeType]:
+    """*code* plus every code object nested in it (inner defs, lambdas, genexprs).
+
+    A helper referenced only inside a nested function lives in the *inner* code
+    object's ``co_names``; walking just the outer one would miss it.
+    """
+    yield code
+    for const in code.co_consts:
+        if isinstance(const, types.CodeType):
+            yield from _nested_codes(const)
+
+
+def _attr_chain_refs(fn: Callable) -> list[Any]:
+    """Objects reached through attribute chains rooted at a global (``utils.helper``).
+
+    Bare names are resolved via ``co_names`` ∩ globals, but a helper called as a
+    module attribute never appears in globals under its own name — so without this
+    walk, ``import utils; utils.helper()`` would be *invisible* to the fingerprint
+    and editing the helper would silently serve stale results. We scan the bytecode
+    for ``LOAD_GLOBAL`` → ``LOAD_ATTR``… chains and resolve each step with
+    ``getattr``, collecting any function/class the chain lands on (``pkg.mod.fn``
+    resolves through the intermediate modules).
+    """
+    code = getattr(fn, '__code__', None)
+    g = getattr(fn, '__globals__', {})
+    if code is None:
+        return []
+    refs: list[Any] = []
+    for c in _nested_codes(code):
+        chain: Any = None
+        for ins in dis.get_instructions(c):
+            if ins.opname == 'LOAD_GLOBAL' and ins.argval in g:
+                chain = g[ins.argval]
+            elif ins.opname == 'LOAD_ATTR' and chain is not None:
+                chain = getattr(chain, ins.argval, None)
+                if callable(chain) or isinstance(chain, type):
+                    refs.append(chain)
+            else:
+                chain = None  # any other instruction breaks the chain
+    return refs
+
+
+def _collect_class(cls: type, seen: dict[str, str]) -> None:
+    """Collect a class's source, then traverse its methods' *references*.
+
+    The class source already contains the method bodies textually (so editing a
+    method invalidates); traversing the methods is what picks up the helpers and
+    project bases they *call*, which the text alone doesn't reach.
+    """
+    if cls.__qualname__ in seen:
+        return
+    try:
+        seen[cls.__qualname__] = inspect.getsource(cls)
+    except TypeError, OSError:
+        return
+    for base in cls.__bases__:
+        if _is_project_source(base):
+            _collect_class(base, seen)
+    for member in vars(cls).values():
+        if isinstance(member, (staticmethod, classmethod)):
+            member = member.__func__
+        if isinstance(member, types.FunctionType):
+            _collect_sources(member, seen)
+
+
+def _value_json(obj: Any) -> str | None:
+    """A stable JSON encoding of a plain value, or ``None`` if it has none.
+
+    No ``default=`` fallback here: an exotic object's ``repr`` can embed a memory
+    address, which would make the fingerprint differ every process — worse than
+    not tracking the value at all. Stable-or-skip.
+    """
+    try:
+        return json.dumps(_canonical(obj), sort_keys=True)
+    except TypeError, ValueError:
+        return None
+
+
+def _named_refs(fn: Callable) -> list[tuple[str | None, Any]]:
+    """Everything *fn* references, as ``(name, object)`` pairs.
+
+    Bare globals (from every nested code object), closure cells (named via
+    ``co_freevars``), and attribute-chain targets (unnamed — they're never
+    treated as values, only as code).
+    """
+    code = getattr(fn, '__code__', None)
+    g = getattr(fn, '__globals__', {})
+    names = [n for c in _nested_codes(code) for n in c.co_names] if code is not None else []
+    refs: list[tuple[str | None, Any]] = [(n, g[n]) for n in names if n in g]
+    freevars = code.co_freevars if code is not None else ()
+    for name, cell in zip(freevars, getattr(fn, '__closure__', None) or (), strict=False):
+        try:
+            refs.append((name, cell.cell_contents))
+        except ValueError:
+            pass
+    return refs + [(None, obj) for obj in _attr_chain_refs(fn)]
+
+
 def _collect_sources(fn: Callable, seen: dict[str, str]) -> None:
     qualname = getattr(fn, '__qualname__', repr(fn))
     if qualname in seen:
@@ -61,28 +165,36 @@ def _collect_sources(fn: Callable, seen: dict[str, str]) -> None:
         seen[qualname] = inspect.getsource(fn)
     except TypeError, OSError:
         return
-    code = getattr(fn, '__code__', None)
-    g = getattr(fn, '__globals__', {})
-    refs: list[Any] = [g[n] for n in code.co_names if n in g] if code is not None else []
-    for cell in getattr(fn, '__closure__', None) or []:
-        try:
-            refs.append(cell.cell_contents)
-        except ValueError:
-            pass
-    for obj in refs:
+    for name, obj in _named_refs(fn):
+        if isinstance(obj, types.MethodType):
+            obj = obj.__func__
         if isinstance(obj, types.FunctionType) and _is_project_source(obj):
             _collect_sources(obj, seen)
         elif isinstance(obj, type) and _is_project_source(obj):
-            try:
-                seen.setdefault(obj.__qualname__, inspect.getsource(obj))
-            except TypeError, OSError:
-                pass
+            _collect_class(obj, seen)
+        elif name is not None and not isinstance(obj, types.ModuleType) and not callable(obj):
+            # A plain value referenced by name (a module-level LR, a config table):
+            # fold its canonical JSON in, so editing the *value* invalidates like
+            # editing code. Skipped when it has no stable encoding (see _value_json).
+            if (js := _value_json(obj)) is not None:
+                seen[f'{qualname}::{name}'] = js
+
+
+@functools.lru_cache(maxsize=256)
+def _sources_for(fn: Callable) -> tuple[tuple[str, str], ...]:
+    """The (cached) sorted dependency manifest for *fn*: ``(name, source-or-value)``.
+
+    Source never changes within one process (every wake is a fresh process), so
+    this caches per fn object — a ``ctx.map`` fingerprints its fn once per wake
+    instead of re-walking the reference graph for every cell.
+    """
+    seen: dict[str, str] = {}
+    _collect_sources(fn, seen)
+    return tuple(sorted(seen.items()))
 
 
 def _code_fingerprint(fn: Callable) -> str:
-    seen: dict[str, str] = {}
-    _collect_sources(fn, seen)
-    blob = '\n--\n'.join(f'{k}:{v}' for k, v in sorted(seen.items()))
+    blob = '\n--\n'.join(f'{k}:{v}' for k, v in _manifest(fn))
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
@@ -105,13 +217,44 @@ def _canonical(o: Any) -> Any:
             return _canonical(dump())
     if dataclasses.is_dataclass(o) and not isinstance(o, type):
         return _canonical(dataclasses.asdict(o))
+    if isinstance(o, enum.Enum):
+        return [type(o).__qualname__, _canonical(o.value)]
     if isinstance(o, Mapping):
         return {str(k): _canonical(v) for k, v in o.items()}
     if isinstance(o, (set, frozenset)):
         return sorted((_canonical(x) for x in o), key=lambda v: json.dumps(v, sort_keys=True, default=repr))
     if isinstance(o, (list, tuple)):
         return [_canonical(x) for x in o]
+    if isinstance(o, PurePath):
+        return str(o)  # a path keys by *location* — prefer an Artifact, which keys by content
+    if (code := _canonical_code(o)) is not None:
+        return code
     return o
+
+
+def _canonical_code(o: Any) -> list | None:
+    """Canonical forms for *code passed as data* — keyed by source, not identity.
+
+    A callable's repr embeds a memory address, so without these a callable input
+    would produce a fresh key every process — relaunching the task on every wake.
+    Returns ``None`` for non-code values (handled by :func:`_canonical`).
+    """
+    if isinstance(o, types.MethodType):
+        return ['method', o.__func__.__qualname__, _code_fingerprint(o.__func__)[:12], _canonical(o.__self__)]
+    if isinstance(o, types.FunctionType):
+        return ['fn', o.__qualname__, _code_fingerprint(o)[:12]]
+    if isinstance(o, type):
+        return ['class', o.__qualname__, hashlib.sha256(_class_source(o).encode()).hexdigest()[:12]]
+    if isinstance(o, functools.partial):
+        return ['partial', _canonical(o.func), _canonical(o.args), _canonical(o.keywords)]
+    return None
+
+
+def _class_source(cls: type) -> str:
+    try:
+        return inspect.getsource(cls)
+    except TypeError, OSError:
+        return cls.__qualname__  # no source (builtin/C) — the name is the stable id
 
 
 def _input_fingerprint(args: tuple) -> str:
@@ -119,17 +262,67 @@ def _input_fingerprint(args: tuple) -> str:
         blob = json.dumps(_canonical(args), sort_keys=True, default=repr).encode()
     except Exception:
         blob = repr(args).encode()
+    if b' at 0x' in blob:  # an object address leaked into the key
+        log.warning(
+            'task inputs have no stable encoding (repr contains an object address), so the memo '
+            'key will differ every process and the task can never be a cache hit — it will relaunch '
+            'on every wake. Pass plain data, dataclasses, or Artifact handles instead: %.200r',
+            args,
+        )
     return hashlib.sha256(blob).hexdigest()
+
+
+# Guards fn-value cycles: a module-level container holding the fn that references
+# it would recurse (collect fn → canonicalize the container → fingerprint fn → …).
+# The marker is a constant per qualname, so the resulting manifest stays
+# deterministic across processes.
+_collecting: set[int] = set()
+
+
+def _manifest(fn: Callable) -> tuple[tuple[str, str], ...]:
+    if id(fn) in _collecting:
+        return ((f'<recursive:{getattr(fn, "__qualname__", "?")}>', ''),)
+    _collecting.add(id(fn))
+    try:
+        try:
+            return _sources_for(fn)
+        except TypeError:  # unhashable callable — compute uncached
+            seen: dict[str, str] = {}
+            _collect_sources(fn, seen)
+            return tuple(sorted(seen.items()))
+    finally:
+        _collecting.discard(id(fn))
 
 
 def fingerprint(fn: Callable, args: tuple, version: str | None = None) -> str:
     """A stable content key for calling *fn* with *args* (the memo key)."""
+    return fingerprint_parts(fn, args, version)[0]
+
+
+def fingerprint_parts(fn: Callable, args: tuple, version: str | None = None) -> tuple[str, dict[str, Any]]:
+    """The memo key plus the evidence behind it, for the record (``mini explain``).
+
+    Returns ``(key, parts)`` where *parts* carries the code and input fingerprints
+    separately (so "why did this re-run" splits into "code changed" vs "inputs
+    changed") and ``deps`` — a short hash per tracked dependency (the fn itself,
+    each project helper/class it references, each plain-value global) — so two
+    records can be diffed down to *which* dependency moved.
+    """
+    manifest = _manifest(fn)
+    blob = '\n--\n'.join(f'{k}:{v}' for k, v in manifest)
+    code_fp = hashlib.sha256(blob.encode()).hexdigest()
+    input_fp = _input_fingerprint(args)
     h = hashlib.sha256()
-    h.update(_code_fingerprint(fn).encode())
-    h.update(_input_fingerprint(args).encode())
+    h.update(code_fp.encode())
+    h.update(input_fp.encode())
     if version:
         h.update(version.encode())
-    return f'{getattr(fn, "__name__", "task")}-{h.hexdigest()[:12]}'
+    key = f'{getattr(fn, "__name__", "task")}-{h.hexdigest()[:12]}'
+    deps = {k: hashlib.sha256(v.encode()).hexdigest()[:8] for k, v in manifest}
+    parts = {'code_fp': code_fp[:12], 'input_fp': input_fp[:12], 'deps': deps}
+    if version:
+        parts['version'] = version
+    return key, parts
 
 
 class RecordStore(ABC):
@@ -281,15 +474,24 @@ class MemoStore:
         """
         self.records_backend.write(key, {'key': key, 'state': None})
 
-    def mark_running(self, fn: Callable, key: str) -> None:
+    def mark_running(self, fn: Callable, key: str, parts: dict[str, Any] | None = None) -> None:
         """Flip the record to RUNNING (wholesale, clearing any prior error).
 
         Called by ``Ctx`` before the apparatus spawns the worker, so a poll
         between stage and first heartbeat sees RUNNING rather than a stale state.
+        *parts* is the fingerprint evidence (``code_fp``/``input_fp``/``deps``
+        from :func:`fingerprint_parts`), stored so ``mini explain`` can answer
+        "why did this re-run" after the fact.
         """
         self.records_backend.write(
             key,
-            {'key': key, 'fn': getattr(fn, '__name__', 'task'), 'state': RunState.RUNNING, 'created_at': time.time()},
+            {
+                'key': key,
+                'fn': getattr(fn, '__name__', 'task'),
+                'state': RunState.RUNNING,
+                'created_at': time.time(),
+                **(parts or {}),
+            },
         )
 
     def write_call(self, key: str, fn: Callable, args: tuple, hooks: list[Callable] | None = None) -> None:
