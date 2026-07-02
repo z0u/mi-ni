@@ -236,6 +236,30 @@ class MemoStore:
         """Merge run-level metadata (e.g. ``deadline_at``) into the reserved record."""
         self.records_backend.merge(META_KEY, fields)
 
+    def requested_keys(self) -> list[str] | None:
+        """The keys the DAG requested on its last tick, or ``None`` if never recorded.
+
+        Records are content-keyed, so an edited fn or a removed config leaves its old
+        record behind under a key no wake will request again. This manifest is what
+        lets a read-only view (``status``/``ls``/``watch``) aggregate over the run's
+        *current* records and mark the rest superseded — without re-running ``main``
+        (reads must never tick). ``None`` (a store written before the manifest, or a
+        run never ticked) means "unknown": treat every record as current.
+        """
+        return self.meta().get('requested')
+
+    def split_current(self, records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Split *records* into ``(current, superseded)`` against the requested set.
+
+        With no manifest, everything is current (nothing to judge against).
+        """
+        requested = self.requested_keys()
+        if requested is None:
+            return records, []
+        wanted = set(requested)
+        current = [r for r in records if r['key'] in wanted]
+        return current, [r for r in records if r['key'] not in wanted]
+
     def deadline(self) -> float | None:
         """The run's wall-clock deadline (epoch seconds), or ``None`` if unbudgeted."""
         return self.meta().get('deadline_at')

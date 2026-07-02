@@ -111,8 +111,13 @@ def watch(
             records = cache.records(store)
             apparatus.reap_dead(store, records)  # settle vanished workers — read-only path, never relaunches
             _refresh(progress, bars, records)
-            if records and all(_rec_state(r) in SETTLED for r in records):
-                return records
+            # Settle on the *current* records only: a superseded key (fn edited,
+            # config removed) will never be requested again, so waiting on its
+            # record would watch forever. Split each poll — another process may
+            # tick (and re-key) while we watch.
+            current, _ = store.split_current(records)
+            if current and all(_rec_state(r) in SETTLED for r in current):
+                return current
             time.sleep(poll)
 
 

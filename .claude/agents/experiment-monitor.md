@@ -64,8 +64,11 @@ Editing code re-runs work and can double-spend (detached old-key workers aren't
 killed by a re-run). So:
 
 1. **Only hotfix terminal (FAILED/CANCELLED) tasks** — their worker is dead.
-   Fix the failing fn, then `bin/mini retry <exp> --key <key>`. Blast radius is
-   one task.
+   For a transient failure, don't edit: `bin/mini retry <exp> --key <key>`
+   re-runs just that task. Editing a fn re-keys **every call of it** — for a
+   `map`, the whole fan-out re-runs, not just the failed cell. Edit only when
+   the fn backs a single step or the sweep is cheap to re-run; otherwise
+   escalate.
 2. **If anything is in-flight, `bin/mini cancel <exp>` first**, then fix. Never
    edit under a live worker.
 3. **Only ever edit the single failing task fn.** Never a shared helper,

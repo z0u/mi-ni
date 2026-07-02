@@ -124,6 +124,23 @@ def _rec_state(rec: dict) -> RunState:
     return RunState(rec['state']) if rec.get('state') else RunState.PENDING
 
 
+def _print_records(store: MemoStore, records: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """Print every record — current first, superseded marked — and return the split.
+
+    A superseded record's key is one the last tick no longer requested (its fn was
+    edited, its config removed). It stays visible (it may hold a result someone
+    cares about, or an orphaned worker still burning), but it is *not* part of the
+    run's state: aggregates and the failed-task hint consider current records only,
+    so a completed run reads DONE even when an old key settled FAILED.
+    """
+    current, stale = store.split_current(store.records() if records is None else records)
+    for rec in current:
+        print(_memo_line(rec))
+    for rec in stale:
+        print(f'{_memo_line(rec)}  (superseded)')
+    return current, stale
+
+
 def _memo_line(rec: dict) -> str:
     """One status line for a memoized task record (shared by `run`/`status`)."""
     state = _rec_state(rec)
@@ -178,21 +195,18 @@ def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
     if store.budget_expired():  # over budget — settle in-flight work, don't launch a new stage
         cancelled = apparatus.enforce_budget(store)
         print(f'{exp.name}:')
-        for rec in store.records():
-            print(_memo_line(rec))
+        _print_records(store)
         print(f'⊘ wall-clock budget elapsed — cancelled {len(cancelled)} in-flight task(s); run settled CANCELLED')
         return
     try:
         done, payload = tick(exp, apparatus)
     except ExceptionGroup, TaskFailed:  # a depended-on task settled terminally
         done, payload = False, None
-    records = apparatus.memo_store().records()
     print(f'{exp.name}:')
-    for rec in records:
-        print(_memo_line(rec))
+    current, _ = _print_records(store)
     if done:
         print(f'✓ complete: {payload}')
-    elif failed := [r for r in records if _rec_state(r) in (RunState.FAILED, RunState.CANCELLED)]:
+    elif failed := [r for r in current if _rec_state(r) in (RunState.FAILED, RunState.CANCELLED)]:
         print(f'✗ {len(failed)} task(s) failed (terminal) — fix, then: python -m mini retry {args.path}')
         print(f'   see a traceback with:  python -m mini logs {exp.name} <key>')
     else:
@@ -229,10 +243,15 @@ def cmd_ls(args: argparse.Namespace) -> None:
         print('no experiments yet (run one with: python -m mini run <path>)')
         return
     for name in names:
-        states = [_rec_state(r) for r in MemoStore(root / name).records()]
+        store = MemoStore(root / name)
+        current, stale = store.split_current(store.records())
+        states = [_rec_state(r) for r in current]
         agg = _aggregate_state(states)
         done = sum(s == RunState.DONE for s in states)
-        print(f'{name:16} {_GLYPH.get(agg, "?")} {agg:9} {done}/{len(states)} tasks')
+        line = f'{name:16} {_GLYPH.get(agg, "?")} {agg:9} {done}/{len(states)} tasks'
+        if stale:
+            line += f'  (+{len(stale)} superseded)'
+        print(line)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -243,13 +262,13 @@ def cmd_status(args: argparse.Namespace) -> None:
     recs = store.records()
     if not recs:
         raise SystemExit(f'no tasks found for experiment {args.name!r}')
-    state = _aggregate_state([_rec_state(r) for r in recs])
-    header = f'{args.name}  —  {state}  ({len(recs)} tasks)'
+    current, _ = store.split_current(recs)
+    state = _aggregate_state([_rec_state(r) for r in current])
+    header = f'{args.name}  —  {state}  ({len(current)} tasks)'
     if suffix := _budget_suffix(store):
         header += f'  ·  {suffix}'
     print(header)
-    for rec in recs:
-        print(_memo_line(rec))
+    _print_records(store, recs)
 
 
 def cmd_watch(args: argparse.Namespace) -> None:
@@ -278,12 +297,15 @@ def cmd_results(args: argparse.Namespace) -> None:
     recs = store.records()
     if not recs:
         raise SystemExit(f'no tasks found for experiment {args.name!r}')
-    for rec in recs:
+    current, stale = store.split_current(recs)
+    for rec in current:
         key = rec['key']
         if _rec_state(rec) == RunState.DONE:
             print(f'{key}  {store.result(key)}')
         else:
             print(f'{key}  ({_rec_state(rec)} — no result)')
+    if stale:  # results under keys the DAG no longer requests would mislead a gather
+        print(f'({len(stale)} superseded record(s) omitted — see: status)')
 
 
 def cmd_logs(args: argparse.Namespace) -> None:

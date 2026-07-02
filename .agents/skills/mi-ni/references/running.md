@@ -61,7 +61,11 @@ money on Modal). And editing a **shared helper** invalidates *every* task that
 calls it. Three rules keep the blast radius bounded:
 
 1. **Only hotfix terminal (FAILED/CANCELLED) tasks** — their worker is already
-   dead. Fix the fn, then `retry --key <key>`; blast radius is one task.
+   dead. For a transient failure, don't edit: `retry --key <key>` re-runs just
+   that task (blast radius is one task). Editing the fn re-keys **every call of
+   it** — for a `map`, the *whole fan-out* re-runs, not just the failed cell
+   (the old records then show `(superseded)`). That's fine for a single-step fn;
+   for a big sweep it's a real recompute cost — weigh it, or escalate.
 2. **If anything is in-flight, `cancel` first, then fix.** Never edit under a
    live worker. (`cancel` is store-scoped — it also stops orphaned old-version
    workers, which keep showing as `RUNNING` in `status`.)
