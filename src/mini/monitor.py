@@ -127,6 +127,7 @@ def drive_and_watch(
     *,
     poll: float = 0.5,
     console: Console | None = None,
+    keep_stale: bool = False,
 ) -> Any:
     """Drive *experiment* to completion on *apparatus*, rendering a live bar.
 
@@ -134,7 +135,8 @@ def drive_and_watch(
     (or an ``ExceptionGroup`` of them) raised by ``tick`` when a depended-on task
     has settled terminally — ``tick`` won't relaunch it, so re-ticking surfaces the
     failure rather than spinning. Lets ``KeyboardInterrupt`` propagate too (the
-    caller reports; detached workers live on).
+    caller reports; detached workers live on). *keep_stale* is passed through to
+    each ``tick`` (serve DONE results whose code has since changed).
     """
     store = apparatus.memo_store()
     with _progress(console) as progress:
@@ -144,7 +146,7 @@ def drive_and_watch(
                 cancelled = apparatus.enforce_budget(store)
                 _refresh(progress, bars, store.records())
                 raise BudgetExpired(cancelled)
-            done, payload = tick(experiment, apparatus)  # advance DAG, launch missing work
+            done, payload = tick(experiment, apparatus, keep_stale=keep_stale)  # advance DAG, launch missing work
             # A tick can launch new keys and reset retried ones, so the cache for
             # this stage starts fresh — only the settled tail *within* a poll loop
             # is immutable, which is where the cheap re-reads pay off.

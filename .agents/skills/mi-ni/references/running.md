@@ -57,20 +57,24 @@ diffs it against its sibling record (code vs. inputs, per-dependency).
 
 ### Hotfix safety (avoid double-spending)
 
-Editing a task fn changes its memo key, so it re-runs. But a re-run does **not**
-kill workers already detached under the *old* key — they keep burning (real
-money on Modal). And editing a **shared helper** invalidates *every* task that
-calls it. Three rules keep the blast radius bounded:
+Editing a task fn makes every cell of it *stale*, so it re-runs (in place — keys
+are identity, so nothing is orphaned). But a re-run does **not** kill workers
+already detached under the old code — they keep burning (real money on Modal).
+And editing a **shared helper** invalidates *every* task that calls it. Three
+rules keep the blast radius bounded:
 
 1. **Only hotfix terminal (FAILED/CANCELLED) tasks** — their worker is already
-   dead. For a transient failure, don't edit: `retry --key <key>` re-runs just
-   that task (blast radius is one task). Editing the fn re-keys **every call of
-   it** — for a `map`, the *whole fan-out* re-runs, not just the failed cell
-   (the old records then show `(superseded)`). That's fine for a single-step fn;
-   for a big sweep it's a real recompute cost — weigh it, or escalate.
+   dead, and a stale terminal task relaunches on the next `run` (no `retry`
+   needed; the fix is what it was waiting for). For a transient failure, don't
+   edit: `retry --key <key>` re-runs just that task (blast radius is one task).
+   By default an edit also re-runs the fn's **DONE** cells — for a `map`, the
+   whole fan-out. If the fix demonstrably doesn't change what the finished cells
+   computed, run with `--keep-stale-done`: DONE results are served as-is (badged
+   `(stale code — kept)` in `status`) and only the unfinished cells re-run.
 2. **If anything is in-flight, `cancel` first, then fix.** Never edit under a
-   live worker. (`cancel` is store-scoped — it also stops orphaned old-version
-   workers, which keep showing as `RUNNING` in `status`.)
+   live worker — a stale worker that settles later writes onto the *same* record
+   its replacement would use. (`cancel` is store-scoped — it also stops stale
+   old-code workers, which keep showing as `RUNNING` in `status`.)
 3. **Only ever edit the single failing task fn.** Never a shared helper, `main`,
    or the DAG shape — those re-run an unbounded set of tasks. That's an
    **escalation**, not a hotfix.

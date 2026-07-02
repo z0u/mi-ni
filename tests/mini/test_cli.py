@@ -69,10 +69,11 @@ def test_ls_and_status_surface_memo_experiments(tmp_path: Path, monkeypatch, cap
 
 
 def test_status_and_ls_report_done_despite_superseded_failure(tmp_path: Path, monkeypatch, capsys):
-    """The scenario a monitor agent hits: a task fails, the fn is edited (re-keying
-    every cell), and the run completes under the new keys. ``status``/``ls`` must
-    report the *run* as done — aggregating over the requested set — with the
-    orphaned old records shown but marked, not poisoning the state a poller acts on."""
+    """The scenario a monitor agent hits: a task fails, the fn is *replaced* by
+    one with a new name (a new identity — re-keying every cell), and the run
+    completes under the new keys. ``status``/``ls`` must report the *run* as done
+    — aggregating over the requested set — with the orphaned old records shown
+    but marked, not poisoning the state a poller acts on."""
     monkeypatch.chdir(tmp_path)
 
     def bad(x):
@@ -108,9 +109,11 @@ def test_status_and_ls_report_done_despite_superseded_failure(tmp_path: Path, mo
     assert 'done' in ls_out and '+1 superseded' in ls_out
 
 
-def test_explain_diffs_superseded_record_against_replacement(tmp_path: Path, monkeypatch, capsys):
-    """After a hotfix, ``explain <old-key>`` must answer "why was this re-keyed":
-    same inputs, code changed — naming the dependency that moved."""
+def test_explain_walks_the_attempt_timeline_after_a_hotfix(tmp_path: Path, monkeypatch, capsys):
+    """After a hotfix, ``explain <key>`` must answer "why did this re-run": the
+    record healed *in place* (same identity), so the story is its attempt
+    timeline — the failed attempt under the old code, then the current one,
+    naming the dependency that moved."""
     monkeypatch.chdir(tmp_path)
 
     def make(fixed: bool):
@@ -141,15 +144,17 @@ def test_explain_diffs_superseded_record_against_replacement(tmp_path: Path, mon
     _drive(sweep(make(fixed=True)), LocalApparatus('explain'))
 
     store = app.memo_store()
-    (failed_key,) = [r['key'] for r in store.records() if r.get('state') == RunState.FAILED]
+    (rec,) = store.records()  # same qualname + inputs — one identity across the fix
+    assert RunState(rec['state']) == RunState.DONE
 
     from mini.__main__ import cmd_explain
 
-    cmd_explain(argparse.Namespace(name='explain', key=failed_key, app='local'))
+    cmd_explain(argparse.Namespace(name='explain', key=rec['key'], app='local'))
     out = capsys.readouterr().out
-    assert '(superseded)' in out  # the old key is no longer requested
-    assert 'inputs: unchanged' in out  # same args — the hotfix changed code, not inputs
-    assert 'changed' in out  # the fn's own dep hash moved
+    assert '(superseded)' not in out  # healed in place — nothing orphaned
+    assert 'attempts (2):' in out
+    assert 'failed' in out and '!! RuntimeError: bug' in out  # the old attempt and its error
+    assert 'changed' in out  # …and the dependency that moved to heal it
 
 
 def test_cancel_stops_running_task(tmp_path: Path):

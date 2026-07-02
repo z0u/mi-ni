@@ -37,9 +37,12 @@ runnable example.
 
 ## Write cache-friendly experiments
 
-The memo key is `fingerprint(source of fn + the project fns it calls) + inputs`
-(full semantics in [memoization.md](./memoization.md)). To keep the "fix a bug,
-re-run" loop fast and honest:
+The memo key is the task's *identity* — `fn name + fingerprint(inputs)` — and
+each attempt carries *evidence* (`fingerprint(source of fn + the project fns it
+calls)`) that decides whether its cached result is still current; stale evidence
+re-runs the task in place, under the same key (full semantics in
+[memoization.md](./memoization.md)). To keep the "fix a bug, re-run" loop fast
+and honest:
 
 - **Pass each task the narrow subset of config it actually uses.** `train(lr,
   vocab_size)` re-runs only when `lr` or `vocab_size` change; `train(whole_config)`
@@ -48,9 +51,9 @@ re-run" loop fast and honest:
   there; do heavy or random work _inside_ a task.
 - **Fold RNG seeds into the inputs**, so the memo is honest (same inputs ⇒ same
   result). A task seeded from wall-clock can never be a cache hit.
-- **Force a re-run** by editing the function (its source fingerprint changes) or
-  passing `version='v2'`. Editing a project helper a task calls also invalidates
-  it; library/framework churn does not.
+- **Force a re-run** by editing the function (its evidence goes stale) or passing
+  `version='v2'` — either way a new attempt on the same record. Editing a project
+  helper a task calls also invalidates it; library/framework churn does not.
 
 ## Returning large outputs
 

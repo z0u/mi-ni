@@ -15,7 +15,7 @@ import pytest
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
-from mini.memo import LocalRecordStore, MemoStore, fingerprint
+from mini.memo import LocalRecordStore, MemoStore, task_key
 from mini.orchestration import TaskFailed, retry, tick
 from mini.runs import RunState
 
@@ -25,15 +25,27 @@ def _setup(name: str, main, tmp_path: Path) -> tuple[Experiment, LocalApparatus]
     return Experiment(name=name, main=main), LocalApparatus(name, data_dir=tmp_path / name)
 
 
-def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 30.0):
+def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 30.0, keep_stale: bool = False):
     """Re-run the orchestration each 'wake' until it completes (mirrors the agent loop)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        done, payload = tick(exp, app)
+        done, payload = tick(exp, app, keep_stale=keep_stale)
         if done:
             return payload
         time.sleep(0.1)
     raise AssertionError(f'orchestration did not complete: {payload}')
+
+
+def _drive_to_failure(exp: Experiment, app: LocalApparatus, timeout: float = 30.0) -> ExceptionGroup:
+    """Tick until the strict map surfaces its failures; return the group."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            tick(exp, app)
+        except ExceptionGroup as eg:
+            return eg
+        time.sleep(0.1)
+    raise AssertionError('map never surfaced the failure')
 
 
 def test_multistep_dependency(tmp_path: Path):
@@ -95,16 +107,8 @@ def test_failed_is_terminal_until_retry(tmp_path: Path):
     store = app.memo_store()
 
     # Drive until the map surfaces the failure (task 2 throws; 1 & 3 succeed).
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            tick(exp, app)
-        except ExceptionGroup:
-            break
-        time.sleep(0.1)
-    else:
-        raise AssertionError('map never surfaced the failure')
-    # FAILED is terminal: re-ticking keeps raising, never relaunches.
+    _drive_to_failure(exp, app)
+    # FAILED is terminal (the code hasn't changed): re-ticking keeps raising, never relaunches.
     for _ in range(3):
         with pytest.raises(ExceptionGroup) as exc:
             tick(exp, app)
@@ -271,7 +275,10 @@ def test_poll_cache_reads_settled_records_once(tmp_path: Path):
     assert backend.reads.count('a') == 1  # read once on settle, then cached — no re-read
 
 
-def test_version_busts_cache(tmp_path: Path):
+def test_version_reruns_in_place(tmp_path: Path):
+    """``version=`` is evidence, not identity: a bump re-runs the task as a new
+    attempt on the *same* record, with the old attempt kept in its history."""
+
     def t(x):
         return x
 
@@ -283,7 +290,9 @@ def test_version_busts_cache(tmp_path: Path):
 
     _drive(*_setup('ver', main_v1, tmp_path))
     _drive(Experiment(name='ver', main=main_v2), LocalApparatus('ver', data_dir=tmp_path / 'ver'))
-    assert len({r['key'] for r in MemoStore(tmp_path / 'ver').records()}) == 2  # distinct keys per version
+    (rec,) = MemoStore(tmp_path / 'ver').records()  # one identity across both versions
+    assert rec['version'] == 'v2' and rec['state'] == RunState.DONE
+    assert [a['version'] for a in rec['history']] == ['v1']  # the bump preserved the story
 
 
 def test_prune_and_memo_hits_across_config_edits(tmp_path: Path):
@@ -339,11 +348,12 @@ def test_tick_persists_requested_keys(tmp_path: Path):
 
 
 def test_superseded_records_are_excluded_and_not_retried(tmp_path: Path):
-    """Editing a task fn re-keys every cell that calls it, orphaning the old
-    records. The orphaned FAILED record must not poison the run: ``retry`` skips
-    it (resetting it would plant a phantom no tick ever relaunches), and the
-    manifest marks it superseded for read-only views. Explicit ``--key`` intent
-    still beats the manifest."""
+    """*Renaming* (replacing) a task fn changes its identity, orphaning the old
+    records — an in-place edit does not (see the hotfix tests). The orphaned
+    FAILED record must not poison the run: ``retry`` skips it (resetting it would
+    plant a phantom no tick ever relaunches), and the manifest marks it
+    superseded for read-only views. Explicit ``--key`` intent still beats the
+    manifest."""
 
     def bad(x):
         if x == 2:
@@ -357,21 +367,13 @@ def test_superseded_records_are_excluded_and_not_retried(tmp_path: Path):
         return Experiment(name='hotfix', main=lambda ctx: ctx.map(fn, [(1,), (2,)]))
 
     data_dir = tmp_path / 'hotfix'
-    exp, app = sweep(bad), LocalApparatus('hotfix', data_dir=data_dir)
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            tick(exp, app)
-        except ExceptionGroup:
-            break
-        time.sleep(0.1)
-    else:
-        raise AssertionError('map never surfaced the failure')
-    store = app.memo_store()
+    _drive_to_failure(sweep(bad), LocalApparatus('hotfix', data_dir=data_dir))
+    store = LocalApparatus('hotfix', data_dir=data_dir).memo_store()
     (failed_key,) = [r['key'] for r in store.records() if r.get('state') == RunState.FAILED]
 
-    # The "hotfix": the fixed fn has new source, so every cell re-keys and the old
-    # records are superseded. The fixed sweep completes despite the old failure.
+    # The replacement fn is a new identity (different name), so every cell re-keys
+    # and the old records are superseded. The new sweep completes despite the old
+    # failure.
     assert _drive(sweep(good), LocalApparatus('hotfix', data_dir=data_dir)) == [10, 20]
     assert retry(store) == []  # the orphaned FAILED is skipped, not reset
     assert store.state(failed_key) == RunState.FAILED  # left as-is — no phantom pending
@@ -381,6 +383,70 @@ def test_superseded_records_are_excluded_and_not_retried(tmp_path: Path):
     assert all(r.get('state') == RunState.DONE for r in current)
 
     assert retry(store, key=failed_key) == [failed_key]  # explicit key overrides
+
+
+def _make_train(fixed: bool):
+    """Two variants of the *same* task fn — same module and qualname, different
+    source: an in-place edit, as far as identity is concerned."""
+    if fixed:
+
+        def train(x):
+            from mini import get_data_dir
+
+            f = get_data_dir() / f'ran_{x}'
+            f.write_text(str(int(f.read_text()) + 1 if f.exists() else 1))
+            return x * 10
+    else:
+
+        def train(x):
+            from mini import get_data_dir
+
+            f = get_data_dir() / f'ran_{x}'
+            f.write_text(str(int(f.read_text()) + 1 if f.exists() else 1))
+            if x == 2:
+                raise RuntimeError('bug')
+            return x * 10
+
+    return train
+
+
+def _hotfix_sweep(fixed: bool) -> Experiment:
+    return Experiment(name='hot', main=lambda ctx: ctx.map(_make_train(fixed), [(1,), (2,)]))
+
+
+def test_hotfix_edit_relaunches_failed_cells_in_place(tmp_path: Path):
+    """The sweep-hotfix story. Editing the fn moves its *evidence*, not its keys:
+    the FAILED cell relaunches automatically (the fix is what it was waiting for
+    — no ``retry``), nothing is orphaned, and by default the stale DONE cell
+    re-runs too (bias to over-invalidate). The healed record keeps the failed
+    attempt in its history."""
+    data_dir = tmp_path / 'hot'
+    _drive_to_failure(_hotfix_sweep(False), LocalApparatus('hot', data_dir=data_dir))
+    store = LocalApparatus('hot', data_dir=data_dir).memo_store()
+    keys_before = {r['key'] for r in store.records()}
+
+    assert _drive(_hotfix_sweep(True), LocalApparatus('hot', data_dir=data_dir)) == [10, 20]
+    assert {r['key'] for r in store.records()} == keys_before  # same identities — nothing orphaned
+    assert store.split_current(store.records())[1] == []  # no superseded records
+    assert {x: int((data_dir / f'ran_{x}').read_text()) for x in (1, 2)} == {1: 2, 2: 2}
+
+    healed = store.record(task_key(_make_train(True), (2,)))
+    assert healed['state'] == RunState.DONE  # healed in place, same address
+    (prior,) = healed['history']
+    assert prior['state'] == RunState.FAILED and prior['code_fp'] != healed['code_fp']  # the edit is why it re-ran
+
+
+def test_keep_stale_bounds_hotfix_to_unfinished_cells(tmp_path: Path):
+    """``--keep-stale-done``: after an edit, DONE cells are served as-is and only
+    the cells that never finished re-run with the new code — the bounded hotfix.
+    The kept key lands in run meta so read-only views can badge it."""
+    data_dir = tmp_path / 'hot'
+    _drive_to_failure(_hotfix_sweep(False), LocalApparatus('hot', data_dir=data_dir))
+    store = LocalApparatus('hot', data_dir=data_dir).memo_store()
+
+    assert _drive(_hotfix_sweep(True), LocalApparatus('hot', data_dir=data_dir), keep_stale=True) == [10, 20]
+    assert {x: int((data_dir / f'ran_{x}').read_text()) for x in (1, 2)} == {1: 1, 2: 2}  # DONE cell untouched
+    assert store.meta()['kept_stale'] == [task_key(_make_train(True), (1,))]
 
 
 def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
@@ -503,12 +569,12 @@ def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
     assert batches == [2]  # both tasks launched in a single batched spawn
 
 
-def test_fingerprint_is_deterministic_and_input_sensitive():
+def test_task_key_is_deterministic_and_input_sensitive():
     def fn(x):
         return x
 
-    assert fingerprint(fn, (1,)) == fingerprint(fn, (1,))
-    assert fingerprint(fn, (1,)) != fingerprint(fn, (2,))
+    assert task_key(fn, (1,)) == task_key(fn, (1,))
+    assert task_key(fn, (1,)) != task_key(fn, (2,))
 
 
 def test_input_fingerprint_stable_across_processes():

@@ -11,12 +11,16 @@ The storage / artifacts / publishing backlog has moved out of here:
   #39 (wire the store through interactive `app.map`/`arun`), #15 (GC), #19 (queued vs.
   running visibility).
 
-- **Late-orphan writes to mutable names.** A superseded worker (fn edited under a
-  live run, against the hotfix rules) runs to completion and can last-writer-win a
-  mutable name *after* its replacement already wrote it: `set_ref`, `publish`, and
-  shared volume paths (`get_data_dir()` filenames). Memo results (per-key dirs) and
-  CAS blobs (content-addressed) are immune. Auto-cancelling orphans at tick time is
-  wrong — mid-run the requested-set manifest is only a lower bound, so it would kill
-  in-flight downstream tasks and settle them CANCELLED (terminal). Options if it
-  bites: per-task scratch dirs on the volume, or a generation stamp on refs. For now
-  the guard is the existing rule: `cancel` before editing.
+- **Late writes from stale workers.** A worker launched under old code (fn edited
+  under a live run, against the hotfix rules) runs to completion and can
+  last-writer-win a mutable name *after* its replacement already wrote it:
+  `set_ref`, `publish`, and shared volume paths (`get_data_dir()` filenames). CAS
+  blobs (content-addressed) are immune. Under identity keys the hazard extends to
+  the *record and result themselves*: the stale worker shares its successor's key,
+  so if it survives `cancel` (ignored SIGTERM) it can overwrite `result.pkl` and
+  merge DONE over the new attempt's RUNNING. A generation stamp on attempts (also
+  wanted to close the double-spawn race between the `state` read and
+  `mark_running` in `Ctx._classify`) would fence both; per-task scratch dirs
+  cover the volume paths. Auto-cancelling stale workers at tick time is still
+  wrong — mid-run the requested-set manifest is only a lower bound. For now the
+  guard is the existing rule: `cancel` (and confirm dead) before editing.

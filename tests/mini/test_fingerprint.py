@@ -1,10 +1,12 @@
-"""Fingerprint semantics: what invalidates a memo key, and what must not.
+"""Key semantics: identity must hold still while evidence tracks the code.
 
 The contract has two sides. *Honesty*: editing anything a task actually depends
 on — a helper (however it's referenced), a module-level constant, a method —
-must change the key, or a re-run silently serves stale results. *Stability*: the
-key must be identical across processes and across distinct-but-identical
-function objects, or a task relaunches on every wake.
+must change the attempt evidence (``code_fp``), or a re-run silently serves
+stale results. *Stability*: the identity key must be identical across processes,
+across distinct-but-identical function objects, **and across code edits** — the
+key is where the task's record, logs, and history live, so an edit must re-run
+it in place, not orphan it.
 
 Module-level dependencies are exercised with real modules written to disk (the
 fingerprint reads *source*, so the functions must have files); "editing" is
@@ -21,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from mini.memo import fingerprint, fingerprint_parts
+from mini.memo import task_key, task_key_parts
 
 TASK_ATTR = 'import helpers\n\ndef task(x):\n    return helpers.helper(x)\n'
 TASK_NESTED = 'from helpers import helper\n\ndef task(xs):\n    inner = lambda v: helper(v)  # noqa: E731\n    return [inner(x) for x in xs]\n'
@@ -55,10 +57,10 @@ def load_module(tmp_path: Path):
         sys.modules.pop(name, None)
 
 
-def _fp_with_helper(load_module, task_src: str, helper_src: str, variant: str) -> str:
+def _key_and_parts(load_module, task_src: str, helper_src: str, variant: str) -> tuple[str, dict]:
     load_module('helpers', helper_src, variant)
     tasks = load_module('tasks', task_src, variant)
-    return fingerprint(tasks.task, (1,))
+    return task_key_parts(tasks.task, (1,))
 
 
 @pytest.mark.parametrize(
@@ -66,28 +68,29 @@ def _fp_with_helper(load_module, task_src: str, helper_src: str, variant: str) -
     [TASK_ATTR, TASK_NESTED, TASK_METHOD],
     ids=['module-attr call', 'nested-code reference', 'via a method'],
 )
-def test_helper_edits_invalidate_however_referenced(load_module, task_src: str):
-    """Editing a helper must re-key the task whether it's called by bare name,
-    as a module attribute (``helpers.helper``), from inside a nested lambda /
-    comprehension, or from a method of a class the task uses. The task's own
-    source is byte-identical across variants — only the helper differs — and an
-    identical copy must produce an identical key (no path or object identity in
-    the fingerprint)."""
-    fp_v1 = _fp_with_helper(load_module, task_src, HELPER_V1, 'a')
-    fp_v2 = _fp_with_helper(load_module, task_src, HELPER_V2, 'b')
-    fp_v1_copy = _fp_with_helper(load_module, task_src, HELPER_V1, 'c')
-    assert fp_v1 != fp_v2, 'editing the helper did not change the key — stale results would be served'
-    assert fp_v1 == fp_v1_copy, 'identical source produced different keys — the task could never cache'
+def test_helper_edits_move_evidence_not_identity(load_module, task_src: str):
+    """Editing a helper must change the task's evidence (so it re-runs) whether
+    it's called by bare name, as a module attribute (``helpers.helper``), from
+    inside a nested lambda / comprehension, or from a method of a class the task
+    uses — while the *key* stays put, so the re-run lands on the same record.
+    An identical copy must produce identical evidence (no path or object
+    identity in the fingerprint)."""
+    key_v1, p_v1 = _key_and_parts(load_module, task_src, HELPER_V1, 'a')
+    key_v2, p_v2 = _key_and_parts(load_module, task_src, HELPER_V2, 'b')
+    key_copy, p_copy = _key_and_parts(load_module, task_src, HELPER_V1, 'c')
+    assert p_v1['code_fp'] != p_v2['code_fp'], 'helper edit invisible to evidence — stale results would be served'
+    assert key_v1 == key_v2, 'helper edit re-keyed the task — record/logs/history would be orphaned'
+    assert (key_copy, p_copy['code_fp']) == (key_v1, p_v1['code_fp']), 'identical source must fingerprint identically'
 
 
 def test_module_level_value_edits_invalidate(load_module):
     """A module-level constant a task reads (``LR``) is part of its behavior:
-    editing the value must re-key the task, exactly like editing code."""
-    fp_v1 = fingerprint(load_module('tasks', TASK_VALUE, 'a').task, (1,))
-    fp_v2 = fingerprint(load_module('tasks', TASK_VALUE.replace('0.1', '0.2'), 'b').task, (1,))
-    fp_v1_copy = fingerprint(load_module('tasks', TASK_VALUE, 'c').task, (1,))
-    assert fp_v1 != fp_v2
-    assert fp_v1 == fp_v1_copy
+    editing the value must change the evidence, exactly like editing code."""
+    _, p_v1 = task_key_parts(load_module('tasks', TASK_VALUE, 'a').task, (1,))
+    _, p_v2 = task_key_parts(load_module('tasks', TASK_VALUE.replace('0.1', '0.2'), 'b').task, (1,))
+    _, p_copy = task_key_parts(load_module('tasks', TASK_VALUE, 'c').task, (1,))
+    assert p_v1['code_fp'] != p_v2['code_fp']
+    assert p_v1['code_fp'] == p_copy['code_fp']
 
 
 def _make_callback(delta: int):
@@ -105,15 +108,16 @@ def _make_callback(delta: int):
 
 
 def test_callable_inputs_key_by_source_not_identity():
-    """A function passed as *data* must fingerprint by its source: two fresh
-    objects of the same source coincide (a repr would embed a memory address and
-    relaunch the task every wake), while a different body diverges."""
+    """A function passed as *data* is an input, so it fingerprints into the key
+    by its source: two fresh objects of the same source coincide (a repr would
+    embed a memory address and relaunch the task every wake), while a different
+    body diverges — a new input, a new cell."""
 
     def apply(f, x):
         return f(x)
 
-    assert fingerprint(apply, (_make_callback(1), 5)) == fingerprint(apply, (_make_callback(1), 5))
-    assert fingerprint(apply, (_make_callback(1), 5)) != fingerprint(apply, (_make_callback(2), 5))
+    assert task_key(apply, (_make_callback(1), 5)) == task_key(apply, (_make_callback(1), 5))
+    assert task_key(apply, (_make_callback(1), 5)) != task_key(apply, (_make_callback(2), 5))
 
 
 class _Color(enum.Enum):
@@ -125,10 +129,10 @@ def test_enum_and_path_inputs_are_stable_and_distinct():
     def t(v):
         return v
 
-    assert fingerprint(t, (_Color.RED,)) == fingerprint(t, (_Color.RED,))
-    assert fingerprint(t, (_Color.RED,)) != fingerprint(t, (_Color.BLUE,))
-    assert fingerprint(t, (Path('/a/b'),)) == fingerprint(t, (Path('/a/b'),))
-    assert fingerprint(t, (Path('/a/b'),)) != fingerprint(t, (Path('/a/c'),))
+    assert task_key(t, (_Color.RED,)) == task_key(t, (_Color.RED,))
+    assert task_key(t, (_Color.RED,)) != task_key(t, (_Color.BLUE,))
+    assert task_key(t, (Path('/a/b'),)) == task_key(t, (Path('/a/b'),))
+    assert task_key(t, (Path('/a/b'),)) != task_key(t, (Path('/a/c'),))
 
 
 def test_self_referential_global_does_not_recurse(load_module):
@@ -136,24 +140,40 @@ def test_self_referential_global_does_not_recurse(load_module):
     not send the collector into infinite recursion."""
     src = 'CALLBACKS = []\n\ndef task(x):\n    return len(CALLBACKS) + x\n\nCALLBACKS.append(task)\n'
     mod = load_module('tasks', src, 'a')
-    assert fingerprint(mod.task, (1,))  # completes; no RecursionError
+    assert task_key_parts(mod.task, (1,))  # completes; no RecursionError
 
 
-def test_fingerprint_parts_split_code_from_inputs(load_module):
+def test_parts_split_code_from_inputs(load_module):
     """``explain`` relies on the parts: same code + different inputs moves only
-    ``input_fp``; an edited helper moves only ``code_fp`` (and names the dep)."""
+    ``input_fp`` (a different cell); an edited helper moves only ``code_fp``
+    (and names the dep)."""
     load_module('helpers', HELPER_V1, 'a')
     tasks = load_module('tasks', TASK_ATTR, 'a')
-    _, p1 = fingerprint_parts(tasks.task, (1,))
-    _, p2 = fingerprint_parts(tasks.task, (2,))
+    k1, p1 = task_key_parts(tasks.task, (1,))
+    k2, p2 = task_key_parts(tasks.task, (2,))
     assert p1['code_fp'] == p2['code_fp'] and p1['input_fp'] != p2['input_fp']
+    assert k1 != k2  # inputs are identity
 
     load_module('helpers', HELPER_V2, 'b')
     tasks_b = load_module('tasks', TASK_ATTR, 'b')
-    _, p3 = fingerprint_parts(tasks_b.task, (1,))
+    k3, p3 = task_key_parts(tasks_b.task, (1,))
     assert p3['input_fp'] == p1['input_fp'] and p3['code_fp'] != p1['code_fp']
+    assert k3 == k1  # code is evidence, not identity
     changed = [k for k in p1['deps'] if p3['deps'].get(k) != p1['deps'][k]]
     assert changed == ['helper']  # the diff names exactly the dependency that moved
+
+
+def test_version_is_evidence_not_identity():
+    """``version=`` forces a re-run *in place*: it moves the evidence while the
+    key stays put, so the bump lands as a new attempt on the same record."""
+
+    def t(x):
+        return x
+
+    k1, p1 = task_key_parts(t, (1,), version='v1')
+    k2, p2 = task_key_parts(t, (1,), version='v2')
+    assert k1 == k2
+    assert (p1.get('version'), p2.get('version')) == ('v1', 'v2')
 
 
 def test_repr_fallback_warns_about_unstable_inputs(caplog):
@@ -167,5 +187,5 @@ def test_repr_fallback_warns_about_unstable_inputs(caplog):
         return o
 
     with caplog.at_level('WARNING', logger='mini.memo'):
-        fingerprint(t, (Opaque(),))
+        task_key(t, (Opaque(),))
     assert any('never be a cache hit' in r.message for r in caplog.records)

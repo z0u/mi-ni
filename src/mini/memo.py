@@ -1,13 +1,21 @@
 """
-Content-addressed memoization for multi-step orchestration.
+Identity-keyed memoization for multi-step orchestration.
 
-The cache key must be **deterministic across processes** (every agent wake is a
-fresh process) and should **invalidate when the relevant code changes** so the
-"fix a bug, re-run" loop works. Hashing ``cloudpickle.dumps(fn)`` fails the first
-test — its bytes vary run to run. So we fingerprint the function's *source*, plus
-the source of the project functions/classes it references (transitively), which
-is stable and captures dependencies in your own code while ignoring library
-churn (site-packages and the mini framework itself are excluded).
+A task record answers two different questions, and the store keeps them apart:
+
+- **Identity — which task is this?** The key: the fn's qualified name plus a
+  fingerprint of its inputs. Stable across code edits, so a record (and its
+  logs, results, history) keeps one address for the task's whole life.
+- **Validity — is the cached result current?** The *evidence* stored on each
+  attempt: a fingerprint of the fn's source plus the source of the project
+  functions/classes it references (transitively), and the explicit ``version=``.
+  Stale evidence re-runs the task **in place** — a new attempt under the same
+  key, with the prior attempt compacted into the record's ``history``.
+
+Both fingerprints must be **deterministic across processes** (every agent wake
+is a fresh process) — hashing ``cloudpickle.dumps(fn)`` fails that (its bytes
+vary run to run), so we fingerprint *source*, which also ignores library churn
+(site-packages and the mini framework itself are excluded).
 """
 
 from __future__ import annotations
@@ -31,7 +39,7 @@ import cloudpickle
 
 from mini.runs import SETTLED, RunState, _atomic_write, _merge_json
 
-__all__ = ['fingerprint', 'fingerprint_parts', 'RecordStore', 'LocalRecordStore', 'MemoStore', 'PollCache', 'META_KEY']
+__all__ = ['task_key', 'task_key_parts', 'RecordStore', 'LocalRecordStore', 'MemoStore', 'PollCache', 'META_KEY']
 
 log = logging.getLogger(__name__)
 
@@ -294,35 +302,50 @@ def _manifest(fn: Callable) -> tuple[tuple[str, str], ...]:
         _collecting.discard(id(fn))
 
 
-def fingerprint(fn: Callable, args: tuple, version: str | None = None) -> str:
-    """A stable content key for calling *fn* with *args* (the memo key)."""
-    return fingerprint_parts(fn, args, version)[0]
+def task_key(fn: Callable, args: tuple) -> str:
+    """The stable *identity* key for calling *fn* with *args*.
+
+    Identity is which task this is — the fn's qualified name plus its inputs —
+    deliberately excluding code: an edited fn re-runs under the **same** key (a
+    new attempt on the same record) instead of orphaning it. Whether the cached
+    result is still *valid* is judged against the evidence from
+    :func:`task_key_parts`, stored per attempt.
+    """
+    return task_key_parts(fn, args)[0]
 
 
-def fingerprint_parts(fn: Callable, args: tuple, version: str | None = None) -> tuple[str, dict[str, Any]]:
-    """The memo key plus the evidence behind it, for the record (``mini explain``).
+def task_key_parts(fn: Callable, args: tuple, version: str | None = None) -> tuple[str, dict[str, Any]]:
+    """The identity key plus the validity evidence to stamp on its next attempt.
 
-    Returns ``(key, parts)`` where *parts* carries the code and input fingerprints
-    separately (so "why did this re-run" splits into "code changed" vs "inputs
-    changed") and ``deps`` — a short hash per tracked dependency (the fn itself,
-    each project helper/class it references, each plain-value global) — so two
-    records can be diffed down to *which* dependency moved.
+    Returns ``(key, parts)``. The key hashes only the fn's module-qualified name
+    and the input fingerprint. *parts* carries what decides staleness — the code
+    fingerprint, ``version=``, and ``deps``: a short hash per tracked dependency
+    (the fn itself, each project helper/class it references, each plain-value
+    global) — so ``mini explain`` can diff two attempts down to *which*
+    dependency moved.
     """
     manifest = _manifest(fn)
     blob = '\n--\n'.join(f'{k}:{v}' for k, v in manifest)
     code_fp = hashlib.sha256(blob.encode()).hexdigest()
     input_fp = _input_fingerprint(args)
-    h = hashlib.sha256()
-    h.update(code_fp.encode())
-    h.update(input_fp.encode())
-    if version:
-        h.update(version.encode())
+    ident = f'{getattr(fn, "__module__", "?")}.{getattr(fn, "__qualname__", "task")}'
+    h = hashlib.sha256(f'{ident}\n{input_fp}'.encode())
     key = f'{getattr(fn, "__name__", "task")}-{h.hexdigest()[:12]}'
     deps = {k: hashlib.sha256(v.encode()).hexdigest()[:8] for k, v in manifest}
     parts = {'code_fp': code_fp[:12], 'input_fp': input_fp[:12], 'deps': deps}
     if version:
         parts['version'] = version
     return key, parts
+
+
+# What a finished attempt is worth keeping once a new one replaces it: the
+# evidence and the outcome. Live/bulky fields (metrics, env, heartbeats, pids)
+# describe a worker, not the attempt's identity in the run's story.
+_ATTEMPT_KEEP = ('state', 'code_fp', 'input_fp', 'version', 'deps', 'created_at', 'error', 'exc_type')
+
+
+def _compact_attempt(rec: dict[str, Any]) -> dict[str, Any]:
+    return {k: rec[k] for k in _ATTEMPT_KEEP if k in rec}
 
 
 class RecordStore(ABC):
@@ -466,32 +489,52 @@ class MemoStore:
         d = self.deadline()
         return d is not None and time.time() >= d
 
+    def _with_history(self, key: str, rec: dict[str, Any]) -> dict[str, Any]:
+        """Fold the record's prior attempt (if any ran) into *rec*'s ``history``.
+
+        Keys are identity, so a re-run replaces the record in place; compacting
+        the outgoing attempt first is what keeps the task's story — every attempt,
+        its evidence, its outcome — on the one record (``mini explain``).
+        """
+        prior = self.records_backend.read(key) or {}
+        history: list[dict[str, Any]] = list(prior.get('history') or ())
+        if prior.get('state'):  # a reset placeholder (state None) is not an attempt
+            history.append(_compact_attempt(prior))
+        if history:
+            rec['history'] = history
+        return rec
+
     def reset(self, key: str) -> None:
         """Clear a record back to un-run (state → None) so the next tick reruns it.
 
         The retry primitive: a settled-but-not-DONE task is terminal, so re-running
-        takes intent. Stale result/error artifacts are overwritten on the rerun.
+        takes intent. The cleared attempt is kept in the record's history; stale
+        result/error artifacts are overwritten on the rerun.
         """
-        self.records_backend.write(key, {'key': key, 'state': None})
+        self.records_backend.write(key, self._with_history(key, {'key': key, 'state': None}))
 
     def mark_running(self, fn: Callable, key: str, parts: dict[str, Any] | None = None) -> None:
         """Flip the record to RUNNING (wholesale, clearing any prior error).
 
         Called by ``Ctx`` before the apparatus spawns the worker, so a poll
         between stage and first heartbeat sees RUNNING rather than a stale state.
-        *parts* is the fingerprint evidence (``code_fp``/``input_fp``/``deps``
-        from :func:`fingerprint_parts`), stored so ``mini explain`` can answer
-        "why did this re-run" after the fact.
+        *parts* is the validity evidence (``code_fp``/``version``/``deps`` from
+        :func:`task_key_parts`) this attempt runs under; any prior attempt is
+        compacted into ``history``, so ``mini explain`` can answer "why did this
+        re-run" after the fact.
         """
         self.records_backend.write(
             key,
-            {
-                'key': key,
-                'fn': getattr(fn, '__name__', 'task'),
-                'state': RunState.RUNNING,
-                'created_at': time.time(),
-                **(parts or {}),
-            },
+            self._with_history(
+                key,
+                {
+                    'key': key,
+                    'fn': getattr(fn, '__name__', 'task'),
+                    'state': RunState.RUNNING,
+                    'created_at': time.time(),
+                    **(parts or {}),
+                },
+            ),
         )
 
     def write_call(self, key: str, fn: Callable, args: tuple, hooks: list[Callable] | None = None) -> None:
@@ -517,6 +560,11 @@ class PollCache:
     unsettled (so not cached), and the reaper writes it through ``MemoStore``, so
     the next ``records`` re-reads it once and caches the now-terminal record —
     nothing stale lingers.
+
+    A *tick* can relaunch a settled record in place (keys are identity; an edit
+    makes a new attempt, it doesn't re-key), so a cache must not outlive a tick —
+    ``drive_and_watch`` rebuilds its cache per stage. Between ticks, settled is
+    settled.
     """
 
     def __init__(self) -> None:
