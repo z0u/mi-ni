@@ -261,10 +261,11 @@ class Ctx:
 
         Like ``Executor.map`` / ``Apparatus.map``: the iterables are zipped and
         each row is passed as positional arguments — ``ctx.map(train, lrs, sizes)``
-        runs ``train(lr, size)`` per pair. With a single iterable each element is
-        passed as *one* argument, never unpacked (an element that happens to be a
-        tuple stays a tuple). Unlike ``Executor.map``, mismatched iterable lengths
-        raise rather than silently truncating the sweep.
+        runs ``train(lr, size)`` per pair. With a single iterable each
+        element is passed as *one* argument, never unpacked (an element that
+        happens to be a tuple stays a tuple). The iterables are collected
+        immediately rather than lazily. Unlike ``Executor.map``, mismatched
+        iterable lengths raise rather than silently truncating the sweep.
 
         Launches every missing cell in one batch, then raises ``Pending`` while
         any task is still in flight. By default the map is all-or-nothing: once the

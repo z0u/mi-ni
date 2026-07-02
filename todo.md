@@ -17,11 +17,16 @@ The storage / artifacts / publishing backlog has moved out of here:
   (superseded relaunch, or surviving `cancel`) can no longer overwrite its
   successor's state or result, and the double-spawn race in `Ctx._classify` is
   closed by the conditional claim in `mark_running`. What remains: a stale
-  worker can still last-writer-win a mutable *name* — `set_ref`, `publish`, and
+  worker can still last-writer-win a mutable _name_ — `set_ref`, `publish`, and
   shared volume paths (`get_data_dir()` filenames). CAS blobs are immune.
   Possible fixes if it bites: per-task scratch dirs, generation-stamped refs.
   Auto-cancelling stale workers at tick time is still wrong — mid-run the
-  requested-set manifest is only a lower bound. The guard remains: `cancel`
-  (and confirm dead) before editing. Note the fence is airtight locally (flock)
-  but best-effort on Modal (`modal.Dict` has no compare-and-swap) — see the
+  requested-set manifest is only a lower bound. The guard remains: `cancel` (and
+  confirm dead) before editing. Note the fence is airtight locally (flock) but
+  best-effort on Modal (`modal.Dict` has no compare-and-swap) — see the
   backend-consolidation discussion if this needs to be exact.
+
+  z0u: `modal.Dict` does have a synchronization primitive:
+  `put(...,skip_if_exists=True)`. "Returns `True` if the key-value pair was
+  added and `False` if it wasn’t because the key already existed and
+  `skip_if_exists` was set." See https://modal.com/blog/cache-dict-launch
