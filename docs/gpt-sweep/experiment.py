@@ -148,7 +148,8 @@ def publish_curves(results: list[tuple]) -> str:
 
 def main(ctx: Ctx) -> list[tuple]:
     meta = ctx.run(prepare_data, role='prep')  # CPU prep; suspends until done
-    results = ctx.map(train_one, build_sweep(meta), role='train')  # GPU sweep that depends on prep
+    configs, archs, lrs = zip(*build_sweep(meta), strict=True)
+    results = ctx.map(train_one, configs, archs, lrs, role='train')  # GPU sweep that depends on prep
     ctx.run(publish_curves, results, role='prep')  # share the curves by name for the report
     return results
 

@@ -12,8 +12,8 @@ from mini import Ctx, Experiment
 
 def main(ctx: Ctx) -> dict:
     meta = ctx.run(prepare_data)                        # one step; suspends until done
-    configs = [(lr, meta['vocab_size']) for lr in LRS]  # plain Python between steps
-    return ctx.map(train, configs)                      # fan-out that depends on prep
+    vocab = meta['vocab_size']                          # plain Python between steps
+    return ctx.map(train, LRS, [vocab] * len(LRS))      # fan-out that depends on prep
 
 experiment = Experiment(name='my-exp', main=main)
 ```
@@ -85,7 +85,7 @@ to a concrete apparatus:
 
 ```python
 meta = ctx.run(prepare_data, role='cpu')          # prep on CPU
-return ctx.map(train, configs, role='gpu')        # training on GPU
+return ctx.map(train, configs, role='gpu')        # training on GPU (fn(config) per item)
 ```
 
 Each step also picks up that apparatus's `before_each` hooks. The default role

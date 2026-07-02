@@ -23,15 +23,18 @@ from __future__ import annotations
 import dataclasses
 import dis
 import enum
+import fcntl
 import functools
 import hashlib
 import inspect
 import json
 import logging
+import secrets
 import time
 import types
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from contextlib import contextmanager
 from pathlib import Path, PurePath
 from typing import Any, Callable, Iterator
 
@@ -341,7 +344,7 @@ def task_key_parts(fn: Callable, args: tuple, version: str | None = None) -> tup
 # What a finished attempt is worth keeping once a new one replaces it: the
 # evidence and the outcome. Live/bulky fields (metrics, env, heartbeats, pids)
 # describe a worker, not the attempt's identity in the run's story.
-_ATTEMPT_KEEP = ('state', 'code_fp', 'input_fp', 'version', 'deps', 'created_at', 'error', 'exc_type')
+_ATTEMPT_KEEP = ('state', 'gen', 'code_fp', 'input_fp', 'version', 'deps', 'created_at', 'error', 'exc_type')
 
 
 def _compact_attempt(rec: dict[str, Any]) -> dict[str, Any]:
@@ -370,24 +373,74 @@ class RecordStore(ABC):
     @abstractmethod
     def keys(self) -> list[str]: ...
 
+    # Conditional writes, fenced on the record's attempt generation (``gen``).
+    # These defaults are read-check-write — atomic only if the backend makes them
+    # so (``LocalRecordStore`` overrides under a file lock; ``modal.Dict`` has no
+    # compare-and-swap, so on Modal the fence is best-effort with a tiny window —
+    # still a vast improvement over unconditional last-writer-wins).
+
+    def write_if(self, key: str, record: dict[str, Any], gen: str | None) -> bool:
+        """Replace the record iff its current ``gen`` equals *gen* (``None`` = unclaimed)."""
+        if (self.read(key) or {}).get('gen') != gen:
+            return False
+        self.write(key, record)
+        return True
+
+    def merge_if(self, key: str, fields: dict[str, Any], gen: str | None) -> bool:
+        """Merge *fields* iff the record's current ``gen`` equals *gen*."""
+        if (self.read(key) or {}).get('gen') != gen:
+            return False
+        self.merge(key, fields)
+        return True
+
 
 class LocalRecordStore(RecordStore):
-    """``RecordStore`` backed by JSON files under a directory."""
+    """``RecordStore`` backed by JSON files under a directory.
+
+    All mutations serialize on one store-wide ``flock``: ``merge`` is
+    read-modify-write, so without the lock two concurrent mergers (a worker's
+    final DONE vs the reaper's FAILED, a heartbeat vs the tick's pid stamp)
+    could each read the same base record and silently drop the other's fields.
+    Reads stay lock-free — ``_atomic_write`` renames, so a reader never sees a
+    half-written file. The lock also makes ``write_if``/``merge_if`` genuinely
+    atomic (check and write under one critical section).
+    """
 
     def __init__(self, root: Path):
         self.root = Path(root)
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        self.root.mkdir(parents=True, exist_ok=True)
+        with open(self.root / '.lock', 'w') as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            yield  # released when the file closes
 
     def read(self, key: str) -> dict[str, Any] | None:
         p = self.root / f'{key}.json'
         return json.loads(p.read_text()) if p.exists() else None
 
     def write(self, key: str, record: dict[str, Any]) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        _atomic_write(self.root / f'{key}.json', json.dumps(record))
+        with self._locked():
+            _atomic_write(self.root / f'{key}.json', json.dumps(record))
 
     def merge(self, key: str, fields: dict[str, Any]) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        _merge_json(self.root / f'{key}.json', fields)
+        with self._locked():
+            _merge_json(self.root / f'{key}.json', fields)
+
+    def write_if(self, key: str, record: dict[str, Any], gen: str | None) -> bool:
+        with self._locked():
+            if (self.read(key) or {}).get('gen') != gen:
+                return False
+            _atomic_write(self.root / f'{key}.json', json.dumps(record))
+            return True
+
+    def merge_if(self, key: str, fields: dict[str, Any], gen: str | None) -> bool:
+        with self._locked():
+            if (self.read(key) or {}).get('gen') != gen:
+                return False
+            _merge_json(self.root / f'{key}.json', fields)
+            return True
 
     def keys(self) -> list[str]:
         return sorted(p.stem for p in self.root.glob('*.json')) if self.root.exists() else []
@@ -425,15 +478,43 @@ class MemoStore:
     def record(self, key: str) -> dict[str, Any]:
         return self.records_backend.read(key) or {'key': key, 'state': None}
 
+    def result_path(self, key: str, gen: str | None) -> Path:
+        """Where attempt *gen* of *key* writes its result.
+
+        Generation-qualified so a superseded worker that survives ``cancel``
+        physically *cannot* overwrite its successor's result — each attempt owns
+        its own file, and readers resolve through the record's current ``gen``.
+        (``None`` — a record from before generations — reads the legacy name.)
+        """
+        return self.result_dir(key) / (f'result-{gen}.pkl' if gen else 'result.pkl')
+
+    def error_path(self, key: str, gen: str | None) -> Path:
+        return self.result_dir(key) / (f'error-{gen}.txt' if gen else 'error.txt')
+
+    def _gen(self, key: str) -> str | None:
+        return (self.records_backend.read(key) or {}).get('gen')
+
     def result(self, key: str) -> Any:
-        return cloudpickle.loads((self.result_dir(key) / 'result.pkl').read_bytes())
+        return cloudpickle.loads(self.result_path(key, self._gen(key)).read_bytes())
 
     def error(self, key: str) -> str:
-        e = self.result_dir(key) / 'error.txt'
-        return e.read_text() if e.exists() else '(no logs)'
+        for p in (self.error_path(key, self._gen(key)), self.error_path(key, None)):
+            if p.exists():
+                return p.read_text()
+        return '(no logs)'
 
     def update(self, key: str, **fields: Any) -> None:
         self.records_backend.merge(key, fields)
+
+    def update_if(self, key: str, gen: str, **fields: Any) -> bool:
+        """Merge *fields* only while attempt *gen* still owns the record.
+
+        The worker-side fence: every write a worker makes passes through here, so
+        once its record is claimed by a successor attempt (or released by
+        ``cancel``/``reap_dead``), a lingering worker can no longer heartbeat, merge
+        DONE over the new attempt's RUNNING, or resurrect cleared fields.
+        """
+        return self.records_backend.merge_if(key, fields, gen)
 
     def records(self) -> list[dict[str, Any]]:
         return [
@@ -513,8 +594,11 @@ class MemoStore:
         """
         self.records_backend.write(key, self._with_history(key, {'key': key, 'state': None}))
 
-    def mark_running(self, fn: Callable, key: str, parts: dict[str, Any] | None = None) -> None:
-        """Flip the record to RUNNING (wholesale, clearing any prior error).
+    def mark_running(
+        self, fn: Callable, key: str, parts: dict[str, Any] | None = None, expect_gen: str | None = None
+    ) -> str | None:
+        """Claim the record for a fresh attempt: flip it to RUNNING (wholesale,
+        clearing any prior error) under a new generation stamp.
 
         Called by ``Ctx`` before the apparatus spawns the worker, so a poll
         between stage and first heartbeat sees RUNNING rather than a stale state.
@@ -522,27 +606,35 @@ class MemoStore:
         :func:`task_key_parts`) this attempt runs under; any prior attempt is
         compacted into ``history``, so ``mini explain`` can answer "why did this
         re-run" after the fact.
-        """
-        self.records_backend.write(
-            key,
-            self._with_history(
-                key,
-                {
-                    'key': key,
-                    'fn': getattr(fn, '__name__', 'task'),
-                    'state': RunState.RUNNING,
-                    'created_at': time.time(),
-                    **(parts or {}),
-                },
-            ),
-        )
 
-    def write_call(self, key: str, fn: Callable, args: tuple, hooks: list[Callable] | None = None) -> None:
+        The claim is conditional on *expect_gen* — the ``gen`` the caller read
+        when it classified the record (``None`` = unclaimed). If another ticker
+        claimed the key in between, nothing is written and ``None`` returns
+        (don't spawn — theirs is running). On success, returns the new attempt's
+        ``gen``: the fence every write from that worker must carry.
+        """
+        gen = secrets.token_hex(4)
+        rec = self._with_history(
+            key,
+            {
+                'key': key,
+                'fn': getattr(fn, '__name__', 'task'),
+                'state': RunState.RUNNING,
+                'gen': gen,
+                'created_at': time.time(),
+                **(parts or {}),
+            },
+        )
+        return gen if self.records_backend.write_if(key, rec, expect_gen) else None
+
+    def write_call(
+        self, key: str, fn: Callable, args: tuple, hooks: list[Callable] | None = None, gen: str | None = None
+    ) -> None:
         """Stage the cloudpickled call to disk for a local subprocess worker."""
         self.root.mkdir(parents=True, exist_ok=True)
-        self._call(key).write_bytes(cloudpickle.dumps((fn, args, hooks or [])))
+        self._call(key).write_bytes(cloudpickle.dumps((fn, args, hooks or [], gen)))
 
-    def read_call(self, key: str) -> tuple[Callable, tuple, list[Callable]]:
+    def read_call(self, key: str) -> tuple[Callable, tuple, list[Callable], str | None]:
         return cloudpickle.loads(self._call(key).read_bytes())
 
 

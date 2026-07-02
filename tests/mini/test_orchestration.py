@@ -57,7 +57,7 @@ def test_multistep_dependency(tmp_path: Path):
 
     def main(ctx):
         meta = ctx.run(prep)  # sweep configs depend on prep's output
-        return ctx.map(train, [(lr, meta['vocab']) for lr in (0.1, 0.2)])
+        return ctx.map(train, [0.1, 0.2], [meta['vocab']] * 2)
 
     assert _drive(*_setup('dep', main, tmp_path)) == [{'lr': 0.1, 'vocab': 7}, {'lr': 0.2, 'vocab': 7}]
 
@@ -76,7 +76,7 @@ def test_prep_runs_once_across_wakes(tmp_path: Path):
 
     def main(ctx):
         ctx.run(prep)
-        return ctx.map(train, [(1,), (2,)])
+        return ctx.map(train, [1, 2])
 
     exp, app = _setup('once', main, tmp_path)
     _drive(exp, app)
@@ -101,7 +101,7 @@ def test_failed_is_terminal_until_retry(tmp_path: Path):
         return x * 10
 
     def main(ctx):
-        return ctx.map(train, [(1,), (2,), (3,)])
+        return ctx.map(train, [1, 2, 3])
 
     exp, app = _setup('crash', main, tmp_path)
     store = app.memo_store()
@@ -137,7 +137,7 @@ def test_allow_partial_returns_sentinel_for_failed_cell(tmp_path: Path):
         return x * 10
 
     def main(ctx):
-        results = ctx.map(train, [(1,), (2,), (3,)], allow_partial=True)
+        results = ctx.map(train, [1, 2, 3], allow_partial=True)
         present = [r for r in results if r is not MISSING]
         return {'results': results, 'best': max(present)}
 
@@ -157,7 +157,7 @@ def test_allow_partial_still_waits_for_in_flight(tmp_path: Path):
         return x * 10
 
     def main(ctx):
-        return ctx.map(train, [(1,), (2,), (3,)], allow_partial=True)
+        return ctx.map(train, [1, 2, 3], allow_partial=True)
 
     from mini.orchestration import MISSING
 
@@ -174,7 +174,7 @@ def test_strict_map_surfaces_failures_as_group(tmp_path: Path):
             raise RuntimeError('boom')
         return x
 
-    exp, app = _setup('strict', lambda ctx: ctx.map(train, [(1,), (2,), (3,)]), tmp_path)
+    exp, app = _setup('strict', lambda ctx: ctx.map(train, [1, 2, 3]), tmp_path)
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         try:
@@ -211,9 +211,37 @@ def test_single_map(tmp_path: Path):
     def sq(x):
         return x * x
 
-    exp = Experiment(name='map', main=lambda ctx: ctx.map(sq, [(2,), (3,)]))
+    exp = Experiment(name='map', main=lambda ctx: ctx.map(sq, [2, 3]))
     app = LocalApparatus('map', data_dir=tmp_path / 'map')
     assert _drive(exp, app) == [4, 9]
+
+
+def test_map_does_not_unpack_tuple_items(tmp_path: Path):
+    """A single-iterable map passes each element as *one* argument — an element
+    that happens to be a tuple stays a tuple. (The old items-based map unpacked
+    tuples as positional args, silently breaking tasks that take a tuple.)"""
+
+    def span(pair):
+        lo, hi = pair
+        return hi - lo
+
+    exp, app = _setup('tup', lambda ctx: ctx.map(span, [(1, 4), (2, 8)]), tmp_path)
+    assert _drive(exp, app) == [3, 6]
+
+
+def test_map_zips_iterables_strictly(tmp_path: Path):
+    """Multiple iterables zip Executor-style into positional args — and
+    mismatched lengths raise rather than silently truncating the sweep."""
+
+    def add(a, b):
+        return a + b
+
+    exp, app = _setup('zipped', lambda ctx: ctx.map(add, [1, 2], [10, 20]), tmp_path)
+    assert _drive(exp, app) == [11, 22]
+
+    exp, app = _setup('lopsided', lambda ctx: ctx.map(add, [1, 2], [10]), tmp_path)
+    with pytest.raises(ValueError, match='shorter'):
+        tick(exp, app)
 
 
 def test_metrics_recorded_on_task(tmp_path: Path):
@@ -224,7 +252,7 @@ def test_metrics_recorded_on_task(tmp_path: Path):
         return x
 
     def main(ctx):
-        return ctx.map(t, [(5,)])
+        return ctx.map(t, [5])
 
     _drive(*_setup('met', main, tmp_path))
     recs = MemoStore(tmp_path / 'met').records()
@@ -233,7 +261,7 @@ def test_metrics_recorded_on_task(tmp_path: Path):
 
 def test_env_recorded_on_task(tmp_path: Path):
     """The worker stamps each record with *what it ran on* (host/OS/Python)."""
-    _drive(*_setup('env', lambda ctx: ctx.map(lambda x: x, [(5,)]), tmp_path))
+    _drive(*_setup('env', lambda ctx: ctx.map(lambda x: x, [5]), tmp_path))
     (rec,) = MemoStore(tmp_path / 'env').records()
     env = rec['env']
     assert env['host'] and env['platform'] and env['python']
@@ -283,10 +311,10 @@ def test_version_reruns_in_place(tmp_path: Path):
         return x
 
     def main_v1(ctx):
-        return ctx.map(t, [(1,)], version='v1')
+        return ctx.map(t, [1], version='v1')
 
     def main_v2(ctx):
-        return ctx.map(t, [(1,)], version='v2')
+        return ctx.map(t, [1], version='v2')
 
     _drive(*_setup('ver', main_v1, tmp_path))
     _drive(Experiment(name='ver', main=main_v2), LocalApparatus('ver', data_dir=tmp_path / 'ver'))
@@ -311,7 +339,7 @@ def test_prune_and_memo_hits_across_config_edits(tmp_path: Path):
         return x * 10
 
     def sweep(items):
-        return Experiment(name='prune', main=lambda ctx: ctx.map(work, [(i,) for i in items]))
+        return Experiment(name='prune', main=lambda ctx: ctx.map(work, items))
 
     data_dir = tmp_path / 'prune'  # one shared memo store across both drives
     assert _drive(sweep([1, 2]), LocalApparatus('prune', data_dir=data_dir, max_workers=3)) == [10, 20]
@@ -333,7 +361,7 @@ def test_tick_persists_requested_keys(tmp_path: Path):
         return x * 10
 
     def sweep(items):
-        return Experiment(name='req', main=lambda ctx: ctx.map(work, [(i,) for i in items]))
+        return Experiment(name='req', main=lambda ctx: ctx.map(work, items))
 
     data_dir = tmp_path / 'req'
     _drive(sweep([1, 2]), LocalApparatus('req', data_dir=data_dir))
@@ -364,7 +392,7 @@ def test_superseded_records_are_excluded_and_not_retried(tmp_path: Path):
         return x * 10
 
     def sweep(fn):
-        return Experiment(name='hotfix', main=lambda ctx: ctx.map(fn, [(1,), (2,)]))
+        return Experiment(name='hotfix', main=lambda ctx: ctx.map(fn, [1, 2]))
 
     data_dir = tmp_path / 'hotfix'
     _drive_to_failure(sweep(bad), LocalApparatus('hotfix', data_dir=data_dir))
@@ -411,7 +439,7 @@ def _make_train(fixed: bool):
 
 
 def _hotfix_sweep(fixed: bool) -> Experiment:
-    return Experiment(name='hot', main=lambda ctx: ctx.map(_make_train(fixed), [(1,), (2,)]))
+    return Experiment(name='hot', main=lambda ctx: ctx.map(_make_train(fixed), [1, 2]))
 
 
 def test_hotfix_edit_relaunches_failed_cells_in_place(tmp_path: Path):
@@ -470,7 +498,7 @@ def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
     gpu = LocalApparatus('perstep', data_dir=data_dir).before_each(mark_gpu)
 
     def main(ctx):
-        return ctx.map(task, [(1,)], on=gpu)
+        return ctx.map(task, [1], on=gpu)
 
     assert _drive(Experiment(name='perstep', main=main), default) == [1]
     assert (data_dir / 'gpu_hook').exists()  # the on= apparatus's hook ran
@@ -504,7 +532,7 @@ def test_role_routes_to_its_apparatus(tmp_path: Path):
 
     def main(ctx):
         ctx.run(task, 0, role='prep')
-        return ctx.map(task, [(1,)], role='train')
+        return ctx.map(task, [1], role='train')
 
     exp = Experiment(name='roles', main=main, roles=roles)
     assert _drive(exp, LocalApparatus('roles', data_dir=data_dir)) == [1]
@@ -524,7 +552,7 @@ def test_role_kwargs_table_applies_w(tmp_path: Path):
     def task(x):
         return x
 
-    exp = Experiment(name='wtab', main=lambda ctx: ctx.map(task, [(1,)], role='train'), roles={'train': dict(gpu='L4')})
+    exp = Experiment(name='wtab', main=lambda ctx: ctx.map(task, [1], role='train'), roles={'train': dict(gpu='L4')})
     assert _drive(exp, RecordingLocal('wtab', data_dir=tmp_path / 'wtab')) == [1]
     assert captured == {'gpu': 'L4'}
 
@@ -556,15 +584,15 @@ def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
     class InlineApparatus(LocalApparatus):
         def spawn_tasks(self, store, batch):
             batches.append(len(batch))  # record fan-out width
-            for key, fn, args, hooks in batch:
-                store.write_call(key, fn, args, hooks)
+            for key, gen, fn, args, hooks in batch:
+                store.write_call(key, fn, args, hooks, gen)
                 run_task(store.data_dir, key)  # run now, in-process — no subprocess
 
     def task(x):
         return x * 3
 
     app = InlineApparatus('inline', data_dir=tmp_path / 'inline')
-    exp = Experiment(name='inline', main=lambda ctx: ctx.map(task, [(2,), (5,)]))
+    exp = Experiment(name='inline', main=lambda ctx: ctx.map(task, [2, 5]))
     assert _drive(exp, app) == [6, 15]
     assert batches == [2]  # both tasks launched in a single batched spawn
 

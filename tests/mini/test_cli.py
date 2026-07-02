@@ -54,7 +54,7 @@ def test_ls_and_status_surface_memo_experiments(tmp_path: Path, monkeypatch, cap
     def train(x):
         return x * 2
 
-    exp = Experiment(name='cli', main=lambda ctx: ctx.map(train, [(1,), (2,)]))
+    exp = Experiment(name='cli', main=lambda ctx: ctx.map(train, [1, 2]))
     _drive(exp, LocalApparatus('cli'))  # default data_dir → .mini/cli
 
     from mini.__main__ import cmd_ls, cmd_status
@@ -83,7 +83,7 @@ def test_status_and_ls_report_done_despite_superseded_failure(tmp_path: Path, mo
         return x
 
     def sweep(fn):
-        return Experiment(name='super', main=lambda ctx: ctx.map(fn, [(1,)]))
+        return Experiment(name='super', main=lambda ctx: ctx.map(fn, [1]))
 
     app = LocalApparatus('super')  # default data_dir → .mini/super
     deadline = time.monotonic() + 30
@@ -129,7 +129,7 @@ def test_explain_walks_the_attempt_timeline_after_a_hotfix(tmp_path: Path, monke
         return work
 
     def sweep(fn):
-        return Experiment(name='explain', main=lambda ctx: ctx.map(fn, [(1,)]))
+        return Experiment(name='explain', main=lambda ctx: ctx.map(fn, [1]))
 
     app = LocalApparatus('explain')
     deadline = time.monotonic() + 30
@@ -165,7 +165,7 @@ def test_cancel_stops_running_task(tmp_path: Path):
         return x
 
     app = LocalApparatus('cancelexp', data_dir=tmp_path / 'cancelexp')
-    tick(Experiment(name='cancelexp', main=lambda ctx: ctx.map(slow, [(1,)])), app)  # launch + suspend
+    tick(Experiment(name='cancelexp', main=lambda ctx: ctx.map(slow, [1])), app)  # launch + suspend
 
     store = app.memo_store()
     (rec,) = store.records()
@@ -198,7 +198,7 @@ def test_retry_cli_heals_failed_task(tmp_path: Path, monkeypatch, capsys):
             if n == 0:  # fail on the first attempt only
                 raise RuntimeError('boom once')
             return x
-        experiment = Experiment(name='retrycli', main=lambda ctx: ctx.map(flaky, [(7,)]))
+        experiment = Experiment(name='retrycli', main=lambda ctx: ctx.map(flaky, [7]))
         """)
     )
     from mini.__main__ import cmd_retry, cmd_run

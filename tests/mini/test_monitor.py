@@ -49,7 +49,7 @@ def test_drives_multistep_to_completion(tmp_path: Path):
 
     def main(ctx):
         meta = ctx.run(prep)  # second stage depends on the first
-        return ctx.map(train, [(lr, meta['vocab']) for lr in (0.1, 0.2)])
+        return ctx.map(train, [0.1, 0.2], [meta['vocab']] * 2)
 
     app = LocalApparatus('watch_ok', max_workers=2, data_dir=tmp_path / 'watch_ok')
     payload = _watch(Experiment(name='watch_ok', main=main), app)
@@ -65,7 +65,7 @@ def test_watch_observes_a_run_it_did_not_launch(tmp_path: Path):
     ``watch`` only polls the durable records and returns once they settle. It takes
     no experiment, so it structurally *can't* relaunch — the read-only invariant."""
     app = LocalApparatus('watch_ro', max_workers=2, data_dir=tmp_path / 'watch_ro')
-    exp = Experiment(name='watch_ro', main=lambda ctx: ctx.map(_times_ten, [(1,), (2,)]))
+    exp = Experiment(name='watch_ro', main=lambda ctx: ctx.map(_times_ten, [1, 2]))
     tick(exp, app)  # launch the single stage detached, then suspend — like a separate process
 
     records = watch(app, poll=0.05, console=_quiet())
@@ -79,7 +79,7 @@ def test_raises_on_failure_without_relaunching(tmp_path: Path):
         raise ValueError(f'boom {x}')
 
     app = LocalApparatus('watch_fail', max_workers=2, data_dir=tmp_path / 'watch_fail')
-    exp = Experiment(name='watch_fail', main=lambda ctx: ctx.map(boom, [(1,), (2,)]))
+    exp = Experiment(name='watch_fail', main=lambda ctx: ctx.map(boom, [1, 2]))
     with pytest.raises(ExceptionGroup) as exc:
         _watch(exp, app)
     assert len(exc.value.exceptions) == 2  # both surfaced together, not busy-looped
@@ -90,7 +90,7 @@ def test_reap_dead_settles_a_killed_worker(tmp_path: Path):
     """A worker hard-killed mid-run (no FAILED written) is detected as dead and
     settled FAILED, so it can't masquerade as RUNNING forever."""
     app = LocalApparatus('reap', data_dir=tmp_path / 'reap')
-    tick(Experiment(name='reap', main=lambda ctx: ctx.map(_sleeper, [(1,)])), app)  # launch + suspend
+    tick(Experiment(name='reap', main=lambda ctx: ctx.map(_sleeper, [1])), app)  # launch + suspend
     store = app.memo_store()
     (rec,) = store.records()
     pid = rec['pid']
@@ -115,7 +115,7 @@ def test_drive_stops_on_cancelled_instead_of_spinning(tmp_path: Path):
     """A CANCELLED task is terminal: ``drive_and_watch`` must stop (raise), not
     busy-loop ticking a DAG that can never progress (nothing RUNNING, no FAILED)."""
     app = LocalApparatus('watch_cancel', data_dir=tmp_path / 'watch_cancel')
-    exp = Experiment(name='watch_cancel', main=lambda ctx: ctx.map(_sleeper, [(1,)]))
+    exp = Experiment(name='watch_cancel', main=lambda ctx: ctx.map(_sleeper, [1]))
     tick(exp, app)  # launch detached
     store = app.memo_store()
 
@@ -142,7 +142,7 @@ def test_watch_surfaces_a_killed_worker(tmp_path: Path):
     """The wedge fix end-to-end: a worker killed *while watching* settles FAILED
     via ``reap_dead``, so the drain raises instead of waiting on it forever."""
     app = LocalApparatus('watch_killed', data_dir=tmp_path / 'watch_killed')
-    exp = Experiment(name='watch_killed', main=lambda ctx: ctx.map(_sleeper, [(1,)]))
+    exp = Experiment(name='watch_killed', main=lambda ctx: ctx.map(_sleeper, [1]))
 
     captured: dict[str, BaseException] = {}
 

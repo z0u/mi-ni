@@ -79,9 +79,13 @@ The single most effective habit. A task keyed on the entire experiment config
 re-runs whenever any unrelated field changes:
 
 ```python
-ctx.map(train, [(whole_config,) for ...])   # re-runs on ANY config change
-ctx.map(train, [(lr, vocab_size) for ...])  # re-runs only when lr / vocab_size change
+ctx.map(train, whole_configs)      # re-runs on ANY config change
+ctx.map(train, lrs, vocab_sizes)   # re-runs only when lr / vocab_size change
 ```
+
+(`ctx.map` zips its iterables Executor-style — `train(lr, vocab_size)` per pair,
+mismatched lengths raise. A single iterable passes each element as one argument,
+tuples included.)
 
 Keep `main` cheap and deterministic (it re-runs every wake), and fold RNG seeds
 into a task's inputs so the same inputs really do produce the same result.

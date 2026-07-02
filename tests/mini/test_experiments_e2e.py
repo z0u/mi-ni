@@ -60,7 +60,7 @@ def test_every_demo_experiment_loads(path: Path):
     ``experiment = Experiment(...)`` contract without running any training."""
     exp = load_experiment(path)
     assert exp.name == path.parent.name  # the dir is the experiment name by convention
-    assert callable(exp.orchestration())  # main(ctx), or a sweep lowered to one map
+    assert callable(exp.main)  # main(ctx), or a sweep lowered to one map
 
 
 def test_pipeline_demo_runs_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

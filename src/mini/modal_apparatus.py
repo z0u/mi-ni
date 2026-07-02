@@ -143,13 +143,18 @@ class ModalMemoStore(MemoStore):
         return b''.join(self._volume._modal_volume.read_file(rel))
 
     def result(self, key: str) -> Any:
-        return cloudpickle.loads(self._read_volume_bytes(f'_memo/{key}/result.pkl'))
+        gen = self._gen(key)
+        name = f'result-{gen}.pkl' if gen else 'result.pkl'
+        return cloudpickle.loads(self._read_volume_bytes(f'_memo/{key}/{name}'))
 
     def error(self, key: str) -> str:
-        try:
-            return self._read_volume_bytes(f'_memo/{key}/error.txt').decode()
-        except FileNotFoundError, modal.exception.NotFoundError:
-            return '(no logs)'
+        gen = self._gen(key)
+        for name in dict.fromkeys((f'error-{gen}.txt' if gen else 'error.txt', 'error.txt')):
+            try:
+                return self._read_volume_bytes(f'_memo/{key}/{name}').decode()
+            except FileNotFoundError, modal.exception.NotFoundError:
+                continue
+        return '(no logs)'
 
 
 class ModalVolumeStore(Store):
@@ -228,7 +233,7 @@ def _hf_store_secret() -> modal.Secret | None:
     return modal.Secret.from_dict({STORE_BUCKET_ENV: bucket, 'HF_TOKEN': token})
 
 
-def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, mount_point: str) -> None:
+def _modal_task_entry(blob: bytes, key: str, gen: str, dict_name: str, volume_name: str, mount_point: str) -> None:
     """Remote entry: run one memoized call on Modal and persist its result/state.
 
     Mirrors the local subprocess worker (``mini._taskworker``) but reads the call
@@ -251,7 +256,7 @@ def _modal_task_entry(blob: bytes, key: str, dict_name: str, volume_name: str, m
     # back with no shared Volume. Otherwise the CAS rides *under* the mounted
     # Volume (committed with the result), per-experiment until #22's project Volume.
     artifacts = store_for(Path(mount_point) / 'store')
-    execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts)
+    execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts, gen=gen)
 
 
 class ModalApparatus(Apparatus[ModalVolume]):
@@ -387,7 +392,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         return self._memo_fn
 
     @override
-    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, str, Callable, tuple, list]]) -> None:
         worker = self._memo_worker()
         dict_name, volume_name, mount_point = self._dict_name, self.app.name, str(self.volume.path)
         # One detached app context for the whole batch (the cost we batch away is
@@ -397,15 +402,15 @@ class ModalApparatus(Apparatus[ModalVolume]):
         # failure is diagnosable (cross-check via FunctionCall.from_id, find logs
         # on the dashboard) even before the worker writes its first heartbeat.
         # max_containers is dropped in ``_memo_worker``, so the tasks parallelise.
-        fc_ids: dict[str, str] = {}
+        fc_ids: dict[str, tuple[str, str]] = {}
         with self.app.run(detach=True):
-            for key, fn, args, hooks in batch:
+            for key, gen, fn, args, hooks in batch:
                 blob = cloudpickle.dumps((fn, args, hooks))
-                fc = worker.spawn(blob, key, dict_name, volume_name, mount_point)
-                fc_ids[key] = fc.object_id
+                fc = worker.spawn(blob, key, gen, dict_name, volume_name, mount_point)
+                fc_ids[key] = (gen, fc.object_id)
         now = time.time()
-        for key, fc_id in fc_ids.items():
-            store.update(key, fc_id=fc_id, heartbeat_at=now)
+        for key, (gen, fc_id) in fc_ids.items():
+            store.update_if(key, gen, fc_id=fc_id, heartbeat_at=now)
 
     @override
     def _stop_task(self, rec: dict[str, Any]) -> None:

@@ -72,9 +72,12 @@ rules keep the blast radius bounded:
    computed, run with `--keep-stale-done`: DONE results are served as-is (badged
    `(stale code — kept)` in `status`) and only the unfinished cells re-run.
 2. **If anything is in-flight, `cancel` first, then fix.** Never edit under a
-   live worker — a stale worker that settles later writes onto the *same* record
-   its replacement would use. (`cancel` is store-scoped — it also stops stale
-   old-code workers, which keep showing as `RUNNING` in `status`.)
+   live worker — you'd pay for compute nobody wants. (`cancel` is store-scoped —
+   it also stops stale old-code workers, which keep showing as `RUNNING` in
+   `status`.) The *records* are safe either way: every attempt runs under a
+   generation stamp, so a stale worker that survives `cancel` can't overwrite
+   its replacement's state or result — but it can still race mutable *names* it
+   writes (`set_ref`, `publish`, shared volume paths).
 3. **Only ever edit the single failing task fn.** Never a shared helper, `main`,
    or the DAG shape — those re-run an unbounded set of tasks. That's an
    **escalation**, not a hotfix.

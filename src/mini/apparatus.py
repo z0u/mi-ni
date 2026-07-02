@@ -195,14 +195,15 @@ class Apparatus(ABC, Generic[V]):
         ...
 
     @abstractmethod
-    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, str, Callable, tuple, list]]) -> None:
         """Spawn detached workers for a batch of memoized tasks.
 
-        ``Ctx`` marks each record RUNNING, then passes the batch — each entry
-        ``(key, fn, args, hooks)`` — here to launch workers that persist
-        results under each key, surviving the tick that launched them. Batching
-        lets ``ctx.map`` fan out efficiently (one ``spawn_map`` on Modal rather
-        than one detached call per task).
+        ``Ctx`` claims each record RUNNING under a fresh generation, then passes
+        the batch — each entry ``(key, gen, fn, args, hooks)`` — here to launch
+        workers that persist results under each key, surviving the tick that
+        launched them. *gen* travels with the call: the worker fences all its
+        writes on it. Batching lets ``ctx.map`` fan out efficiently (one
+        ``spawn_map`` on Modal rather than one detached call per task).
         """
         ...
 
@@ -211,7 +212,10 @@ class Apparatus(ABC, Generic[V]):
 
         Delegates per-task stops to ``_stop_task`` (local SIGTERMs the worker
         process group; Modal cancels the ``FunctionCall``). Settled tasks are
-        left alone.
+        left alone. Releasing ``gen`` fences the worker even if it survives the
+        stop (an ignored SIGTERM): its writes no longer own the record, so it
+        can't flip CANCELLED back to DONE and pass a half-cancelled attempt off
+        as a current result.
         """
         from mini.runs import RunState
 
@@ -220,7 +224,7 @@ class Apparatus(ABC, Generic[V]):
             state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
             if state in (RunState.RUNNING, RunState.PENDING):
                 self._stop_task(rec)
-                store.update(rec['key'], state=RunState.CANCELLED)
+                store.update(rec['key'], state=RunState.CANCELLED, gen=None)
                 cancelled.append(rec['key'])
         return cancelled
 
@@ -266,7 +270,9 @@ class Apparatus(ABC, Generic[V]):
             if store.state(rec['key']) != RunState.RUNNING:
                 continue
             error = 'worker vanished (killed/crashed, no result written)'
-            store.update(rec['key'], state=RunState.FAILED, error=error)
+            # gen=None releases the attempt: if the liveness probe was wrong and the
+            # worker still breathes somewhere, its fenced writes can't undo the reap.
+            store.update(rec['key'], state=RunState.FAILED, error=error, gen=None)
             rec['state'], rec['error'] = RunState.FAILED, error  # keep the caller's snapshot current
             reaped.append(rec['key'])
         return reaped
