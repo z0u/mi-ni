@@ -108,6 +108,50 @@ def test_status_and_ls_report_done_despite_superseded_failure(tmp_path: Path, mo
     assert 'done' in ls_out and '+1 superseded' in ls_out
 
 
+def test_explain_diffs_superseded_record_against_replacement(tmp_path: Path, monkeypatch, capsys):
+    """After a hotfix, ``explain <old-key>`` must answer "why was this re-keyed":
+    same inputs, code changed — naming the dependency that moved."""
+    monkeypatch.chdir(tmp_path)
+
+    def make(fixed: bool):
+        if fixed:
+
+            def work(x):
+                return x
+        else:
+
+            def work(x):
+                raise RuntimeError('bug')
+
+        return work
+
+    def sweep(fn):
+        return Experiment(name='explain', main=lambda ctx: ctx.map(fn, [(1,)]))
+
+    app = LocalApparatus('explain')
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            tick(sweep(make(fixed=False)), app)
+        except ExceptionGroup:
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError('map never surfaced the failure')
+    _drive(sweep(make(fixed=True)), LocalApparatus('explain'))
+
+    store = app.memo_store()
+    (failed_key,) = [r['key'] for r in store.records() if r.get('state') == RunState.FAILED]
+
+    from mini.__main__ import cmd_explain
+
+    cmd_explain(argparse.Namespace(name='explain', key=failed_key, app='local'))
+    out = capsys.readouterr().out
+    assert '(superseded)' in out  # the old key is no longer requested
+    assert 'inputs: unchanged' in out  # same args — the hotfix changed code, not inputs
+    assert 'changed' in out  # the fn's own dep hash moved
+
+
 def test_cancel_stops_running_task(tmp_path: Path):
     def slow(x):
         import time

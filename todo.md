@@ -11,4 +11,12 @@ The storage / artifacts / publishing backlog has moved out of here:
   #39 (wire the store through interactive `app.map`/`arun`), #15 (GC), #19 (queued vs.
   running visibility).
 
-_(Empty otherwise — add notes below.)_
+- **Late-orphan writes to mutable names.** A superseded worker (fn edited under a
+  live run, against the hotfix rules) runs to completion and can last-writer-win a
+  mutable name *after* its replacement already wrote it: `set_ref`, `publish`, and
+  shared volume paths (`get_data_dir()` filenames). Memo results (per-key dirs) and
+  CAS blobs (content-addressed) are immune. Auto-cancelling orphans at tick time is
+  wrong — mid-run the requested-set manifest is only a lower bound, so it would kill
+  in-flight downstream tasks and settle them CANCELLED (terminal). Options if it
+  bites: per-task scratch dirs on the volume, or a generation stamp on refs. For now
+  the guard is the existing rule: `cancel` before editing.

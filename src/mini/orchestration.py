@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Literal, Sequence, overload
 
-from mini.memo import MemoStore, fingerprint
+from mini.memo import MemoStore, fingerprint_parts
 from mini.runs import SETTLED, RunState
 
 if TYPE_CHECKING:
@@ -153,12 +153,12 @@ class Ctx:
         and return its batch entry — *without* spawning. The caller batches the
         spawn so a ``map`` fans out in one ``spawn_tasks`` call.
         """
-        key = fingerprint(fn, args, version)
+        key, parts = fingerprint_parts(fn, args, version)
         self.requested.append(key)
         state = self.store.state(key)
         to_launch: tuple[str, Callable, tuple, list] | None = None
         if state is None:  # never run; FAILED/CANCELLED are terminal (retry takes intent)
-            self.store.mark_running(fn, key)
+            self.store.mark_running(fn, key, parts)
             to_launch = (key, fn, args, getattr(app, '_before_hooks', []))
             self.launched.append(key)
             state = RunState.RUNNING

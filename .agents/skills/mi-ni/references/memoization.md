@@ -15,13 +15,40 @@ key = fingerprint(source(fn) + source(project fns/classes fn calls, transitively
   wake is a fresh process, so it would miss the cache _every wake_. The source
   fingerprint is deterministic across processes.
 - **Transitive over your own code.** It includes the source of the project
-  functions and classes `fn` references, so editing a helper your task calls
-  invalidates the task. **Site-packages and the mini framework are excluded**, so
-  library churn (or editing mini itself) doesn't bust your cache.
-- **Inputs are part of the key.** `pickle`-stable inputs (dict/list/tuple/str/num)
-  fingerprint deterministically.
+  functions and classes `fn` references — by bare name, as a module attribute
+  (`utils.helper()`), from inside a nested lambda/comprehension, or from a method
+  of a class the task uses — plus **plain module-level values** the code reads (a
+  module-level `LR`, a config table), so editing any of them invalidates the task.
+  **Site-packages and the mini framework are excluded**, so library churn (or
+  editing mini itself) doesn't bust your cache.
+- **Inputs are part of the key.** Plain data (dict/list/tuple/str/num, dataclasses,
+  pydantic models, enums, `Artifact`s) fingerprints deterministically; a *function*
+  passed as data keys by its source, not its identity. An input with no stable
+  encoding (an object whose repr embeds its address) logs a loud warning — it can
+  never cache, so the task would relaunch every wake.
 - **`version=` is an explicit override** added to the hash — bump it to force a
   re-run without editing code.
+
+### What the fingerprint cannot see
+
+Coverage is biased toward over-invalidation (a spurious re-run is visible and
+bounded; a stale hit silently poisons results), but some dependencies are
+invisible by nature — fold them into the *inputs* instead:
+
+- **Files read at runtime.** Pass an `Artifact` handle (keys by content), not a
+  path the task opens.
+- **Env vars and machine state.** Pass them as arguments if they affect the result.
+- **Attributes on instances** (`self.x` set elsewhere, monkeypatching) and values
+  with no stable JSON encoding — not tracked; keep task behavior in code and plain
+  data.
+
+### `mini explain`: why did this re-run?
+
+Each launched record stores its fingerprint evidence — code hash, input hash, and
+a short hash per tracked dependency. `mini explain <name> <key>` prints them and
+diffs the record against its sibling (the same fn under another key), naming
+exactly what moved: `inputs: unchanged · helper: changed`. Use it whenever a memo
+hit or miss surprises you.
 
 Why not key on inputs alone? Because after you fix a bug, pure input-keying
 returns the _stale, buggy_ result — the opposite of what the loop needs. Source

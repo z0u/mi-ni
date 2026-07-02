@@ -51,7 +51,9 @@ record under `env`.
 relaunch them (a deterministic failure shouldn't busy-loop). Recover on purpose:
 `bin/mini logs <exp> <key>` to read the traceback, fix, then `bin/mini retry
 <exp>` (`--key <key>` for one). To re-run a `DONE` task, edit its fn or bump
-`version=` — a memo hit is never silently re-run.
+`version=` — a memo hit is never silently re-run. If a re-run or memo hit
+*surprises* you, `bin/mini explain <exp> <key>` shows the key's evidence and
+diffs it against its sibling record (code vs. inputs, per-dependency).
 
 ### Hotfix safety (avoid double-spending)
 

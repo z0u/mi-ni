@@ -14,6 +14,7 @@ agent (or you) can drive, poll, and gather without holding a session open:
     python -m mini status pipeline                             # per-task state + metrics, by NAME
     python -m mini results pipeline                            # per-task results
     python -m mini logs   pipeline <key>                       # a failed task's traceback
+    python -m mini explain pipeline <key>                      # why this key: code/input hashes, dep diff
     python -m mini cancel pipeline                             # stop in-flight tasks
 
 State is addressed by experiment NAME (one memo store per experiment). Read
@@ -312,6 +313,53 @@ def cmd_logs(args: argparse.Namespace) -> None:
     print(_store_for(args.name, args).error(args.key))
 
 
+def cmd_explain(args: argparse.Namespace) -> None:
+    """Show the evidence behind a task's memo key — and why it differs from a sibling.
+
+    Each record stores its fingerprint parts (code vs. input hash, plus a short
+    hash per tracked dependency). ``explain`` prints them and, when another record
+    ran the same fn under a different key, diffs the two — answering "why did this
+    re-run" / "why is that record superseded" down to the dependency that moved.
+    """
+    store = _store_for(args.name, args)
+    rec = store.record(args.key)
+    if not rec.get('state') and not rec.get('deps'):
+        raise SystemExit(f'no record for key {args.key!r} in experiment {args.name!r}')
+    requested = set(store.requested_keys() or [])
+    suffix = '' if not requested or args.key in requested else '  (superseded)'
+    print(f'{rec["key"]}  {rec.get("fn", "task")}  {_rec_state(rec)}{suffix}')
+    print(f'  code {rec.get("code_fp", "?")} · inputs {rec.get("input_fp", "?")} · version {rec.get("version", "-")}')
+    deps: dict[str, str] = rec.get('deps') or {}
+    for name, h in sorted(deps.items()):
+        print(f'    {name:40} {h}')
+    if not deps:
+        print('    (no dependency manifest — record predates `explain`)')
+        return
+    # Diff against the best sibling: another record of the same fn, preferring one
+    # the current DAG requests (the "replacement"), then the most recent.
+    siblings = [
+        r
+        for r in store.records()
+        if r.get('fn') == rec.get('fn') and r['key'] != rec['key'] and r.get('deps') and r.get('input_fp')
+    ]
+    if not siblings:
+        return
+    other = max(siblings, key=lambda r: (r['key'] in requested, r.get('created_at', 0)))
+    other_deps: dict[str, str] = other['deps']
+    print(f'  vs {other["key"]} ({_rec_state(other)}{"" if other["key"] in requested else ", superseded"}):')
+    print(f'    inputs: {"unchanged" if other.get("input_fp") == rec.get("input_fp") else "changed"}')
+    if other.get('version') != rec.get('version'):
+        print(f'    version: {rec.get("version", "-")} → {other.get("version", "-")}')
+    for name in sorted(deps.keys() | other_deps.keys()):
+        a, b = deps.get(name), other_deps.get(name)
+        if a == b:
+            continue
+        what = 'changed' if a and b else ('only here' if a else 'only there')
+        print(f'    {name}: {what}' + (f' ({a} → {b})' if a and b else ''))
+    if deps == other_deps:
+        print('    code: unchanged')
+
+
 def cmd_cancel(args: argparse.Namespace) -> None:
     apparatus = _build_apparatus(args.name, args)
     cancelled = apparatus.cancel(apparatus.memo_store())
@@ -383,6 +431,12 @@ def main() -> None:
     p.add_argument('key')
     _add_app_flag(p)
     p.set_defaults(func=cmd_logs)
+
+    p = sub.add_parser('explain', help="show a task's memo-key evidence and diff it against its sibling")
+    p.add_argument('name')
+    p.add_argument('key')
+    _add_app_flag(p)
+    p.set_defaults(func=cmd_explain)
 
     p = sub.add_parser('cancel', help='stop in-flight tasks and mark them cancelled')
     p.add_argument('name')
