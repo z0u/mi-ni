@@ -61,7 +61,8 @@ def main(ctx: Ctx) -> dict:
     # inside tasks (with any seed folded into their inputs).
     meta = ctx.run(prepare_data)  # single prep step; suspends until done
     vocab = meta['vocab_size']  # the dependency a single-map experiment can't express
-    results = ctx.map(train, [(lr, vocab) for lr in (1e-3, 1e-2, 1e-1)])
+    lrs = [1e-3, 1e-2, 1e-1]
+    results = ctx.map(train, lrs, [vocab] * len(lrs))  # zipped, Executor-style: train(lr, vocab)
     best = min(results, key=lambda r: r['val_loss'])
     return {'meta': meta, 'best': best, 'results': results}
 

@@ -58,10 +58,6 @@ class Experiment:
             return {label: base.w(**kwargs) for label, kwargs in table.items()}
         return dict(self.roles(base))
 
-    def orchestration(self) -> Callable[[Ctx], Any]:
-        """Return the ``main(ctx)`` orchestration DAG."""
-        return self.main
-
 
 def load_experiment(path: str | Path) -> Experiment:
     """Import a file and return its module-level ``experiment = Experiment(...)``."""

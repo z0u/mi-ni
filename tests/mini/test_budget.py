@@ -30,7 +30,7 @@ def _slow_exp(name: str):
         time.sleep(30)  # only a cancel ends it within the test
         return x
 
-    return Experiment(name=name, main=lambda ctx: ctx.map(slow, [(1,)]))
+    return Experiment(name=name, main=lambda ctx: ctx.map(slow, [1]))
 
 
 def _reap(pid: int) -> None:

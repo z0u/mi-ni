@@ -75,10 +75,10 @@ class LocalApparatus(Apparatus[LocalVolume]):
         return MemoStore(self.volume.path)
 
     @override
-    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, Callable, tuple, list]]) -> None:
-        for key, fn, args, hooks in batch:
-            store.write_call(key, fn, args, hooks)  # stage to disk for the subprocess worker
-            store.update(key, pid=spawn_taskworker(store.data_dir, key))  # pid == pgid, for cancel
+    def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, str, Callable, tuple, list]]) -> None:
+        for key, gen, fn, args, hooks in batch:
+            store.write_call(key, fn, args, hooks, gen)  # stage to disk for the subprocess worker
+            store.update_if(key, gen, pid=spawn_taskworker(store.data_dir, key))  # pid == pgid, for cancel
 
     @override
     def _stop_task(self, rec: dict[str, Any]) -> None:

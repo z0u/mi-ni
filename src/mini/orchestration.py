@@ -17,7 +17,7 @@ told ``keep_stale`` (the bounded sweep-hotfix lever).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Literal, Sequence, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, overload
 
 from mini.memo import MemoStore, task_key_parts
 from mini.runs import SETTLED, RunState
@@ -164,8 +164,8 @@ class Ctx:
 
     def _classify(
         self, fn: Callable, args: tuple, version: str | None, app: Apparatus
-    ) -> tuple[str, RunState | None, tuple[str, Callable, tuple, list] | None]:
-        """Resolve a call's key/state and, if it needs launching, mark it RUNNING
+    ) -> tuple[str, RunState | None, tuple[str, str, Callable, tuple, list] | None]:
+        """Resolve a call's key/state and, if it needs launching, claim it RUNNING
         and return its batch entry — *without* spawning. The caller batches the
         spawn so a ``map`` fans out in one ``spawn_tasks`` call.
 
@@ -177,6 +177,12 @@ class Ctx:
         Same-evidence FAILED/CANCELLED stays terminal (retry takes intent), and a
         RUNNING task is never relaunched out from under its worker — staleness
         waits for it to settle.
+
+        Launching is a *claim*, not a blind write: ``mark_running`` replaces the
+        record only if its generation still matches what we read, so two
+        concurrent tickers (a cron routine and a human both waking the run)
+        can't both spawn a worker for one key — the loser sees RUNNING and
+        suspends like any other in-flight task.
         """
         key, parts = task_key_parts(fn, args, version)
         self.requested.append(key)
@@ -189,11 +195,12 @@ class Ctx:
         keep = stale and state == RunState.DONE and self.keep_stale
         if keep:
             self.stale_kept.append(key)
-        to_launch: tuple[str, Callable, tuple, list] | None = None
+        to_launch: tuple[str, str, Callable, tuple, list] | None = None
         if state is None or (stale and state != RunState.RUNNING and not keep):
-            self.store.mark_running(fn, key, parts)
-            to_launch = (key, fn, args, getattr(app, '_before_hooks', []))
-            self.launched.append(key)
+            gen = self.store.mark_running(fn, key, parts, expect_gen=rec.get('gen'))
+            if gen is not None:
+                to_launch = (key, gen, fn, args, getattr(app, '_before_hooks', []))
+                self.launched.append(key)
             state = RunState.RUNNING
         return key, state, to_launch
 
@@ -224,7 +231,7 @@ class Ctx:
     def map[R](
         self,
         fn: Callable[..., R],
-        items: Sequence[Any],
+        *iterables: Iterable[Any],
         version: str | None = None,
         on: Apparatus | None = None,
         role: str | None = None,
@@ -234,25 +241,33 @@ class Ctx:
     def map[R](
         self,
         fn: Callable[..., R],
-        items: Sequence[Any],
+        *iterables: Iterable[Any],
         version: str | None = None,
         on: Apparatus | None = None,
         role: str | None = None,
-        *,
         allow_partial: Literal[True],
     ) -> list[R | _Missing]: ...
     def map[R](
         self,
         fn: Callable[..., R],
-        items: Sequence[Any],
+        *iterables: Iterable[Any],
         version: str | None = None,
         on: Apparatus | None = None,
         role: str | None = None,
         allow_partial: bool = False,
     ) -> list[R] | list[R | _Missing]:
-        """Fan out *fn* over *items*, suspending until the results are ready.
+        """Fan out *fn* over the zipped *iterables*, suspending until the results
+        are ready.
 
-        Launches every missing item in one batch, then raises ``Pending`` while
+        Like ``Executor.map`` / ``Apparatus.map``: the iterables are zipped and
+        each row is passed as positional arguments — ``ctx.map(train, lrs, sizes)``
+        runs ``train(lr, size)`` per pair. With a single iterable each
+        element is passed as *one* argument, never unpacked (an element that
+        happens to be a tuple stays a tuple). The iterables are collected
+        immediately rather than lazily. Unlike ``Executor.map``, mismatched
+        iterable lengths raise rather than silently truncating the sweep.
+
+        Launches every missing cell in one batch, then raises ``Pending`` while
         any task is still in flight. By default the map is all-or-nothing: once the
         fan-out has *settled*, any cell that settled ``FAILED``/``CANCELLED`` raises
         — all of them together, as an ``ExceptionGroup`` of ``TaskFailed`` (so you
@@ -261,19 +276,19 @@ class Ctx:
 
         With ``allow_partial=True`` the map still waits for in-flight tasks, but
         once everything has settled it returns instead of raising: the result list
-        stays index-aligned with *items*, with ``MISSING`` in the position of each
-        failed/cancelled cell. This lets the pipeline's later steps run on the
+        stays index-aligned with the inputs, with ``MISSING`` in the position of
+        each failed/cancelled cell. This lets the pipeline's later steps run on the
         subset that succeeded.
         """
         app = self._route(on, role)
+        calls = list(zip(*iterables, strict=True))
         results: list[Any] = []
-        batch: list[tuple[str, Callable, tuple, list]] = []
+        batch: list[tuple[str, str, Callable, tuple, list]] = []
         failed: list[tuple[str, RunState]] = []
         # `self.pending` holds only truly in-flight keys; settled-but-failed cells go
         # to `failed`. Ctx is rebuilt each tick and the first incomplete step raises,
         # so this stays a clean per-tick view across steps.
-        for raw in items:
-            args = raw if isinstance(raw, tuple) else (raw,)
+        for args in calls:
             key, state, to_launch = self._classify(fn, args, version, app)
             if to_launch is not None:
                 batch.append(to_launch)
@@ -291,7 +306,7 @@ class Ctx:
             raise Pending(f'{len(self.pending)} task(s) in flight')
         if failed and not allow_partial:  # everything settled — surface the failures together
             raise ExceptionGroup(
-                f'{len(failed)} of {len(items)} task(s) failed',
+                f'{len(failed)} of {len(calls)} task(s) failed',
                 [self._task_failed(key, state) for key, state in failed],
             )
         return results
@@ -314,7 +329,7 @@ def tick(experiment: Experiment, apparatus: Apparatus, keep_stale: bool = False)
     store = apparatus.memo_store()
     ctx = Ctx(store, apparatus, experiment.resolve_roles(apparatus), keep_stale=keep_stale)
     try:
-        result = experiment.orchestration()(ctx)
+        result = experiment.main(ctx)
     except Pending as p:
         return False, str(p)
     finally:
