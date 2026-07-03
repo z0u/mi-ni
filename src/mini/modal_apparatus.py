@@ -34,7 +34,17 @@ from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
 from mini.runs import data_root
-from mini.store import STORE_BUCKET_ENV, Artifact, LocalStore, Store, _cas_key, _hf_token, store_bucket, store_for
+from mini.store import (
+    STORE_BUCKET_ENV,
+    Artifact,
+    LocalStore,
+    Store,
+    _cas_key,
+    _hf_token,
+    store_bucket,
+    store_context,
+    store_for,
+)
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -540,6 +550,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
                 **volumes,
                 str(self._volume.path): self._volume._modal_volume,
             }
+        if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
+            fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), secret]
         modal_fn = self.app.function(serialized=True, **fn_kwargs)(wrapped_fn)
         return modal_fn, startup_timeout
 
@@ -601,7 +613,14 @@ def _wrap_for_modal(
             )
         )
         dir_ctx = data_dir_context(data_dir) if data_dir is not None else nullcontext()
-        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), dir_ctx:
+        # Build the store remotely (this fn is serialized): the CAS rides under the
+        # mounted Volume, whose parent isn't shared remotely — so no store_root_for.
+        store_ctx = store_context(store_for(data_dir / 'store')) if data_dir is not None else nullcontext()
+        with (
+            progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval),
+            dir_ctx,
+            store_ctx,
+        ):
             for hook in reversed(hooks):
                 hook()
             result = fn(*args, **kwargs)

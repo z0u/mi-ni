@@ -337,6 +337,47 @@ def test_get_data_dir_available_in_mapped_function(apparatus):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Ambient artifact store — the interactive (map/arun) path must bind it too,
+# not only the detached memo worker (issue #39).
+# ---------------------------------------------------------------------------
+
+
+def test_interactive_local_map_resolves_ambient_store(tmp_path: Path, monkeypatch):
+    """A fn mapped via LocalApparatus (not the memo worker) can put/get artifacts;
+    the blob lands under the ``store/`` root sibling to the experiment's data dir."""
+    from mini.store import get, put
+
+    monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)  # force a LocalStore
+    app = LocalApparatus('exp', data_dir=tmp_path / 'exp')
+
+    def fn(x):
+        art = put(f'blob-{x}'.encode(), name=f'{x}.bin')
+        return get(art, tmp_path / f'out-{x}.bin').read_bytes()
+
+    assert list(app.map(fn, [1, 2])) == [b'blob-1', b'blob-2']
+    blobs = [p for p in (tmp_path / 'store' / 'cas').rglob('*') if p.is_file()]
+    assert len(blobs) == 2  # rooted beside the data dir, not under it
+
+
+def test_wrap_for_modal_binds_store_under_data_dir(tmp_path: Path, monkeypatch):
+    """The Modal-wrapped fn binds an ambient store rooted at ``data_dir/store`` —
+    under the mounted Volume, since the parent isn't shared remotely."""
+    from mini.local_queue import LocalQueue
+    from mini.modal_apparatus import _wrap_for_modal
+    from mini.store import LocalStore, get_store
+
+    monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)  # force a LocalStore
+
+    def fn():
+        store = get_store()
+        assert isinstance(store, LocalStore)
+        return store.root
+
+    wrapped = _wrap_for_modal(fn, [], 'run', queue=LocalQueue(), kwargs={}, emission_interval=1.0, data_dir=tmp_path)
+    assert wrapped(0) == tmp_path / 'store'
+
+
 def test_modal_record_store_contract():
     from mini.modal_apparatus import ModalRecordStore
 

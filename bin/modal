@@ -1,3 +1,6 @@
 #!/usr/bin/env bash
 # Pin to this project so the wrapper works from any cwd.
-exec uv run --project "${0%/*}/.." modal "$@"
+# Route through mini._modal_cli, not the bare `modal` script: it patches
+# certifi to trust the system CA bundle before modal's gRPC client connects,
+# so this works behind TLS-inspecting proxies (see mini/_tls.py).
+exec uv run --project "${0%/*}/.." python -m mini._modal_cli "$@"

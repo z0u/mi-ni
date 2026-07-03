@@ -35,7 +35,7 @@ You normally don't write any `modal.Image` code. `ModalApparatus` builds the ima
 To override (extra apt/pip, a custom base), pass `.w(image=my_image)`. See `make_image`/`requirements.py` and `ModalApparatus._ensure_image`.
 
 **Running in restricted environments / cloud sandboxes**
-- **TLS-inspecting proxies:** `ModalApparatus.__init__` calls `ensure_grpc_trusts_system_ca()` (`mini/_tls.py`) so Modal's gRPC trusts a corporate/sandbox proxy CA. The bare `modal` CLI does *not* apply this, so it may fail to connect where mini works — prefer driving Modal through mini (`bin/mini ... --app modal`, or `ModalApparatus`) rather than the raw CLI.
+- **TLS-inspecting proxies:** `ModalApparatus.__init__` calls `ensure_grpc_trusts_system_ca()` (`mini/_tls.py`) so Modal's gRPC trusts a corporate/sandbox proxy CA. `bin/modal` applies the same fix (via `mini._modal_cli`) before handing off to modal's own CLI, so it also works behind these proxies — prefer it over a bare `modal` install, which does *not* apply this.
 - **Auth:** `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` env vars (or `./go auth`, which writes `~/.modal.toml`).
 - **Egress:** the worker pulls datasets/results over the network; ensure the Modal + storage domains listed in the README are allowed.
 
