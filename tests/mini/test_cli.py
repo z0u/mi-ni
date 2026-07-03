@@ -185,7 +185,6 @@ def test_status_shows_queued_distinct_from_running(tmp_path: Path, monkeypatch, 
 def test_app_resolution_precedence(tmp_path: Path, monkeypatch):
     """--app flag > launch marker > $MINI_APP > [tool.mini] app > local (#47)."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv('MINI_APP', raising=False)
     from mini.__main__ import _resolve_app
 
     def ns(app: str | None = None) -> argparse.Namespace:
@@ -207,7 +206,6 @@ def test_run_stamps_backend_for_later_reads(tmp_path: Path, monkeypatch, capsys)
     """A launch remembers its backend (``.mini/<name>/.app``), so ``status`` with
     no ``--app`` reads the store the experiment actually lives on (#47)."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv('MINI_APP', raising=False)
     exp_file = tmp_path / 'stamp.py'
     exp_file.write_text(
         textwrap.dedent("""
@@ -231,7 +229,6 @@ def test_empty_read_names_backend_and_hints_at_the_other(tmp_path: Path, monkeyp
     """A read that finds nothing must say which backend it looked on and — when
     the run lives on the other one — name the flag to get there (#47)."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv('MINI_APP', raising=False)
     import mini.__main__ as cli
 
     monkeypatch.setattr(cli, '_peek', lambda name, backend: 3 if backend == 'modal' else 0)
