@@ -32,7 +32,7 @@ from mini.experiment import load_experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import MemoStore
 from mini.orchestration import BudgetExpired, TaskFailed, retry, tick
-from mini.runs import SETTLED, RunState, data_root
+from mini.runs import SETTLED, RunState, data_root, is_queued
 from utils.time import duration
 
 _GLYPH = {
@@ -145,15 +145,22 @@ def _print_records(store: MemoStore, records: list[dict] | None = None) -> tuple
 
 
 def _memo_line(rec: dict) -> str:
-    """One status line for a memoized task record (shared by `run`/`status`)."""
+    """One status line for a memoized task record (shared by `run`/`status`).
+
+    A RUNNING record with no ``env`` yet reads ``queued`` — launched, but no
+    worker has started (see :func:`mini.runs.is_queued`). Its ``heartbeat_at``
+    is still the launch stamp, so it's shown as time-in-queue, not liveness.
+    """
     state = _rec_state(rec)
-    line = f'  {_GLYPH.get(state, "?")} {rec.get("fn", "task"):14} {rec["key"]:26} {state:9}'
+    queued = is_queued(rec)
+    glyph, label = ('◌', 'queued') if queued else (_GLYPH.get(state, '?'), str(state))
+    line = f'  {glyph} {rec.get("fn", "task"):14} {rec["key"]:26} {label:9}'
     if rec.get('total'):
         line += f'  {rec.get("step", 0)}/{rec["total"]}'
     if rec.get('metrics'):
         line += f'  {_fmt_metrics(rec["metrics"])}'
     if state == RunState.RUNNING and rec.get('heartbeat_at'):
-        line += f'  ♥ {_age(rec["heartbeat_at"])}'
+        line += f'  ⧖ queued {_age(rec["heartbeat_at"])}' if queued else f'  ♥ {_age(rec["heartbeat_at"])}'
     if gpu := rec.get('env', {}).get('gpu'):
         line += f'  on {gpu}'  # what it actually ran on, when not the local CPU
     if rec.get('fc_id'):

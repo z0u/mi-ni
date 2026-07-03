@@ -18,7 +18,7 @@ import sys
 from enum import StrEnum
 from pathlib import Path
 
-__all__ = ['RunState', 'SETTLED', 'compute_env', 'data_root', 'spawn_taskworker']
+__all__ = ['RunState', 'SETTLED', 'compute_env', 'data_root', 'is_queued', 'spawn_taskworker']
 
 # Markers that identify a project root, in priority order.
 _ROOT_MARKERS = ('pyproject.toml', '.git')
@@ -83,6 +83,19 @@ class RunState(StrEnum):
 
 
 SETTLED = {RunState.DONE, RunState.FAILED, RunState.CANCELLED}
+
+
+def is_queued(rec: dict) -> bool:
+    """Launched but no worker has started yet — queued, not actually running.
+
+    The client claims RUNNING *before* the apparatus spawns the worker, and
+    ``env`` is the worker's first write once it truly starts. So RUNNING with no
+    ``env`` means the task is still waiting to be scheduled: a momentary blip
+    locally, but on Modal a capacity-starved task can sit here indefinitely
+    (only the wall-clock budget reaps it). Display-only — settling stays with
+    ``reap_dead``/``enforce_budget``.
+    """
+    return rec.get('state') == RunState.RUNNING and not rec.get('env')
 
 
 def _atomic_write(path: Path, text: str) -> None:

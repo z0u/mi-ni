@@ -157,6 +157,31 @@ def test_explain_walks_the_attempt_timeline_after_a_hotfix(tmp_path: Path, monke
     assert 'changed' in out  # …and the dependency that moved to heal it
 
 
+def test_status_shows_queued_distinct_from_running(tmp_path: Path, monkeypatch, capsys):
+    """A RUNNING record with no ``env`` is launched-but-unstarted (the worker
+    writes ``env`` as its first action): ``status`` must read it as *queued*,
+    not silently lump it in with tasks actually running on a worker."""
+    monkeypatch.chdir(tmp_path)
+    from mini.memo import MemoStore
+    from mini.runs import data_root
+
+    store = MemoStore(data_root() / 'queuedexp')
+    now = time.time()
+    pid = os.getpid()  # a live pid, so reap_dead doesn't settle the records
+    common = {'state': 'running', 'fn': 'train', 'pid': pid, 'heartbeat_at': now}
+    store.records_backend.merge('train-queued', {'key': 'train-queued', **common})
+    store.records_backend.merge('train-live', {'key': 'train-live', 'env': {'host': 'worker.test'}, **common})
+
+    from mini.__main__ import cmd_status
+
+    cmd_status(argparse.Namespace(name='queuedexp', app='local'))
+    out = capsys.readouterr().out
+    lines = {line.split()[2]: line for line in out.splitlines() if 'train-' in line}
+    assert '◌' in lines['train-queued'] and 'queued' in lines['train-queued']
+    assert '♥' not in lines['train-queued']  # its heartbeat is just the launch stamp, not liveness
+    assert '▸' in lines['train-live'] and 'running' in lines['train-live'] and '♥' in lines['train-live']
+
+
 def test_cancel_stops_running_task(tmp_path: Path):
     def slow(x):
         import time

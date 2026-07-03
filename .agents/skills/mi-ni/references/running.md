@@ -45,6 +45,15 @@ tail (on Modal each record read is a `Dict` round-trip). Each task also records
 `status` shows `on <GPU>` for remote tasks, and the full snapshot is on the
 record under `env`.
 
+**Queued ≠ running.** A record reads RUNNING from launch, but the worker writes
+`env` as its first action — so until `env` appears, the task is *launched but
+not started*. `status` shows it as `◌ queued` with its time in queue (`⧖`)
+instead of a heartbeat, and `watch` tags its bar `— queued`. Locally this is a
+momentary blip; on Modal a capacity-starved task can sit queued indefinitely,
+and only the wall-clock budget (below) will reap it. A task stuck on `queued`
+with an old `⧖` is a scheduling problem (capacity, container boot), not slow
+code.
+
 ## Recovery
 
 `FAILED` and `CANCELLED` are **terminal by design** — a plain `run` will **not**
