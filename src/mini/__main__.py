@@ -18,21 +18,26 @@ agent (or you) can drive, poll, and gather without holding a session open:
     python -m mini cancel pipeline                             # stop in-flight tasks
     python -m mini gc     pipeline                             # plan a storage sweep (--apply to delete)
 
-State is addressed by experiment NAME (one memo store per experiment). Read
-commands take ``--app modal`` to inspect a run on the Modal control plane.
+State is addressed by experiment NAME (one memo store per experiment). ``--app``
+picks the backend; when omitted, every verb follows the backend the experiment
+was launched on (stamped in ``.mini/<name>/.app``), then ``$MINI_APP`` /
+``[tool.mini] app``, then local — so after ``run --app modal``, a plain
+``status`` reads the Modal control plane.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import time
 
 from mini.apparatus import Apparatus
 from mini.experiment import load_experiment
 from mini.local_apparatus import LocalApparatus
-from mini.memo import MemoStore
+from mini.memo import META_KEY, MemoStore
 from mini.orchestration import BudgetExpired, TaskFailed, retry, tick
 from mini.runs import SETTLED, RunState, data_root, is_queued
+from mini.store import _project_config
 from utils.time import duration
 
 _GLYPH = {
@@ -44,12 +49,69 @@ _GLYPH = {
 }
 
 
+_APP_ENV = 'MINI_APP'
+
+
+def _resolve_app(name: str, args: argparse.Namespace) -> str:
+    """The backend to act on when ``--app`` isn't passed (#47).
+
+    Explicit flag first; then the ``.mini/<name>/.app`` marker stamped at launch
+    (per-experiment ground truth — after ``run --app modal``, a plain ``status``
+    just works); then the ``MINI_APP`` env var and the ``[tool.mini] app``
+    pyproject key (the marker is per-checkout, so a fresh clone — CI, a scheduled
+    monitor's new environment — needs one of these to be Modal-first); finally
+    ``'local'``.
+    """
+    if app := getattr(args, 'app', None):
+        return app
+    marker = data_root() / name / '.app'
+    if marker.is_file() and (app := marker.read_text().strip()):
+        return app
+    return os.environ.get(_APP_ENV) or _project_config().get('app') or 'local'
+
+
+def _remember_app(name: str, args: argparse.Namespace) -> None:
+    """Stamp the launch backend into ``.mini/<name>/.app`` so later reads follow it."""
+    d = data_root() / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / '.app').write_text(f'{_resolve_app(name, args)}\n')
+
+
+def _peek(name: str, backend: str) -> int:
+    """Best-effort task count on *backend*, for the empty-read hint. Never raises
+    and never creates state — Modal may not even be configured here.
+    """
+    try:
+        if backend == 'local':
+            return len(MemoStore(data_root() / name).records())
+        import modal
+
+        from mini.modal_apparatus import control_dict_name
+
+        d = modal.Dict.from_name(control_dict_name(name))  # no create_if_missing: a peek must not create
+        return sum(k != META_KEY for k in d.keys())
+    except Exception:
+        return 0
+
+
+def _no_tasks(name: str, args: argparse.Namespace, extra: str = '') -> SystemExit:
+    """The empty-read exit: name the backend we looked on, and peek at the other
+    one so a wrong default points at the right flag instead of a dead end (#47).
+    """
+    backend = _resolve_app(name, args)
+    other = 'modal' if backend == 'local' else 'local'
+    msg = f'no tasks found for experiment {name!r} on {backend}{extra}'
+    if n := _peek(name, other):
+        msg += f'\n  found {n} task(s) on {other} — try: --app {other}'
+    return SystemExit(msg)
+
+
 def _build_apparatus(name: str, args: argparse.Namespace) -> Apparatus:
     """Construct the apparatus the experiment runs on, from CLI flags.
 
     Compute is an execution choice, not part of the experiment definition.
     """
-    backend = getattr(args, 'app', 'local')
+    backend = _resolve_app(name, args)
     if backend == 'local':
         return LocalApparatus(name, max_workers=getattr(args, 'workers', 1))
     if backend == 'modal':
@@ -66,7 +128,9 @@ def _build_apparatus(name: str, args: argparse.Namespace) -> Apparatus:
             if v is not None
         }
         return app.w(**overrides) if overrides else app
-    raise SystemExit(f'--app {backend!r} not supported (use "local" or "modal")')
+    raise SystemExit(
+        f'unknown backend {backend!r} — use "local" or "modal" (--app / .app marker / $MINI_APP / [tool.mini] app)'
+    )
 
 
 def _store_for(name: str, args: argparse.Namespace) -> MemoStore:
@@ -75,7 +139,7 @@ def _store_for(name: str, args: argparse.Namespace) -> MemoStore:
     Local reads straight off disk (no apparatus needed); ``--app modal`` builds
     the apparatus so reads hit the Modal control plane (a named ``modal.Dict``).
     """
-    if getattr(args, 'app', 'local') == 'local':
+    if _resolve_app(name, args) == 'local':
         return MemoStore(data_root() / name)
     return _build_apparatus(name, args).memo_store()
 
@@ -178,6 +242,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     """
     exp = load_experiment(args.path)
     apparatus = _build_apparatus(exp.name, args)
+    _remember_app(exp.name, args)
     _run(exp, apparatus, args)
 
 
@@ -192,6 +257,7 @@ def cmd_retry(args: argparse.Namespace) -> None:
     """
     exp = load_experiment(args.path)
     apparatus = _build_apparatus(exp.name, args)
+    _remember_app(exp.name, args)
     reset = retry(apparatus.memo_store(), key=args.key)
     print(f'retrying {len(reset)} task(s): {", ".join(reset) or "(none failed/cancelled)"}')
     _run(exp, apparatus, args)
@@ -274,7 +340,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     apparatus.enforce_budget(store)  # a forgotten over-budget run settles CANCELLED when polled
     recs = store.records()
     if not recs:
-        raise SystemExit(f'no tasks found for experiment {args.name!r}')
+        raise _no_tasks(args.name, args)
     current, _ = store.split_current(recs)
     state = _aggregate_state([_rec_state(r) for r in current])
     header = f'{args.name}  —  {state}  ({len(current)} tasks)'
@@ -295,7 +361,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
     apparatus = _build_apparatus(args.name, args)
     if not apparatus.memo_store().records():
-        raise SystemExit(f'no tasks found for experiment {args.name!r} (nothing to watch — launch it with: run)')
+        raise _no_tasks(args.name, args, ' (nothing to watch — launch it with: run)')
     try:
         records = watch(apparatus, poll=args.poll)
     except KeyboardInterrupt:
@@ -309,7 +375,7 @@ def cmd_results(args: argparse.Namespace) -> None:
     store = _store_for(args.name, args)
     recs = store.records()
     if not recs:
-        raise SystemExit(f'no tasks found for experiment {args.name!r}')
+        raise _no_tasks(args.name, args)
     current, stale = store.split_current(recs)
     for rec in current:
         key = rec['key']
@@ -400,7 +466,7 @@ def cmd_gc(args: argparse.Namespace) -> None:
     memo hit, and deleting a FAILED record would silently turn a terminal
     failure into a relaunch.
     """
-    if getattr(args, 'app', 'local') != 'local':
+    if _resolve_app(args.name, args) != 'local':
         raise SystemExit(
             'gc only supports --app local for now (#15): Modal Dict entries self-expire '
             'after 7 days of inactivity, but Volume result dirs need a Volume-side sweep'
@@ -447,7 +513,12 @@ def main() -> None:
     sub = parser.add_subparsers(dest='command', required=True)
 
     def _add_app_flag(p: argparse.ArgumentParser) -> None:
-        p.add_argument('--app', default='local', help='backend to read/run on: "local" or "modal"')
+        p.add_argument(
+            '--app',
+            default=None,
+            help='backend to read/run on: "local" or "modal" (default: the backend the '
+            'experiment last launched on, else $MINI_APP, else [tool.mini] app, else local)',
+        )
 
     def _add_run_flags(p: argparse.ArgumentParser) -> None:
         p.add_argument('path')

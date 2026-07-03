@@ -182,6 +182,65 @@ def test_status_shows_queued_distinct_from_running(tmp_path: Path, monkeypatch, 
     assert '▸' in lines['train-live'] and 'running' in lines['train-live'] and '♥' in lines['train-live']
 
 
+def test_app_resolution_precedence(tmp_path: Path, monkeypatch):
+    """--app flag > launch marker > $MINI_APP > [tool.mini] app > local (#47)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('MINI_APP', raising=False)
+    from mini.__main__ import _resolve_app
+
+    def ns(app: str | None = None) -> argparse.Namespace:
+        return argparse.Namespace(app=app)
+
+    assert _resolve_app('exp', ns()) == 'local'  # nothing configured
+    (tmp_path / 'pyproject.toml').write_text('[tool.mini]\napp = "modal"\n')
+    assert _resolve_app('exp', ns()) == 'modal'  # project default travels with the repo
+    monkeypatch.setenv('MINI_APP', 'local')
+    assert _resolve_app('exp', ns()) == 'local'  # env overrides pyproject (one-off shell / CI)
+    marker = tmp_path / '.mini' / 'exp' / '.app'
+    marker.parent.mkdir(parents=True)
+    marker.write_text('modal\n')
+    assert _resolve_app('exp', ns()) == 'modal'  # the launch marker is per-experiment ground truth
+    assert _resolve_app('exp', ns(app='local')) == 'local'  # explicit flag beats everything
+
+
+def test_run_stamps_backend_for_later_reads(tmp_path: Path, monkeypatch, capsys):
+    """A launch remembers its backend (``.mini/<name>/.app``), so ``status`` with
+    no ``--app`` reads the store the experiment actually lives on (#47)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('MINI_APP', raising=False)
+    exp_file = tmp_path / 'stamp.py'
+    exp_file.write_text(
+        textwrap.dedent("""
+        from mini import Experiment
+        def work(x):
+            return x
+        experiment = Experiment(name='stampexp', main=lambda ctx: ctx.map(work, [7]))
+        """)
+    )
+    from mini.__main__ import cmd_run, cmd_status
+
+    cmd_run(argparse.Namespace(path=str(exp_file), watch=True, poll=0.05, app=None, workers=1))
+    assert (tmp_path / '.mini' / 'stampexp' / '.app').read_text().strip() == 'local'
+    capsys.readouterr()
+
+    cmd_status(argparse.Namespace(name='stampexp', app=None))  # no flag — resolved via the marker
+    assert 'done' in capsys.readouterr().out
+
+
+def test_empty_read_names_backend_and_hints_at_the_other(tmp_path: Path, monkeypatch):
+    """A read that finds nothing must say which backend it looked on and — when
+    the run lives on the other one — name the flag to get there (#47)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('MINI_APP', raising=False)
+    import mini.__main__ as cli
+
+    monkeypatch.setattr(cli, '_peek', lambda name, backend: 3 if backend == 'modal' else 0)
+    with pytest.raises(SystemExit) as e:
+        cli.cmd_status(argparse.Namespace(name='ghost', app=None))
+    assert "no tasks found for experiment 'ghost' on local" in str(e.value)
+    assert 'found 3 task(s) on modal — try: --app modal' in str(e.value)
+
+
 def test_cancel_stops_running_task(tmp_path: Path):
     def slow(x):
         import time

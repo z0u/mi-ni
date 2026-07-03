@@ -52,9 +52,18 @@ log = logging.getLogger(__name__)
 T = TypeVar('T')
 R = TypeVar('R')
 
-__all__ = ['ModalApparatus', 'ModalRecordStore', 'ModalMemoStore']
+__all__ = ['ModalApparatus', 'ModalRecordStore', 'ModalMemoStore', 'control_dict_name']
 
 STARTUP_TIMEOUT_SECONDS = 120
+
+
+def control_dict_name(name: str) -> str:
+    """Name of the control-plane ``modal.Dict`` for experiment *name*.
+
+    Module-level so a client can address the control plane without constructing
+    a ``ModalApparatus`` (e.g. the CLI's other-backend peek on an empty read).
+    """
+    return f'mini-cp-{name}'
 
 
 def _modal_auth_error_message() -> str:
@@ -337,7 +346,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
     @property
     def _dict_name(self) -> str:
         """Name of the control-plane ``modal.Dict`` for this experiment."""
-        return f'mini-cp-{self.app.name}'
+        assert self.app.name  # guaranteed by __init__ (a named App is required)
+        return control_dict_name(self.app.name)
 
     def w(self, **kwargs: Any) -> ModalApparatus:
         """
