@@ -30,9 +30,10 @@ from __future__ import annotations
 import argparse
 import os
 import time
+from pathlib import Path
 
 from mini.apparatus import Apparatus
-from mini.experiment import load_experiment
+from mini.experiment import Experiment, load_experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import META_KEY, MemoStore
 from mini.orchestration import BudgetExpired, TaskFailed, retry, tick
@@ -92,6 +93,33 @@ def _peek(name: str, backend: str) -> int:
         return sum(k != META_KEY for k in d.keys())
     except Exception:
         return 0
+
+
+def _known_names() -> list[str]:
+    """Experiment names with a memo store under the data root (as ``ls`` lists)."""
+    root = data_root()
+    if not root.exists():
+        return []
+    return sorted(p.name for p in root.glob('*') if (p / '.control' / 'memo').is_dir())
+
+
+def _load_experiment_or_hint(path: str) -> Experiment:
+    """``load_experiment``, but turn the name-vs-path mistake into a hint (#57).
+
+    ``run``/``retry`` tick the DAG, so they import the experiment module and take
+    a *file*; the read verbs (``status``/``results``/``cancel``/…) address the
+    store by *name*. Typing a name here otherwise dies in an unhandled
+    ``ImportError`` — instead, if the argument is a known experiment name, say so.
+    """
+    if not Path(path).is_file():
+        hint = ''
+        if path in _known_names():
+            hint = (
+                f'\n  {path!r} is an experiment name — status/results/cancel take names; '
+                'run/retry take the experiment file (e.g. docs/acts/experiment.py)'
+            )
+        raise SystemExit(f'no experiment file at {path!r}{hint}')
+    return load_experiment(path)
 
 
 def _no_tasks(name: str, args: argparse.Namespace, extra: str = '') -> SystemExit:
@@ -240,7 +268,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     With ``--watch``, instead drive the DAG to completion with a live progress
     bar; Ctrl-C stops watching (detached workers live on — re-run to resume).
     """
-    exp = load_experiment(args.path)
+    exp = _load_experiment_or_hint(args.path)
     apparatus = _build_apparatus(exp.name, args)
     _remember_app(exp.name, args)
     _run(exp, apparatus, args)
@@ -255,7 +283,7 @@ def cmd_retry(args: argparse.Namespace) -> None:
     stale.) Fresh DONE tasks stay memo hits — to re-run one, edit its fn or bump
     ``version=``.
     """
-    exp = load_experiment(args.path)
+    exp = _load_experiment_or_hint(args.path)
     apparatus = _build_apparatus(exp.name, args)
     _remember_app(exp.name, args)
     reset = retry(apparatus.memo_store(), key=args.key)
@@ -316,11 +344,11 @@ def _watch(exp, apparatus: Apparatus, poll: float, keep_stale: bool = False) -> 
 
 
 def cmd_ls(args: argparse.Namespace) -> None:
-    root = data_root()
-    names = sorted(p.name for p in root.glob('*') if (p / '.control' / 'memo').is_dir()) if root.exists() else []
+    names = _known_names()
     if not names:
         print('no experiments yet (run one with: python -m mini run <path>)')
         return
+    root = data_root()
     for name in names:
         store = MemoStore(root / name)
         current, stale = store.split_current(store.records())
@@ -521,7 +549,11 @@ def main() -> None:
         )
 
     def _add_run_flags(p: argparse.ArgumentParser) -> None:
-        p.add_argument('path')
+        p.add_argument(
+            'path',
+            help='the experiment file to tick, e.g. docs/acts/experiment.py '
+            '(run/retry take a file; status/results/cancel take a NAME)',
+        )
         p.add_argument('-w', '--watch', action='store_true', help='drive to completion with a live progress bar')
         p.add_argument('--poll', type=float, default=0.5, help='seconds between record polls while watching')
         _add_app_flag(p)
