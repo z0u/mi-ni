@@ -29,6 +29,7 @@ from mini.memo import MemoStore
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
 from mini.runs import data_root, spawn_taskworker
+from mini.store import Store, project_store, store_context, store_for, store_root_for
 from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
@@ -119,6 +120,10 @@ class LocalApparatus(Apparatus[LocalVolume]):
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())
         # Target ~10 emissions/sec overall: interval = max_workers / target_rate_hz
         emission_interval = self.max_workers / 10.0
+        # Project-scoped artifact store, so a mapped fn's put/get resolves the ambient
+        # store on the interactive path too (not only the detached memo worker). Built
+        # caller-side and closed over: local execution is in-process threads.
+        store = store_for(store_root_for(self._volume.path)) if self._volume is not None else project_store()
         local_fn = _wrap_for_local(
             fn,
             self._before_hooks,
@@ -127,6 +132,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
             kwargs=kwargs or {},
             emission_interval=emission_interval,
             data_dir=self._volume.path if self._volume is not None else None,
+            store=store,
         )
 
         loop = asyncio.get_running_loop()
@@ -178,10 +184,16 @@ def _wrap_for_local(
     kwargs: dict[str, Any],
     emission_interval: float,
     data_dir: Path | None,
+    store: Store | None,
 ) -> Callable[..., R]:
     def run_one(index: int, *args) -> R:
         dir_ctx = data_dir_context(path=data_dir) if data_dir is not None else nullcontext()
-        with progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval), dir_ctx:
+        store_ctx = store_context(store) if store is not None else nullcontext()
+        with (
+            progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval),
+            dir_ctx,
+            store_ctx,
+        ):
             for hook in reversed(hooks):
                 hook()
             result = fn(*args, **kwargs)
