@@ -23,9 +23,10 @@ keys invalidate.
   runs away.
 - Drive recovery with `bin/mini retry <exp>` (scope with `--key` where you can).
 - Poll with `status`/`logs`; never re-run just to check progress.
-- For a remote run, thread `--app <backend>` (e.g. `--app modal`) through
-  **every** command — tick verbs (`retry`/`cancel`) and read verbs
-  (`status`/`logs`) alike, or a read hits the wrong (local) control plane.
+- For a remote run, pass `--app <backend>` (e.g. `--app modal`) whenever you
+  were told the backend; without it, verbs follow the launch marker
+  (`.mini/<name>/.app`), then `$MINI_APP` / `[tool.mini] app`. An empty read on
+  the wrong backend hints at the right flag — follow it.
 - Watch cost: a re-run after a shared-helper edit can relaunch a large set, and
   cancelling is cheap while a forgotten detached GPU run is not. Honor any budget
   the caller gave; if a recovery's blast radius looks large, confirm before

@@ -11,21 +11,8 @@ readable cold without re-deriving code state.
 
 ## Backlog, grouped by what a single dev session should bundle
 
-**Quick wins.** #39 and #36 shipped (PR #51); these two remain. Both touch
-`src/mini/__main__.py`, so do them sequentially (or in one branch), not as
-parallel agents:
-
-- #19 — surface "queued, never started" distinctly from "running" (the
-  `state==RUNNING` + no `env` signal already exists, just isn't surfaced in
-  `status`/`watch`). Diagnostic only.
-- #47 — remember (or default) which backend an experiment is running on.
-  `--app` silently defaults to `local` on every subcommand, so `run --app modal`
-  then `status` (no flag) reads the wrong store and prints a bare "no
-  tasks found" with no hint. Confirmed footgun, no mitigation today.
-  Sketch from the last session: option B (a `.mini/<name>/.app` marker written
-  at launch, `--app` argparse default changed to `None` so the marker can fill
-  it) plus option A (on an empty read, peek at the other backend and hint) —
-  see the issue body for the full option analysis.
+**Quick wins.** All shipped: #39 and #36 (PR #51), #19 (queued ≠ running,
+PR #54), #47 (per-experiment backend memory for `--app`).
 
 **Storage/control-plane design — read together, ship independently (maybe).**
 These stem from the same list in `research/design.md`:

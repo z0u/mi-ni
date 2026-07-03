@@ -14,10 +14,13 @@ budget**, then reports. Depth lives in
 
 - Operate **only** on the experiment name you were given. Never launch, retry,
   or cancel any *other* experiment — even to "help" or to clean up.
-- For a remote run, thread `--app <backend>` (e.g. `--app modal`) through
-  **every** command — the tick verbs (`run` / `retry` / `cancel`) and the read
-  verbs (`status` / `results` / `logs`) alike. A read without it silently hits
-  the wrong (local) control plane and looks empty.
+- For a remote run, pass `--app <backend>` (e.g. `--app modal`) whenever you
+  were told the backend. Without the flag, every verb follows the backend the
+  experiment launched on *in this checkout* (`.mini/<name>/.app`), then
+  `$MINI_APP` / `[tool.mini] app` — but a fresh clone has no marker, and a read
+  that resolves to the wrong backend looks empty. Such a read prints a hint
+  naming the right flag (`found N task(s) on modal — try: --app modal`);
+  follow it.
 
 ## Tick vs. read (cost rule)
 

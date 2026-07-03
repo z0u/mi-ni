@@ -11,6 +11,7 @@ durable results and renders them.
 
     # one data-prep run, then nine training runs, fanned out across L4s:
     bin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9
+    bin/mini status gpt-sweep    # no --app needed — the launch backend sticks
 
 The hardware is bound by role (see ``roles`` below): ``prep`` runs CPU-only, ``train``
 on L4s — so ``main`` names labels, not GPUs. Re-run to advance/resume — done cells are memo hits, so a crash heals by re-running

@@ -24,6 +24,18 @@ returns at once. To follow a run with a live bar *without* driving it, use the
 read-only `mini watch <name>` (renders a run another process launched — e.g. a
 detached/Modal run — and never `tick`s).
 
+**The backend sticks.** `run --app modal` stamps the launch backend into
+`.mini/<name>/.app`, and every later verb without `--app` follows it — launch
+with the flag once, then plain `status`/`watch`/`results`/`retry` hit the right
+control plane (to move a run's home, pass `--app` again; the marker updates).
+The marker is per-checkout (`.mini/` is untracked), so a fresh clone — CI, a
+scheduled monitor's new environment — has no memory: set `MINI_APP=modal` in
+the environment, or commit `app = "modal"` under `[tool.mini]` in
+`pyproject.toml`, to make the default travel (precedence: flag > marker > env >
+pyproject > local). Either way, a read that lands on an empty backend is not a
+dead end: it peeks at the other one and names the flag — `no tasks found for
+'pipeline' on local — found 3 task(s) on modal — try: --app modal`.
+
 ## The wake-loop
 
 A capped session can't babysit a long run, so work in **wakes** — each verb is a
