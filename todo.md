@@ -3,8 +3,13 @@
 Scratchpad for deferred work that isn't worth a tracking issue yet. When something
 here grows real, promote it to a GitHub issue and remove it from this list.
 
-Right now this file is empty of scratch items — everything below is the
-prioritized index into GitHub issues. Durable design rationale and recorded
+- Regenerate `uv.lock` for the `modal[api-proxy-support]` extra (#36): the CCC
+  session that added it couldn't run `uv lock` (its egress policy blocks the
+  Python 3.14 download, so no interpreter ≥3.14 was available). Plain `uv sync`
+  re-locks transparently, so CI and local checkouts still work — but the
+  committed lock is stale until someone runs `uv lock` and commits the result.
+
+Everything below is the prioritized index into GitHub issues. Durable design rationale and recorded
 decisions live in [`research/design.md`](./research/design.md); each open issue
 also carries a grounding comment with current file:line refs, so it should be
 readable cold without re-deriving code state.
