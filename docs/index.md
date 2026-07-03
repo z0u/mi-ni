@@ -8,6 +8,7 @@ mi-ni is a template repository and library for doing AI research. Features:
 
 - **Local Python notebooks** with Marimo, published to GitHub Pages with their figures served from a Hugging Face bucket
 - **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
+- **Detached, memoized experiments** driven from a stateless CLI, so you (or an agent) can launch a run, close the laptop, and pick it up later
 - **Agentic coding config** for Claude Code
 
 Compute abstraction pattern:
@@ -27,14 +28,25 @@ app.volume.download(...)
 
 Notebooks are automatically published to GitHub Pages; their figures and other heavy assets are served from a Hugging Face bucket (repointed at build time with one `<base>` tag).
 
-Index:
+The notebooks build on each other, so they read well in order.
 
 <!-- These URLs are rewritten to point to the published notebooks -->
 
-- [Getting started](./getting_started.py)
-- [Pipeline: a memoized, multi-step experiment](./pipeline/report.py)
-- [Probe: reusing another experiment's artifacts via the shared store](./probe/report.py)
-- [Themed (light/dark) plots](./themed.py)
-- [Sparkline text annotations](./subline_demo.py)
-- [nanoGPT and nGPT demo](./gpt.py)
-- [Sweep over GPT architectures (LayerNorm vs. hypersphere)](./gpt-sweep/report.py)
+### Start here
+
+- [Getting started](./getting_started.py): map a function over a sweep from a notebook, and swap local ↔ Modal compute without changing the code.
+
+### The detached, memoized flow
+
+- [Pipeline](./pipeline/report.py): a multi-step experiment driven by the CLI — a prep step feeds a training sweep, and the report reads the durable results back.
+- [Probe](./probe/report.py): reuses activations that a separate experiment ([acts](./acts/experiment.py)) shared through the content-addressed artifact store, by name.
+
+### A case study at scale
+
+- [Sweep over GPT architectures](./gpt-sweep/report.py): LayerNorm vs. hypersphere (nGPT) across learning rates. Adds hyperparameter schedules, role-based hardware routing, and artifacts published by name.
+- [nanoGPT and nGPT, interactively](./gpt.py): the same models trained inline in one notebook (source only; it re-trains on every run).
+
+### Visualization utilities
+
+- [Themed (light/dark) plots](./themed.py): the `@themed` decorator that every report above uses for dual-mode figures.
+- [Sparkline text annotations](./subline_demo.py): per-token annotations with the sibling `subline` library.
