@@ -27,8 +27,10 @@ These stem from the same list in `research/design.md`:
   citable versioned publish via a dataset repo). Independent of #37; only
   matters once the template is used for work that shouldn't be world-readable
   by default.
-- #46 — fence mutable-name writes (`set_ref`/`publish`/`get_data_dir()`)
-  against stale workers.
+- #46 — fence mutable-name writes against stale workers. The `set_ref`/`publish`
+  half is done (gen-fenced ambient store in the worker; `StaleWriteError`); the
+  `get_data_dir()` half stays open only insofar as #37's shared volume would
+  make it cross-experiment.
 
 **Sequence after the above:**
 

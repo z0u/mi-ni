@@ -58,6 +58,7 @@ from typing import Iterator, Literal
 
 __all__ = [
     'Artifact',
+    'StaleWriteError',
     'Store',
     'LocalStore',
     'get_store',
@@ -81,6 +82,17 @@ STORE_BUCKET_ENV = 'MINI_STORE_BUCKET'
 _CHUNK = 1 << 20  # 1 MiB streaming-hash chunk
 
 log = logging.getLogger(__name__)
+
+
+class StaleWriteError(RuntimeError):
+    """A superseded attempt tried a mutable-name write (``set_ref`` / ``publish``).
+
+    Raised inside a step whose attempt generation is no longer current — the task
+    was relaunched or cancelled while this worker ran. CAS blobs are immune
+    (write-once-by-hash), but a name write from a stale worker would silently
+    last-writer-win its successor's, so the worker is stopped loudly instead. See
+    the fence in :func:`mini._taskworker.execute_task`.
+    """
 
 
 # ---------------------------------------------------------------------------

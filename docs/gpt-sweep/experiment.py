@@ -136,7 +136,8 @@ def publish_curves(results: list[tuple]) -> str:
     resolve against it (the HF bucket when configured — the token rides in on the
     worker's Secret). The report then reads the curves by name, so the data lives in
     the durable store rather than a ``results.json`` in Git. Idempotent: ``put`` is
-    content-addressed and ``set_ref`` is last-writer-wins.
+    content-addressed, and ``set_ref`` is fenced on the attempt generation — only
+    the current attempt can move the name; a stale relaunch fails loudly instead.
     """
     import json
 

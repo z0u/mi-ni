@@ -4,7 +4,7 @@ Two writers can share a record: a second ticker racing the first to launch, a
 reaper racing a worker's final write, or a stale worker (superseded relaunch, or
 cancelled but surviving SIGTERM) racing its successor. The generation stamp on
 attempts plus the locked local record store keep every such race from corrupting
-the record or the result.
+the record, the result, or a mutable name in the artifact store.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from mini._taskworker import execute_task
 from mini.local_apparatus import LocalApparatus
 from mini.memo import LocalRecordStore, MemoStore, task_key_parts
 from mini.runs import RunState
+from mini.store import LocalStore
 
 
 def _claim(store: MemoStore, fn, args=(1,)) -> tuple[str, str]:
@@ -102,6 +103,75 @@ def test_cancel_releases_the_generation(tmp_path: Path):
 
     assert store.update_if(key, gen, state=RunState.DONE) is False  # the survivor is fenced
     assert store.record(key)['state'] == RunState.CANCELLED
+
+
+def test_stale_worker_cannot_move_a_ref(tmp_path: Path):
+    """A worker superseded mid-run that tries ``set_ref`` fails loudly with
+    ``StaleWriteError`` — the name never moves, and the successor's write is the
+    one that resolves (issue #46: refs were the last unfenced write path)."""
+    from mini.store import put, set_ref
+
+    store = MemoStore(tmp_path / 'refs')
+    artifacts = LocalStore(tmp_path / 'store')
+    taken: dict[str, str] = {}
+
+    def sneaky(x):
+        _, taken['gen'] = _claim(store, sneaky)  # superseded mid-run
+        set_ref('best', put(b'stale', name='model.bin'))
+
+    key, old = _claim(store, sneaky)
+    execute_task(store, key, sneaky, (1,), [], artifacts=artifacts, gen=old)
+    assert artifacts.get_ref('best') is None  # the name never moved
+    assert store.record(key)['state'] == RunState.RUNNING  # FAILED fenced out too
+    assert 'StaleWriteError' in store.error_path(key, old).read_text()
+
+    def fresh(x):
+        set_ref('best', put(b'fresh', name='model.bin'))
+        return 'ok'
+
+    execute_task(store, key, fresh, (1,), [], artifacts=artifacts, gen=taken['gen'])
+    art = artifacts.get_ref('best')
+    assert art is not None
+    assert artifacts.get(art, tmp_path / 'out.bin').read_bytes() == b'fresh'
+
+
+def test_stale_worker_cannot_publish(tmp_path: Path):
+    """``publish`` is fenced like ``set_ref``: a superseded attempt cannot
+    last-writer-win a published path."""
+    from mini.store import publish, put
+
+    store = MemoStore(tmp_path / 'pub')
+    artifacts = LocalStore(tmp_path / 'store')
+
+    def sneaky(x):
+        _claim(store, sneaky)  # superseded mid-run
+        publish(put(b'stale', name='fig.png'), 'reports/fig.png')
+
+    key, old = _claim(store, sneaky)
+    execute_task(store, key, sneaky, (1,), [], artifacts=artifacts, gen=old)
+    assert not (tmp_path / 'store' / 'published' / 'reports' / 'fig.png').exists()
+    assert 'StaleWriteError' in store.error_path(key, old).read_text()
+
+
+def test_current_worker_name_writes_land(tmp_path: Path):
+    """The fence has no false positives: the attempt that owns the record can
+    ``set_ref`` and ``publish`` normally."""
+    from mini.store import publish, put, set_ref
+
+    store = MemoStore(tmp_path / 'ok')
+    artifacts = LocalStore(tmp_path / 'store')
+
+    def task(x):
+        art = put(b'good', name='model.bin')
+        set_ref('best', art)
+        return publish(art, 'reports/model.bin')
+
+    key, gen = _claim(store, task)
+    execute_task(store, key, task, (1,), [], artifacts=artifacts, gen=gen)
+    assert store.record(key)['state'] == RunState.DONE
+    assert artifacts.get_ref('best') is not None
+    assert store.result(key).startswith('file://')  # publish's URL came back as the result
+    assert (tmp_path / 'store' / 'published' / 'reports' / 'model.bin').read_bytes() == b'good'
 
 
 def test_concurrent_merges_do_not_drop_fields(tmp_path: Path):
