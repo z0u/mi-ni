@@ -150,6 +150,27 @@ class ModalRecordStore(RecordStore):
         except KeyError:
             pass
 
+    def write_if(self, key: str, record: dict[str, Any], gen: str | None) -> bool:
+        """Gen-fenced write; the *first claim of a fresh key* is exact on Modal.
+
+        ``modal.Dict`` has no compare-and-swap, but it does have insert-if-absent
+        (``put(..., skip_if_exists=True)``) — which is exactly the shape of the
+        double-spawn race two tickers run when they both classify a never-run key
+        as launchable (``gen=None``, no record). Claiming through it makes that
+        race lose atomically. The other transitions — re-claiming a reset record
+        (present but unclaimed) or superseding gen *x* — have no matching
+        primitive, so they stay read-check-write with a tiny window.
+        """
+        if gen is None and (put := getattr(self._d, 'put', None)) is not None:
+            if put(key, record, skip_if_exists=True):
+                return True
+            cur = self.read(key)
+            if cur is None or cur.get('gen') is not None:
+                return False  # claimed (or deleted and re-claimed) in between — lose
+            # Present but unclaimed (a reset record awaiting re-run): the insert
+            # can't take it, so fall through to the read-check-write path below.
+        return super().write_if(key, record, gen)
+
 
 class ModalMemoStore(MemoStore):
     """A ``MemoStore`` whose records live in a ``modal.Dict`` and whose results

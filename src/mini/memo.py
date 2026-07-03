@@ -380,8 +380,10 @@ class RecordStore(ABC):
     # Conditional writes, fenced on the record's attempt generation (``gen``).
     # These defaults are read-check-write — atomic only if the backend makes them
     # so (``LocalRecordStore`` overrides under a file lock; ``modal.Dict`` has no
-    # compare-and-swap, so on Modal the fence is best-effort with a tiny window —
-    # still a vast improvement over unconditional last-writer-wins).
+    # compare-and-swap, so on Modal only the fresh-key claim is exact — via
+    # insert-if-absent, see ``ModalRecordStore.write_if`` — and the rest is
+    # best-effort with a tiny window — still a vast improvement over
+    # unconditional last-writer-wins).
 
     def write_if(self, key: str, record: dict[str, Any], gen: str | None) -> bool:
         """Replace the record iff its current ``gen`` equals *gen* (``None`` = unclaimed)."""

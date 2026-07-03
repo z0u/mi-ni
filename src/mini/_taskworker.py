@@ -23,7 +23,7 @@ from mini._queues import EndOfQueue
 from mini.memo import MemoStore
 from mini.progress import progress_context
 from mini.runs import RunState, compute_env
-from mini.store import Store, store_context, store_for, store_root_for
+from mini.store import Artifact, StaleWriteError, Store, store_context, store_for, store_root_for
 from mini.volume import data_dir_context
 
 
@@ -65,6 +65,73 @@ class _MemoSink:
         return True
 
 
+class _FencedStore(Store):
+    """The ambient store for one attempt, with mutable-name writes gen-fenced.
+
+    Record writes and results are already fenced on the attempt generation, but
+    ``set_ref`` / ``publish`` mutate *names* in the artifact store — unfenced,
+    a stale worker's name write would silently last-writer-win its successor's
+    (CAS blobs are immune, so everything else passes straight through). The name
+    lives in a different backend than the record (files/HF vs the record store),
+    so the fence is check → write → re-check rather than atomic: a supersession
+    landing *during* the write can't be prevented, but the re-check turns it from
+    silent corruption into a loud :class:`~mini.store.StaleWriteError` — and the
+    successor's own completing write then heals the name.
+    """
+
+    def __init__(self, inner: Store, memo: MemoStore, key: str, gen: str):
+        self._inner, self._memo, self._key, self._gen = inner, memo, key, gen
+
+    def _fence(self, verb: str, after: bool = False) -> None:
+        if self._memo.record(self._key).get('gen') != self._gen:
+            raise StaleWriteError(
+                f'{verb}: attempt {self._gen} of task {self._key} was superseded (relaunched or cancelled)'
+                + (" during the write — the name may briefly hold this attempt's value" if after else '')
+            )
+
+    # Fenced mutable-name verbs — everything else passes through untouched.
+
+    def set_ref(self, name: str, art: Artifact) -> None:
+        self._fence(f'set_ref({name!r})')
+        self._inner.set_ref(name, art)
+        self._fence(f'set_ref({name!r})', after=True)
+
+    def publish(self, art: Artifact, path: str) -> str:
+        self._fence(f'publish({path!r})')
+        url = self._inner.publish(art, path)
+        self._fence(f'publish({path!r})', after=True)
+        return url
+
+    def _write_ref(self, name: str, payload: str) -> None:
+        self._fence(f'set_ref({name!r})')
+        self._inner._write_ref(name, payload)
+        self._fence(f'set_ref({name!r})', after=True)
+
+    # Pass-throughs: forward the public verbs (not the shared high-level logic)
+    # so a backend's own overrides — HF batching, cache warming — stay in play.
+
+    def put(self, data: bytes | Path, *, name: str) -> Artifact:
+        return self._inner.put(data, name=name)
+
+    def get(self, art: Artifact, dest: Path) -> Path:
+        return self._inner.get(art, dest)
+
+    def get_ref(self, name: str) -> Artifact | None:
+        return self._inner.get_ref(name)
+
+    def has(self, sha256: str) -> bool:
+        return self._inner.has(sha256)
+
+    def _write_blob(self, sha256: str, src: Path) -> None:
+        self._inner._write_blob(sha256, src)
+
+    def _read_blob(self, sha256: str, dest: Path) -> None:
+        self._inner._read_blob(sha256, dest)
+
+    def _read_ref(self, name: str) -> str | None:
+        return self._inner._read_ref(name)
+
+
 def execute_task(
     store: MemoStore,
     key: str,
@@ -95,7 +162,9 @@ def execute_task(
     for ``mini.store.put`` / ``get`` inside the step. Because ``put`` uploads
     synchronously, by the time the result is written its handles already resolve —
     so the existing write → commit → DONE order extends from "the volume flushed"
-    to "the referenced blobs are durable" for free.
+    to "the referenced blobs are durable" for free. Its mutable-name verbs
+    (``set_ref`` / ``publish``) are fenced on *gen* via :class:`_FencedStore`, so
+    a stale worker fails loudly instead of clobbering a name its successor owns.
     """
 
     def record(**fields: Any) -> bool:
@@ -107,6 +176,8 @@ def execute_task(
     result_dir = store.result_dir(key)
     result_dir.mkdir(parents=True, exist_ok=True)
     sink = _MemoSink(store, key, gen)
+    if artifacts is not None and gen is not None:
+        artifacts = _FencedStore(artifacts, store, key, gen)
     # Record what we actually ran on (host/GPU/…), captured here in the worker.
     if not record(state=RunState.RUNNING, heartbeat_at=time.time(), env=compute_env()):
         return  # superseded before we even started — nothing here is wanted anymore

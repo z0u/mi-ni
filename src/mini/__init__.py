@@ -5,7 +5,7 @@ from mini.modal_apparatus import ModalApparatus
 from mini.experiment import Experiment, load_experiment
 from mini.orchestration import MISSING, Ctx, MemoError, Pending, TaskFailed, tick
 from mini.runs import RunState
-from mini.store import Artifact, LocalStore, Store, store_context
+from mini.store import Artifact, LocalStore, StaleWriteError, Store, store_context
 from mini.volume import get_data_dir
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     'emit_metrics',
     'get_data_dir',
     'Artifact',
+    'StaleWriteError',
     'Store',
     'LocalStore',
     'store_context',

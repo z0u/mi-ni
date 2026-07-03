@@ -69,6 +69,20 @@ local = get(art, get_data_dir() / 'acts-in')
 
 See `docs/acts` (producer) and `docs/probe` (consumer) for a runnable pair.
 
+Inside a step, ref writes are **fenced on the attempt generation**: if the task
+was relaunched or cancelled while the worker ran, `set_ref`/`publish` raise
+`StaleWriteError` instead of silently overwriting the successor's name (blobs
+are immune — content-addressed writes are idempotent). Two consequences worth
+knowing:
+
+- A `StaleWriteError` in a task's traceback means the attempt was superseded —
+  nothing is wrong with the code; the current attempt owns the name.
+- A step's `set_ref` is a side effect, so it does **not** replay on a memo hit.
+  For final hand-offs, prefer returning the `Artifact` from the step and calling
+  `set_ref`/`publish` in the driver (`main`), which runs every time. In-step
+  refs are for incremental publication (e.g. best-checkpoint-so-far) — that's
+  what the fence makes safe.
+
 ## Choosing the backend (local vs. Hugging Face bucket)
 
 The backend is configuration, not code — nothing in an experiment or report

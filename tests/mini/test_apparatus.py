@@ -390,3 +390,36 @@ def test_modal_record_store_contract():
     store.write('k', {'key': 'k', 'state': 'running'})  # write resets wholesale
     assert store.read('k') == {'key': 'k', 'state': 'running'}
     assert store.keys() == ['k']
+
+
+class _FakeModalDict(dict):
+    """A dict with ``modal.Dict``'s insert-if-absent verb (`put(skip_if_exists=)`)."""
+
+    def put(self, key, value, *, skip_if_exists: bool = False) -> bool:
+        if skip_if_exists and key in self:
+            return False
+        self[key] = value
+        return True
+
+
+def test_modal_write_if_claims_fresh_key_via_insert_if_absent():
+    """The double-spawn race on a never-run key resolves atomically: the claim
+    goes through ``put(skip_if_exists=True)``, so the second ticker loses even
+    with no compare-and-swap."""
+    from mini.modal_apparatus import ModalRecordStore
+
+    store = ModalRecordStore(_FakeModalDict())
+    assert store.write_if('k', {'key': 'k', 'gen': 'a'}, None) is True
+    assert store.write_if('k', {'key': 'k', 'gen': 'b'}, None) is False  # already claimed
+    assert store.read('k') == {'key': 'k', 'gen': 'a'}
+
+
+def test_modal_write_if_reclaims_reset_record():
+    """A reset record (present but unclaimed) defeats insert-if-absent, so the
+    claim falls through to read-check-write — and still lands."""
+    from mini.modal_apparatus import ModalRecordStore
+
+    store = ModalRecordStore(_FakeModalDict({'k': {'key': 'k', 'state': None}}))
+    assert store.write_if('k', {'key': 'k', 'gen': 'a'}, None) is True
+    assert store.write_if('k', {'key': 'k', 'gen': 'c'}, 'b') is False  # fenced: wrong gen
+    assert store.write_if('k', {'key': 'k', 'gen': 'c'}, 'a') is True  # supersede gen a
