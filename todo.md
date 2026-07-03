@@ -45,3 +45,6 @@ These stem from the same list in `research/design.md`:
 
 - #45 — docs rework. Touches `docs/`, `README.md`, `research/`, not `src/mini/`.
   Can run in parallel with anything.
+- #57 — CLI DevX: passing a name to `retry`/`run` dies with a raw traceback
+  (tick verbs take a file, read verbs a name). Tier 1 (friendly error + help
+  text on the `path` positional) is a quick win in `src/mini/__main__.py`.
