@@ -294,3 +294,26 @@ def test_retry_cli_heals_failed_task(tmp_path: Path, monkeypatch, capsys):
     cmd_retry(ns())  # resets the failed task, then the rerun (attempt 2) succeeds
     out = capsys.readouterr().out
     assert 'retrying 1 task' in out and '✓ complete' in out
+
+
+def test_run_with_a_name_instead_of_a_file_hints_at_the_split(tmp_path: Path, monkeypatch):
+    """``run``/``retry`` take a *file*; the read verbs take a *name*. Typing a
+    known experiment name here must not die in a raw ``ImportError`` — it should
+    name the mistake and point at the verbs that take names (#57)."""
+    monkeypatch.chdir(tmp_path)  # no project marker under /tmp → store resolves under cwd
+    _drive(Experiment(name='stale-probe', main=lambda ctx: ctx.map(lambda x: x, [1])), LocalApparatus('stale-probe'))
+
+    from mini.__main__ import cmd_retry
+
+    def ns(path: str) -> argparse.Namespace:
+        return argparse.Namespace(path=path, watch=False, poll=0.05, app='local', workers=1, key=None)
+
+    with pytest.raises(SystemExit) as e:  # the name of a real experiment, at a file-taking verb
+        cmd_retry(ns('stale-probe'))
+    assert "'stale-probe' is an experiment name" in str(e.value)
+    assert 'status/results/cancel take names' in str(e.value)
+
+    with pytest.raises(SystemExit) as e:  # an unknown token → the plain missing-file error, no name hint
+        cmd_retry(ns('nope'))
+    assert "no experiment file at 'nope'" in str(e.value)
+    assert 'experiment name' not in str(e.value)
