@@ -14,23 +14,16 @@ readable cold without re-deriving code state.
 **Quick wins.** All shipped: #39 and #36 (PR #51), #19 (queued ≠ running,
 PR #54), #47 (per-experiment backend memory for `--app`).
 
-**Storage/control-plane design — read together, ship independently (maybe).**
-These stem from the same list in `research/design.md`:
+**Storage/control-plane design.** These stem from the same list in
+`research/design.md`:
 
-- #37 — implicit cross-experiment memo dedup. Bigger of the two: requires
-  tag-scoping the whole control plane (`cancel`/`retry`/budget/`__run__`
-  metadata) so a shared store doesn't let one experiment's teardown hit
-  another's in-flight tasks. Read alongside #46 — a shared working volume
-  (#37's optional sub-goal) reintroduces the same mutable-name hazard #46
-  describes, at cross-experiment scope.
 - #38 — publish-tier hardening (private-CAS/public-publish bucket split;
-  citable versioned publish via a dataset repo). Independent of #37; only
-  matters once the template is used for work that shouldn't be world-readable
-  by default.
-- #46 — fence mutable-name writes against stale workers. The `set_ref`/`publish`
-  half is done (gen-fenced ambient store in the worker; `StaleWriteError`); the
-  `get_data_dir()` half stays open only insofar as #37's shared volume would
-  make it cross-experiment.
+  citable versioned publish via a dataset repo). Only matters once the template
+  is used for work that shouldn't be world-readable by default.
+- Settled: #46 shipped (gen-fenced `set_ref`/`publish` + `StaleWriteError`,
+  PR #56). #37 (implicit cross-experiment dedup + shared working volume) closed
+  as not planned — the explicit ref path covers reuse; reopen only if
+  identical-prep recompute becomes a real recurring cost.
 
 **Sequence after the above:**
 
@@ -38,8 +31,8 @@ These stem from the same list in `research/design.md`:
   local per-experiment control-plane + I/O-plane sweep shipped as `mini gc`
   (PR #49); Volumes confirmed to persist indefinitely (no Dict-style expiry;
   per-path `rm` exists), so the remaining legs are the Modal Volume sweep and
-  CAS refcounting — the latter's shape still depends on how #37 (shared
-  store?) and #38 (bucket split?) land.
+  CAS refcounting — the latter's shape depends only on how #38 (bucket split?)
+  lands, now that #37 is closed (no shared working store to anticipate).
 
 **Orthogonal, no code overlap with the above:**
 
