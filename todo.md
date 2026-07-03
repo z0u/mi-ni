@@ -25,13 +25,12 @@ Each is a one- or two-file change with no interaction between them:
   Worth prioritizing disproportionately: it's blocking Claude's own ability to
   diagnose Modal jobs, i.e. it pays back in every future session.
 - #47 — remember (or default) which backend an experiment is running on.
-  `--app` silently defaults to `local` on every subcommand, so `run --app
-  modal` then `status` (no flag) reads the wrong store and prints a bare "no
+  `--app` silently defaults to `local` on every subcommand, so `run --app modal`
+  then `status` (no flag) reads the wrong store and prints a bare "no
   tasks found" with no hint. Confirmed footgun, no mitigation today.
 
-**Storage/control-plane design — read together, ship independently.**
-Both stem from the same "Open / deferred" list in `research/design.md` and both
-are explicitly conditional (do them when the pain is real, not preemptively):
+**Storage/control-plane design — read together, ship independently (maybe).**
+These stem from the same list in `research/design.md`:
 
 - #37 — implicit cross-experiment memo dedup. Bigger of the two: requires
   tag-scoping the whole control plane (`cancel`/`retry`/budget/`__run__`
@@ -44,9 +43,7 @@ are explicitly conditional (do them when the pain is real, not preemptively):
   matters once the template is used for work that shouldn't be world-readable
   by default.
 - #46 — fence mutable-name writes (`set_ref`/`publish`/`get_data_dir()`)
-  against stale workers. Deferred; the record/result half of this hazard class
-  is already fixed (#44). Low priority unless #37's shared-volume sub-goal
-  ships.
+  against stale workers.
 
 **Sequence after the above:**
 
