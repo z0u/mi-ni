@@ -11,8 +11,9 @@ contract change fails CI instead of silently rotting the onboarding examples.
 - **Interactive pattern:** drive an ``Apparatus`` directly (as a notebook does),
   fanning a sweep out with ``.map`` and reducing — no memo store, no CLI.
 
-The light demos (``pipeline``, ``role-demo``) run to completion; the GPU/Modal-heavy
-``gpt-sweep`` is only *loaded* (import + construct), which still catches rot cheaply.
+The light demos (``pipeline``, the ``acts``/``probe`` pair) run to completion; the
+GPU/Modal-heavy ``gpt-sweep`` is only *loaded* (import + construct), which still
+catches rot cheaply.
 """
 
 from __future__ import annotations
@@ -75,18 +76,6 @@ def test_pipeline_demo_runs_end_to_end(tmp_path: Path, monkeypatch: pytest.Monke
     assert len(payload['results']) == 3
     assert payload['best']['lr'] == 1e-2  # the toy loss bowl's minimum
     assert payload['meta']['vocab_size'] == payload['results'][0].get('vocab', payload['meta']['vocab_size'])
-
-
-def test_role_demo_runs_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """The role-routing demo end to end: ``role=`` labels resolve through the
-    real ``Experiment.roles`` table. Locally both roles are no-ops (local ``.w``
-    ignores GPU knobs), so each step lands on 'cpu' — the point is that it *runs*."""
-    monkeypatch.chdir(tmp_path)
-
-    exp = load_experiment(REPO / 'docs/role-demo/experiment.py')
-    out = _drive(exp, LocalApparatus('role-demo'))
-
-    assert set(out) == {'probe', 'gpu'}  # both keys produced via distinct role-labelled steps
 
 
 def test_cross_experiment_artifact_reuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

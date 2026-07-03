@@ -6,6 +6,7 @@ mi-ni is a template repository and library for doing AI research. Features:
 
 - **Local Python notebooks** with Marimo, published to GitHub Pages
 - **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
+- **Detached, memoized experiments** driven from a stateless CLI, so you (or an agent) can launch a run, close the laptop, and pick it up later
 - **Agentic coding config** for Claude Code
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/z0u/mi-ni)
