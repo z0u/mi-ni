@@ -125,6 +125,12 @@ class ModalRecordStore(RecordStore):
     def keys(self) -> list[str]:
         return list(self._d.keys())
 
+    def delete(self, key: str) -> None:
+        try:
+            self._d.pop(key)
+        except KeyError:
+            pass
+
 
 class ModalMemoStore(MemoStore):
     """A ``MemoStore`` whose records live in a ``modal.Dict`` and whose results

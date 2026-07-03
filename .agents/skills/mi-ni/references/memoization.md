@@ -132,6 +132,14 @@ superseded records too (resetting one would plant a phantom that never runs);
 target one explicitly with `--key` if you really mean it. (Editing a fn's *body*
 no longer supersedes anything — the re-run lands on the same record.)
 
+Superseded records linger until reclaimed: `mini gc <name>` prints a sweep plan
+(superseded records with their result dirs, files from replaced attempts, stale
+staged calls) and `--apply` deletes it. It never touches a current record — a
+DONE result is a future memo hit, and deleting a FAILED one would silently turn
+a terminal failure into a relaunch — and it collects superseded records only
+once the last tick ran the DAG to completion with nothing left in flight.
+Local backend only for now (Modal Dict entries self-expire; see #15).
+
 ### Failure is terminal by design
 
 `FAILED` and `CANCELLED` are terminal *under the code that produced them*: a
