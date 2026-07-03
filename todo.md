@@ -11,23 +11,21 @@ readable cold without re-deriving code state.
 
 ## Backlog, grouped by what a single dev session should bundle
 
-**Quick wins — small, independent, safe to pick up in any order or together.**
-Each is a one- or two-file change with no interaction between them:
+**Quick wins.** #39 and #36 shipped (PR #51); these two remain. Both touch
+`src/mini/__main__.py`, so do them sequentially (or in one branch), not as
+parallel agents:
 
-- #39 — wire `mini.store` through the interactive `app.map`/`arun` path
-  (`store_context` is entered on the detached path but not `_wrap_for_local`/
-  `_wrap_for_modal`). Real bug, not just a gap.
 - #19 — surface "queued, never started" distinctly from "running" (the
   `state==RUNNING` + no `env` signal already exists, just isn't surfaced in
   `status`/`watch`). Diagnostic only.
-- #36 — TLS workaround for the `modal` CLI in Claude Code Cloud (same fix
-  already done for our Python code via `mini._tls`, needs the CLI equivalent).
-  Worth prioritizing disproportionately: it's blocking Claude's own ability to
-  diagnose Modal jobs, i.e. it pays back in every future session.
 - #47 — remember (or default) which backend an experiment is running on.
   `--app` silently defaults to `local` on every subcommand, so `run --app modal`
   then `status` (no flag) reads the wrong store and prints a bare "no
   tasks found" with no hint. Confirmed footgun, no mitigation today.
+  Sketch from the last session: option B (a `.mini/<name>/.app` marker written
+  at launch, `--app` argparse default changed to `None` so the marker can fill
+  it) plus option A (on an empty read, peek at the other backend and hint) —
+  see the issue body for the full option analysis.
 
 **Storage/control-plane design — read together, ship independently (maybe).**
 These stem from the same list in `research/design.md`:
