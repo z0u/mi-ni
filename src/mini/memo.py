@@ -373,6 +373,10 @@ class RecordStore(ABC):
     @abstractmethod
     def keys(self) -> list[str]: ...
 
+    @abstractmethod
+    def delete(self, key: str) -> None:
+        """Remove a record entirely (the GC verb) — a no-op if *key* is absent."""
+
     # Conditional writes, fenced on the record's attempt generation (``gen``).
     # These defaults are read-check-write — atomic only if the backend makes them
     # so (``LocalRecordStore`` overrides under a file lock; ``modal.Dict`` has no
@@ -444,6 +448,10 @@ class LocalRecordStore(RecordStore):
 
     def keys(self) -> list[str]:
         return sorted(p.stem for p in self.root.glob('*.json')) if self.root.exists() else []
+
+    def delete(self, key: str) -> None:
+        with self._locked():
+            (self.root / f'{key}.json').unlink(missing_ok=True)
 
 
 class MemoStore:

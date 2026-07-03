@@ -16,6 +16,7 @@ agent (or you) can drive, poll, and gather without holding a session open:
     python -m mini logs   pipeline <key>                       # a failed task's traceback
     python -m mini explain pipeline <key>                      # why this re-ran: evidence + attempt timeline
     python -m mini cancel pipeline                             # stop in-flight tasks
+    python -m mini gc     pipeline                             # plan a storage sweep (--apply to delete)
 
 State is addressed by experiment NAME (one memo store per experiment). Read
 commands take ``--app modal`` to inspect a run on the Modal control plane.
@@ -367,6 +368,64 @@ def cmd_explain(args: argparse.Namespace) -> None:
         print(line)
 
 
+def _human_size(n: float) -> str:
+    for unit in ('B', 'KB', 'MB'):
+        if n < 1024:
+            return f'{n:.0f} {unit}' if unit == 'B' else f'{n:.1f} {unit}'
+        n /= 1024
+    return f'{n:.1f} GB'
+
+
+_GC_LABEL = {
+    'superseded': 'superseded record(s)',
+    'attempt-files': 'task(s) with stale attempt files',
+    'orphan-dir': 'orphaned result dir(s)',
+    'staged-call': 'staged call(s) for tasks no longer running',
+}
+
+
+def cmd_gc(args: argparse.Namespace) -> None:
+    """Reclaim memo storage no current read path can reach. Dry run unless ``--apply``.
+
+    Collects superseded records (with their result dirs), unreachable attempt
+    files from replaced generations, orphaned result dirs, and staged calls for
+    settled tasks. Never touches a current record — a DONE result is a future
+    memo hit, and deleting a FAILED record would silently turn a terminal
+    failure into a relaunch.
+    """
+    if getattr(args, 'app', 'local') != 'local':
+        raise SystemExit(
+            'gc only supports --app local for now (#15): Modal Dict entries self-expire '
+            'after 7 days of inactivity, but Volume result dirs need a Volume-side sweep'
+        )
+    from mini.gc import apply_gc, plan_gc
+
+    apparatus = _build_apparatus(args.name, args)
+    store = apparatus.memo_store()
+    recs = store.records()
+    if not recs and not (store.data_dir / '_memo').is_dir():
+        raise SystemExit(f'no tasks found for experiment {args.name!r}')
+    apparatus.reap_dead(store, recs)  # a vanished worker's RUNNING record must not read as alive
+    plan = plan_gc(store, recs)
+
+    print(f'{args.name} — gc plan:')
+    for kind, label in _GC_LABEL.items():
+        if not (items := plan.by_kind(kind)):
+            continue
+        keys = ', '.join(i.key for i in items[:6]) + (f', +{len(items) - 6} more' if len(items) > 6 else '')
+        print(f'  {label}: {len(items)}  ({_human_size(sum(i.size for i in items))})  — {keys}')
+    for reason in plan.kept:
+        print(f'  kept: {reason}')
+    if not plan.items:
+        print('  nothing to collect')
+        return
+    if args.apply:
+        apply_gc(store, plan)
+        print(f'reclaimed {_human_size(plan.size)}')
+    else:
+        print(f'dry run — pass --apply to reclaim {_human_size(plan.size)}')
+
+
 def cmd_cancel(args: argparse.Namespace) -> None:
     apparatus = _build_apparatus(args.name, args)
     cancelled = apparatus.cancel(apparatus.memo_store())
@@ -456,6 +515,14 @@ def main() -> None:
     p.add_argument('name')
     _add_app_flag(p)
     p.set_defaults(func=cmd_cancel)
+
+    p = sub.add_parser(
+        'gc', help='reclaim stale memo storage (superseded records, replaced attempts) — dry run by default'
+    )
+    p.add_argument('name')
+    p.add_argument('--apply', action='store_true', help='actually delete (default: print the plan only)')
+    _add_app_flag(p)
+    p.set_defaults(func=cmd_gc)
 
     args = parser.parse_args()
     args.func(args)

@@ -328,8 +328,10 @@ def tick(experiment: Experiment, apparatus: Apparatus, keep_stale: bool = False)
     """
     store = apparatus.memo_store()
     ctx = Ctx(store, apparatus, experiment.resolve_roles(apparatus), keep_stale=keep_stale)
+    complete = False
     try:
         result = experiment.main(ctx)
+        complete = True
     except Pending as p:
         return False, str(p)
     finally:
@@ -340,10 +342,14 @@ def tick(experiment: Experiment, apparatus: Apparatus, keep_stale: bool = False)
         # wake requests them again — honest, since an upstream edit may have changed
         # what they'll ask for. ``kept_stale`` rides along so read-only views can
         # badge results served under old code (they can't fingerprint code
-        # themselves — reads never import or tick).
+        # themselves — reads never import or tick). ``complete`` records whether
+        # this manifest covers the *whole* DAG (``main`` ran to the end) — the
+        # gate ``mini gc`` needs before trusting "not requested" to mean
+        # "never requested again".
         store.set_meta(
             requested=list(dict.fromkeys(ctx.requested)),
             kept_stale=list(dict.fromkeys(ctx.stale_kept)),
+            complete=complete,
         )
     return True, result
 

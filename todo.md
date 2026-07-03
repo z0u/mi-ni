@@ -51,11 +51,11 @@ are explicitly conditional (do them when the pain is real, not preemptively):
 **Sequence after the above:**
 
 - #15 — GC across the control plane, I/O-plane volume dirs, and the CAS. The
-  CAS-refcounting shape depends on how #37 (shared store?) and #38 (bucket
-  split?) land, though the local per-experiment control-plane + I/O-plane sweep
-  could start independently now. Modal Dicts auto-expire after 7 days of
-  inactivity, which may take pressure off the control-plane leg specifically —
-  confirm Volume behavior isn't the same before assuming it needs GC too.
+  local per-experiment control-plane + I/O-plane sweep shipped as `mini gc`
+  (PR #49); Volumes confirmed to persist indefinitely (no Dict-style expiry;
+  per-path `rm` exists), so the remaining legs are the Modal Volume sweep and
+  CAS refcounting — the latter's shape still depends on how #37 (shared
+  store?) and #38 (bucket split?) land.
 
 **Orthogonal, no code overlap with the above:**
 
