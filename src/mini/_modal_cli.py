@@ -22,9 +22,7 @@ def main() -> None:
 
     modal_entry_points = [ep for ep in entry_points(group='console_scripts') if ep.name == 'modal']
     if not modal_entry_points:
-        raise RuntimeError(
-            "No 'modal' console-script entry point found — is the `modal` package installed?"
-        )
+        raise RuntimeError("No 'modal' console-script entry point found — is the `modal` package installed?")
     sys.exit(modal_entry_points[0].load()())
 
 
