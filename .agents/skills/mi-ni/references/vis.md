@@ -47,4 +47,4 @@ mo.Html(_plot())
 up in the asset filename and the saved-file name, and on a `data-asset-name` attribute
 for provenance. The publisher, the `asset_url` verb for arbitrary data blobs, and how
 the bundle reaches the web (the `<base>` switch + the relative-links rule) all live in
-[storage.md](./storage.md#report-bundles).
+[reports.md](./reports.md).

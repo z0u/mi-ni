@@ -22,9 +22,11 @@ src/mini/
 
 ## Authoring, running, monitoring
 
-- **Author** a memoized experiment — the `main(ctx)` DAG, repo layout, and cache-friendly design: [authoring.md](./references/authoring.md). Key internals in [memoization.md](./references/memoization.md).
-- **Run & monitor** one from the CLI — the wake-loop, recovery, hotfix safety, and how to delegate/schedule a long run: [running.md](./references/running.md).
-- **Store & share large outputs** — return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish artifacts to a URL: [storage.md](./references/storage.md). Externalizing a report's figures/assets for the web: [vis.md](./references/vis.md).
+- **Author** a memoized experiment — the `main(ctx)` DAG, repo layout, and cache-friendly design: [authoring.md](./references/authoring.md). The identity/evidence model behind caching: [memoization.md](./references/memoization.md).
+- **Run & monitor** one from the CLI — the wake-loop, backend routing, wall-clock budget, and how to delegate/schedule a long run: [running.md](./references/running.md).
+- **Fix & recover** — the fix/prune/retry loop, bounded hotfixes, superseded records, and partial `map` failures: [recovery.md](./references/recovery.md).
+- **Store & share large outputs** — return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish artifacts to a URL: [storage.md](./references/storage.md).
+- **Publish a report to the web** — externalize a report's figures and data into a bundle: [reports.md](./references/reports.md); the `themed` figure hook that feeds it: [vis.md](./references/vis.md).
 
 To keep cost down, delegate launching and babysitting to the `experiment-monitor` subagent (it escalates to `experiment-doctor`); see running.md.
 
@@ -38,4 +40,4 @@ To keep cost down, delegate launching and babysitting to the `experiment-monitor
 
 ## Visualization helpers
 
-`mini.vis` provides utilities for figure theming (base styles, light/dark support) and for externalizing a report's figures and data assets so the exported HTML stays light and publishes off Git LFS. See [vis.md](./references/vis.md).
+`mini.vis` provides utilities for figure theming (base styles, light/dark support). See [vis.md](./references/vis.md). Externalizing those figures and a report's data assets so the exported HTML stays light and publishes off Git LFS is a report concern: [reports.md](./references/reports.md).

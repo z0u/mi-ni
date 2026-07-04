@@ -76,6 +76,10 @@ relaunch them (a deterministic failure shouldn't busy-loop). Recover on purpose:
 *surprises* you, `bin/mini explain <exp> <key>` shows the key's evidence and
 diffs it against its sibling record (code vs. inputs, per-dependency).
 
+The full fix loop — the fix/prune/retry table, bounded hotfixes with
+`--keep-stale-done`, superseded records, and partial `map` failures — is in
+[recovery.md](./recovery.md); the safety rules below are the operational side of it.
+
 ### Hotfix safety (avoid double-spending)
 
 Editing a task fn makes every cell of it *stale*, so it re-runs (in place — keys
