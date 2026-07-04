@@ -16,7 +16,8 @@ agent (or you) can drive, poll, and gather without holding a session open:
     python -m mini logs   pipeline <key>                       # a failed task's traceback
     python -m mini explain pipeline <key>                      # why this re-ran: evidence + attempt timeline
     python -m mini cancel pipeline                             # stop in-flight tasks
-    python -m mini gc     pipeline                             # plan a storage sweep (--apply to delete)
+    python -m mini gc     pipeline                             # plan a memo-storage sweep (--apply to delete)
+    python -m mini gc     --store                              # plan an artifact-CAS sweep (--apply to delete)
 
 State is addressed by experiment NAME (one memo store per experiment). ``--app``
 picks the backend; when omitted, every verb follows the backend the experiment
@@ -34,6 +35,7 @@ from pathlib import Path
 
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment, load_experiment
+from mini.gc import GRACE_DEFAULT
 from mini.local_apparatus import LocalApparatus
 from mini.memo import META_KEY, MemoStore
 from mini.orchestration import BudgetExpired, TaskFailed, retry, tick
@@ -486,28 +488,32 @@ _GC_LABEL = {
 
 
 def cmd_gc(args: argparse.Namespace) -> None:
-    """Reclaim memo storage no current read path can reach. Dry run unless ``--apply``.
+    """Reclaim storage no current read path can reach. Dry run unless ``--apply``.
 
-    Collects superseded records (with their result dirs), unreachable attempt
-    files from replaced generations, orphaned result dirs, and staged calls for
-    settled tasks. Never touches a current record — a DONE result is a future
-    memo hit, and deleting a FAILED record would silently turn a terminal
-    failure into a relaunch.
+    Two scopes: ``mini gc <name>`` sweeps one experiment's memo state
+    (superseded records with their result dirs, replaced attempt files,
+    orphaned result dirs, staged calls) on whichever backend it ran on;
+    ``mini gc --store`` mark-and-sweeps the project artifact CAS. Neither
+    touches a current record — a DONE result is a future memo hit, and
+    deleting a FAILED record would silently turn a terminal failure into a
+    relaunch.
     """
-    if _resolve_app(args.name, args) != 'local':
-        raise SystemExit(
-            'gc only supports --app local for now (#15): Modal Dict entries self-expire '
-            'after 7 days of inactivity, but Volume result dirs need a Volume-side sweep'
-        )
+    if args.store and args.name:
+        raise SystemExit('pass an experiment name or --store, not both (the store sweep is project-wide)')
+    if args.store:
+        return _gc_store(args)
+    if not args.name:
+        raise SystemExit('pass an experiment name (memo sweep) or --store (artifact CAS sweep)')
     from mini.gc import apply_gc, plan_gc
 
     apparatus = _build_apparatus(args.name, args)
     store = apparatus.memo_store()
+    io = apparatus.gc_io(store)
     recs = store.records()
-    if not recs and not (store.data_dir / '_memo').is_dir():
-        raise SystemExit(f'no tasks found for experiment {args.name!r}')
+    if not recs and not io.memo_tree():
+        raise _no_tasks(args.name, args)
     apparatus.reap_dead(store, recs)  # a vanished worker's RUNNING record must not read as alive
-    plan = plan_gc(store, recs)
+    plan = plan_gc(store, recs, io)
 
     print(f'{args.name} — gc plan:')
     for kind, label in _GC_LABEL.items():
@@ -521,7 +527,60 @@ def cmd_gc(args: argparse.Namespace) -> None:
         print('  nothing to collect')
         return
     if args.apply:
-        apply_gc(store, plan)
+        apply_gc(store, plan, io)
+        print(f'reclaimed {_human_size(plan.size)}')
+    else:
+        print(f'dry run — pass --apply to reclaim {_human_size(plan.size)}')
+
+
+def _gc_store(args: argparse.Namespace) -> None:
+    """Mark-and-sweep the project artifact store (CAS). Dry run unless ``--apply``.
+
+    Fails closed: any in-flight task, unreadable result, or unreachable
+    backend aborts the sweep with nothing deleted. Unreferenced blobs younger
+    than ``--grace`` are kept — the window that protects writers this checkout
+    can't see (an unpushed colleague's records, a ``put`` that skipped its
+    upload just before the sweep).
+    """
+    from mini.gc import StoreGcError, apply_store_gc, collect_store_roots, plan_store_gc
+    from mini.local_apparatus import LocalApparatus
+    from mini.store import _hf_token, store_bucket, store_for
+
+    if store_bucket() and not _hf_token():
+        raise SystemExit(
+            f'store-bucket {store_bucket()!r} is configured but no Hugging Face token was found — '
+            'sweeping the local fallback store instead of the real CAS would be misleading. '
+            'Run ./go auth (or set HF_TOKEN) first.'
+        )
+    store = store_for(data_root() / 'store')
+    # Settle vanished local workers first, so a crashed run's RUNNING record
+    # doesn't block the sweep forever. Modal records are reaped by their own
+    # verbs (status/watch); a stale one here aborts with a pointer to those.
+    for name in sorted(p.name for p in data_root().glob('*') if (p / '.control' / 'memo').is_dir()):
+        memo = MemoStore(data_root() / name)
+        LocalApparatus(name).reap_dead(memo)
+    try:
+        roots, notes = collect_store_roots()
+    except StoreGcError as e:
+        raise SystemExit(f'store gc aborted (nothing deleted): {e}') from e
+    try:
+        plan = plan_store_gc(store, roots, grace=duration(args.grace))
+    except NotImplementedError as e:
+        raise SystemExit(f'the configured store ({type(store).__name__}) does not support gc') from e
+
+    print(f'artifact store ({type(store).__name__}) — gc plan:')
+    print(f'  {plan.total_blobs} blob(s), {_human_size(plan.total_size)} total; {plan.roots} reachable sha(s)')
+    print(f'  referenced: {plan.referenced}')
+    for note in notes + plan.notes:
+        print(f'  kept: {note}')
+    if not plan.unreferenced:
+        print('  nothing to collect')
+        return
+    sample = ', '.join(b.sha256[:12] for b in plan.unreferenced[:6])
+    more = f', +{len(plan.unreferenced) - 6} more' if len(plan.unreferenced) > 6 else ''
+    print(f'  unreferenced: {len(plan.unreferenced)}  ({_human_size(plan.size)})  — {sample}{more}')
+    if args.apply:
+        apply_store_gc(store, plan)
         print(f'reclaimed {_human_size(plan.size)}')
     else:
         print(f'dry run — pass --apply to reclaim {_human_size(plan.size)}')
@@ -627,9 +686,17 @@ def main() -> None:
     p.set_defaults(func=cmd_cancel)
 
     p = sub.add_parser(
-        'gc', help='reclaim stale memo storage (superseded records, replaced attempts) — dry run by default'
+        'gc',
+        help="reclaim stale storage — an experiment's memo state by name, or --store for the artifact CAS "
+        '(dry run by default)',
     )
-    p.add_argument('name')
+    p.add_argument('name', nargs='?', help='experiment to sweep (omit with --store)')
+    p.add_argument('--store', action='store_true', help='mark-and-sweep the project artifact store instead')
+    p.add_argument(
+        '--grace',
+        default=GRACE_DEFAULT,
+        help=f'keep unreferenced blobs younger than this (store sweep; default {GRACE_DEFAULT})',
+    )
     p.add_argument('--apply', action='store_true', help='actually delete (default: print the plan only)')
     _add_app_flag(p)
     p.set_defaults(func=cmd_gc)

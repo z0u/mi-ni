@@ -22,9 +22,11 @@ class ModalVolume(Volume):
     mount point is created by Modal automatically when the volume is attached.
     """
 
-    def __init__(self, name: str, mount_point: str = '/vol'):
+    def __init__(self, name: str, mount_point: str = '/vol', *, create: bool = True):
+        # ``create=False`` for read-only peeks (gc's mark phase): a look at an
+        # experiment's volume must not mint an empty one on Modal.
         self._mount_point = Path(mount_point)
-        self._modal_volume = modal.Volume.from_name(name, create_if_missing=True)
+        self._modal_volume = modal.Volume.from_name(name, create_if_missing=create)
 
     @property
     def path(self) -> Path:

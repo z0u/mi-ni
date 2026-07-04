@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from mini.store import _cas_key
+
 BUCKET = os.environ.get('MINI_STORE_BUCKET')
 
 pytestmark = pytest.mark.skipif(
@@ -48,7 +50,7 @@ def test_put_get_round_trips_over_the_bucket(hf):
     store, tag, created = hf
     data = f'mini hf round-trip {tag}'.encode()
     art = store.put(data, name='probe.txt')
-    created.append(f'cas/{art.sha256}')
+    created.append(_cas_key(art.sha256))
 
     assert store.has(art.sha256)
     # Resolve through a *fresh* cache to force a real download, not a cache hit.
@@ -63,7 +65,7 @@ def test_put_get_round_trips_over_the_bucket(hf):
 def test_ref_round_trips_over_the_bucket(hf):
     store, tag, created = hf
     art = store.put(f'ref payload {tag}'.encode(), name='r.bin')
-    created.append(f'cas/{art.sha256}')
+    created.append(_cas_key(art.sha256))
     name = f'_test/{tag}/handle'
     store.set_ref(name, art)
     created.append(f'refs/{name}.json')
@@ -76,7 +78,7 @@ def test_publish_serves_with_content_type_from_extension(hf):
     store, tag, created = hf
     png = b'\x89PNG\r\n\x1a\n' + tag.encode()  # not a real PNG, but a .png name
     art = store.put(png, name='fig.png')
-    created.append(f'cas/{art.sha256}')
+    created.append(_cas_key(art.sha256))
     path = f'_test/{tag}/fig.png'
     url = store.publish(art, path)
     created.append(f'published/{path}')

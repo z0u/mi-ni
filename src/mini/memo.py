@@ -501,6 +501,23 @@ class MemoStore:
     def error_path(self, key: str, gen: str | None) -> Path:
         return self.result_dir(key) / (f'error-{gen}.txt' if gen else 'error.txt')
 
+    def artifacts_path(self, key: str, gen: str | None) -> Path:
+        """Where attempt *gen* records the blob shas its result references.
+
+        The worker stamps this sidecar next to the result (see
+        :func:`mini._taskworker.execute_task`), so the artifact GC can mark a
+        result's references without unpickling it — no project imports, no
+        arbitrary code, one small read per record however large the result.
+        """
+        return self.result_dir(key) / (f'result-{gen}.artifacts.json' if gen else 'result.artifacts.json')
+
+    def result_artifacts(self, key: str) -> list[str] | None:
+        """Blob shas the current result references, or ``None`` for a record
+        from before the sidecar existed (unpickle the result to find out).
+        """
+        p = self.artifacts_path(key, self._gen(key))
+        return json.loads(p.read_text()) if p.exists() else None
+
     def _gen(self, key: str) -> str | None:
         return (self.records_backend.read(key) or {}).get('gen')
 

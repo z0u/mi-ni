@@ -169,7 +169,7 @@ def test_stale_attempt_files_swept_current_and_unknown_kept(tmp_path: Path, monk
 
     plan = plan_gc(store)
     [item] = plan.by_kind('attempt-files')
-    assert {p.name for p in item.paths} == {'result-deadbeef.pkl', 'error-deadbeef.txt', 'result.pkl'}
+    assert set(item.names) == {'result-deadbeef.pkl', 'error-deadbeef.txt', 'result.pkl'}
     apply_gc(store, plan)
 
     assert store.result(key) == 2  # current attempt intact
@@ -212,19 +212,19 @@ def test_cmd_gc_dry_run_then_apply(tmp_path: Path, monkeypatch, capsys):
 
     from mini.__main__ import cmd_gc, cmd_status
 
-    cmd_gc(argparse.Namespace(name='gccli', app='local', apply=False))
+    cmd_gc(argparse.Namespace(name='gccli', app='local', apply=False, store=False))
     out = capsys.readouterr().out
     assert 'dry run' in out and 'superseded' in out
     assert len(store.records()) == 3  # nothing deleted
 
-    cmd_gc(argparse.Namespace(name='gccli', app='local', apply=True))
+    cmd_gc(argparse.Namespace(name='gccli', app='local', apply=True, store=False))
     assert 'reclaimed' in capsys.readouterr().out
     assert len(store.records()) == 2
 
     cmd_status(argparse.Namespace(name='gccli', app='local'))  # the cleaned store still reads done
     assert '—  done  (2 tasks)' in capsys.readouterr().out
 
-    cmd_gc(argparse.Namespace(name='gccli', app='local', apply=False))  # idempotent: nothing left
+    cmd_gc(argparse.Namespace(name='gccli', app='local', apply=False, store=False))  # idempotent: nothing left
     assert 'nothing to collect' in capsys.readouterr().out
 
 

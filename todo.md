@@ -27,16 +27,13 @@ PR #54), #47 (per-experiment backend memory for `--app`).
 
 **Sequence after the above:**
 
-- #15 — GC across the control plane, I/O-plane volume dirs, and the CAS. The
-  local per-experiment control-plane + I/O-plane sweep shipped as `mini gc`
-  (PR #49); Volumes confirmed to persist indefinitely (no Dict-style expiry;
-  per-path `rm` exists), so the remaining legs are the Modal Volume sweep and
-  CAS refcounting — the latter's shape depends only on how #38 (bucket split?)
-  lands, now that #37 is closed (no shared working store to anticipate).
-  The `mini-hf-cache` Volume (#50) barely expands this: its `xet/` half is
-  size-capped by `hf_xet`'s default, `hub/` grows only per distinct upstream
-  model, and `modal volume delete mini-hf-cache` is always a safe reset (pure
-  cache). Worth a mention in the sweep docs, not a new GC leg.
+- #15 — GC across the control plane, I/O-plane volume dirs, and the CAS.
+  Shipped in two cuts: the local per-experiment control-plane + I/O-plane sweep
+  (`mini gc <name>`, PR #49), then the Modal Volume sweep and the CAS
+  mark-and-sweep (`mini gc --store`, PR #60). Rationale and safety posture in
+  `research/design.md` (*Reclaiming storage*). Only #38 (bucket split) would
+  still reshape the CAS leg; the `mini-hf-cache` Volume (#50) stays out of scope
+  (pure cache — `modal volume delete mini-hf-cache` is a safe reset).
 
 **Orthogonal, no code overlap with the above:**
 
