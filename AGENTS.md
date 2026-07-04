@@ -19,6 +19,17 @@ It's OK to defer subtasks for later. If there's a significant blocker that isn't
 - Prefer brevity.
 - Use single quotes for strings, except for multiline strings.
 
+Don't get distracted by unfamiliar syntax. This looks like Python 2 but it's valid in 3.14:
+
+```python
+try:
+    pass
+except A, B: # PEP 758
+    pass
+```
+
+If `ruff` and `ty` say it's fine, it's probably fine.
+
 ### Typing
 
 Use type hints.
