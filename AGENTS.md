@@ -53,3 +53,5 @@ When creating PRs, omit the **Checklist** and **Copyright Dedication** sections 
 This project uses `uv`, `ruff`, and `ty`.
 
 Also available: `fd`, `fzf`, `rg`, `bat`, `gh`. We can add more to the dev container if you have other preferred tools.
+
+For reading/editing TOML (e.g. `pyproject.toml`) from the CLI, prefer `tomlq` (part of the `yq` package) over writing a one-off Python script, e.g. `tomlq '.tool.mini' pyproject.toml`.
