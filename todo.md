@@ -33,6 +33,10 @@ PR #54), #47 (per-experiment backend memory for `--app`).
   per-path `rm` exists), so the remaining legs are the Modal Volume sweep and
   CAS refcounting — the latter's shape depends only on how #38 (bucket split?)
   lands, now that #37 is closed (no shared working store to anticipate).
+  The `mini-hf-cache` Volume (#50) barely expands this: its `xet/` half is
+  size-capped by `hf_xet`'s default, `hub/` grows only per distinct upstream
+  model, and `modal volume delete mini-hf-cache` is always a safe reset (pure
+  cache). Worth a mention in the sweep docs, not a new GC leg.
 
 **Orthogonal, no code overlap with the above:**
 

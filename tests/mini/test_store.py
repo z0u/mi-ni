@@ -197,7 +197,20 @@ def test_store_for_uses_bucket_with_token(tmp_path: Path, monkeypatch: pytest.Mo
 
     monkeypatch.setenv('MINI_STORE_BUCKET', 'ns/bkt')
     monkeypatch.setattr('mini.store._hf_token', lambda: 'tok')
-    assert isinstance(store_for(tmp_path / 'store'), HFStore)
+    store = store_for(tmp_path / 'store')
+    assert isinstance(store, HFStore)
+    assert store._cache.root == tmp_path / 'store-cache' / 'hf'  # warm cache sits beside root by default
+
+
+def test_store_for_cache_root_moves_the_warm_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A Modal worker points the warm cache at container-local disk, off the committed Volume."""
+    from mini.hf_store import HFStore
+
+    monkeypatch.setenv('MINI_STORE_BUCKET', 'ns/bkt')
+    monkeypatch.setattr('mini.store._hf_token', lambda: 'tok')
+    store = store_for(tmp_path / 'vol' / 'store', cache_root=tmp_path / 'ephemeral')
+    assert isinstance(store, HFStore)
+    assert store._cache.root == tmp_path / 'ephemeral'
 
 
 def test_get_store_raises_outside_context():

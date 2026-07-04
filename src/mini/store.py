@@ -360,14 +360,19 @@ def _hf_token() -> str | None:
         return None
 
 
-def store_for(root: Path | str) -> Store:
+def store_for(root: Path | str, *, cache_root: Path | str | None = None) -> Store:
     """The project store for a given local *root* — bucket-backed if configured.
 
     When a bucket is configured (:func:`store_bucket`) *and* a Hugging Face token is
-    available, the durable store is the shared bucket (with *root* demoted to a
-    local warm cache); otherwise it's a :class:`LocalStore` rooted at *root*. One
-    switch flips every put/get/publish — in a step, a report, or a worker — from
-    on-disk to shared-and-web-reachable.
+    available, the durable store is the shared bucket, warm-cached locally at
+    *cache_root* (default: ``store-cache/hf`` beside *root*); otherwise it's a
+    :class:`LocalStore` rooted at *root*. One switch flips every put/get/publish —
+    in a step, a report, or a worker — from on-disk to shared-and-web-reachable.
+
+    Pass *cache_root* when *root*'s neighbourhood is the wrong home for cached
+    bytes: a Modal worker points it at container-local disk, so the cache isn't
+    committed to the Volume alongside results — the bucket already holds the
+    durable copy, and a committed shadow would store every artifact twice.
 
     A configured bucket with *no* token (someone trying the repo in Codespaces, or
     a fresh checkout before ``./go auth``) falls back to the local store with a
@@ -379,7 +384,8 @@ def store_for(root: Path | str) -> Store:
     if bucket and (token := _hf_token()):
         from mini.hf_store import HFStore
 
-        return HFStore(bucket, cache=LocalStore(root.parent / 'store-cache' / 'hf'), token=token)
+        cache = LocalStore(cache_root if cache_root is not None else root.parent / 'store-cache' / 'hf')
+        return HFStore(bucket, cache=cache, token=token)
     if bucket:
         log.warning(
             'store-bucket %r is configured but no Hugging Face token was found — using the local '

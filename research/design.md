@@ -156,6 +156,26 @@ Two further decisions:
 - **`obstore` doesn't help.** It supports only S3/GCS/Azure; bridging via fsspec forfeits
   the native-Rust speed that's its whole point, and `hf_xet` already does parallel
   chunked transfer under `HfApi`. Revisit only if mini targets those clouds directly.
+- **The HF cache is a third storage tier, kept separate** (#50): Store = durable
+  project-scoped artifacts; per-experiment Volume = working dir + checkpoints (the
+  isolation boundary); HF cache = a *disposable* read accelerator for upstream weights.
+  On Modal it's one workspace-wide `mini-hf-cache` Volume with `HF_HOME` pointed at the
+  mount — which covers both HF sub-caches (`hub/` snapshots and `xet/` chunks) with zero
+  call-site changes. It's deliberately *not* routed through the `Volume` ABC or the
+  per-experiment Volume (scope mismatch), and needs no commit discipline: concurrent
+  writers at worst duplicate a download. Locally the tier doesn't exist —
+  `~/.cache/huggingface` already persists. Note the HF **hub** cache doesn't apply to
+  buckets at all (buckets aren't a repo type; `download_bucket_files` streams straight to
+  the destination) — `HFStore` has its own warm cache for that.
+- **The worker's `HFStore` warm cache lives on container-local disk, not the mounted
+  Volume** (`WORKER_STORE_CACHE`). Under the mount it was committed alongside results,
+  so every bucket artifact grew a second, redundant copy on the per-experiment Volume.
+  Ephemeral is the point: the bucket is the durable copy; the tradeoff is a bucket
+  round trip if a *later container* re-reads bytes this experiment wrote (rare — the
+  client-side cache still keeps whole files on local disk, where re-reads actually
+  happen). A cross-container sha-index (e.g. a `modal.Dict`, self-expiring ~1 week) was
+  considered and deferred: with `put` batching and Xet chunk dedup, the residual cost is
+  one existence probe per new blob per container.
 
 ## Operational constraints worth remembering
 

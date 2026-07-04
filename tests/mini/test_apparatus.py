@@ -107,9 +107,10 @@ class MockModalApp:
     def __init__(self, name: str = 'test'):
         self.name = name
         self.app_id = 'mock-app-id'  # Add app_id for newer Modal versions  # noqa
+        self.function_kwargs: dict = {}
 
     def function(self, **decorator_kwargs):
-        del decorator_kwargs
+        self.function_kwargs = decorator_kwargs
 
         def decorator(fn):
             return _MockModalFunction(fn)
@@ -243,6 +244,35 @@ def test_modal_auth_error_has_actionable_message(monkeypatch):
 
     with pytest.raises(RuntimeError, match=r'Modal authentication failed\. Run \./go auth, then try again\.'):
         asyncio.run(collect())
+
+
+def test_memo_worker_mounts_hf_cache(monkeypatch):
+    """The remote worker gets the shared HF cache Volume, with HF_HOME pointing at it.
+
+    That's what lets a multi-stage pipeline's ``from_pretrained`` reuse weights
+    across containers instead of re-downloading per container (#50).
+    """
+    from mini.modal_apparatus import HF_CACHE_MOUNT
+
+    monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)
+    secrets_made: list[dict] = []
+    monkeypatch.setattr('modal.Secret.from_dict', lambda d: secrets_made.append(d) or ('secret', d))
+    app = _make_modal(monkeypatch)
+    app._memo_worker()
+    kwargs = app.app.function_kwargs  # pyrefly: ignore [missing-attribute]  (MockModalApp)
+    assert isinstance(kwargs['volumes'][HF_CACHE_MOUNT], MockModalVolume)
+    assert {'HF_HOME': HF_CACHE_MOUNT} in secrets_made
+
+
+def test_attach_hf_cache_preserves_user_mounts_and_secrets(monkeypatch):
+    from mini.modal_apparatus import HF_CACHE_MOUNT, _attach_hf_cache
+
+    monkeypatch.setattr('modal.Volume.from_name', lambda name, create_if_missing=False: MockModalVolume())
+    monkeypatch.setattr('modal.Secret.from_dict', lambda d: ('secret', d))
+    fn_kwargs = {'volumes': {'/vol': 'user-vol'}, 'secrets': ['user-secret']}
+    _attach_hf_cache(fn_kwargs)
+    assert fn_kwargs['volumes'].keys() == {'/vol', HF_CACHE_MOUNT}
+    assert fn_kwargs['secrets'] == ['user-secret', ('secret', {'HF_HOME': HF_CACHE_MOUNT})]
 
 
 def test_complex_objects_as_args(apparatus):
