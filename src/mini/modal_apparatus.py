@@ -12,6 +12,7 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 import time
@@ -19,7 +20,10 @@ from contextlib import asynccontextmanager, nullcontext
 from functools import wraps
 from itertools import count
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Iterable, TypeVar, override
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Iterable, TypeVar, override
+
+if TYPE_CHECKING:
+    from mini.gc import GcIO
 
 import cloudpickle
 import modal
@@ -234,6 +238,14 @@ class ModalMemoStore(MemoStore):
                 continue
         return '(no logs)'
 
+    def result_artifacts(self, key: str) -> list[str] | None:
+        gen = self._gen(key)
+        name = f'result-{gen}.artifacts.json' if gen else 'result.artifacts.json'
+        try:
+            return json.loads(self._read_volume_bytes(f'_memo/{key}/{name}'))
+        except FileNotFoundError, modal.exception.NotFoundError:
+            return None  # pre-sidecar record: only unpickling the result reveals its refs
+
 
 class ModalVolumeStore(Store):
     """Client-side artifact :class:`~mini.store.Store` that reads blobs off the Volume.
@@ -427,6 +439,12 @@ class ModalApparatus(Apparatus[ModalVolume]):
     @override
     def memo_store(self) -> MemoStore:
         return ModalMemoStore(self.volume, ModalRecordStore.from_name(self._dict_name))
+
+    @override
+    def gc_io(self, store: MemoStore) -> GcIO:
+        from mini.gc import ModalGcIO
+
+        return ModalGcIO(self.volume._modal_volume)
 
     @override
     def store(self) -> Store:

@@ -9,6 +9,7 @@ outlives the orchestration tick that launched it.
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 import traceback
@@ -23,7 +24,7 @@ from mini._queues import EndOfQueue
 from mini.memo import MemoStore
 from mini.progress import progress_context
 from mini.runs import RunState, compute_env
-from mini.store import Artifact, StaleWriteError, Store, store_context, store_for, store_root_for
+from mini.store import Artifact, StaleWriteError, Store, artifact_shas, store_context, store_for, store_root_for
 from mini.volume import data_dir_context
 
 
@@ -190,6 +191,11 @@ def execute_task(
             for hook in reversed(hooks):
                 hook()
             result = fn(*args)
+        # The artifact sidecar rides with the result: which blobs the result
+        # references, written even when empty ("none" beats "unknown" — the GC
+        # mark phase then never has to unpickle this result). Sidecar first, so
+        # a readable result always has its reference set alongside.
+        store.artifacts_path(key, gen).write_text(json.dumps(sorted(artifact_shas(result))))
         store.result_path(key, gen).write_bytes(cloudpickle.dumps(result))
         if commit is not None:
             commit()

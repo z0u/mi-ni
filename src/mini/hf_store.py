@@ -31,9 +31,9 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Iterator
 
-from mini.store import Artifact, LocalStore, Store, _cas_key, _hash_file, _tree_sha
+from mini.store import Artifact, BlobStat, LocalStore, Store, _cas_key, _hash_file, _tree_sha
 
 __all__ = ['HFStore']
 
@@ -141,6 +141,45 @@ class HFStore(Store):
         dest = f'published/{path}'
         self.api.batch_bucket_files(self.bucket, copy=[('bucket', self.bucket, info[0].xet_hash, dest)])
         return f'https://huggingface.co/buckets/{self.bucket}/resolve/{dest}'
+
+    # -- gc --------------------------------------------------------------------
+
+    def _list_tree(self, prefix: str) -> Iterator[Any]:
+        # A prefix that has never been written is "nothing there", not an error;
+        # anything else (auth, missing bucket) must propagate — see _remote_has.
+        from huggingface_hub.errors import EntryNotFoundError
+
+        try:
+            yield from self.api.list_bucket_tree(self.bucket, prefix=prefix, recursive=True)
+        except EntryNotFoundError:
+            return
+
+    def list_blobs(self) -> Iterator[BlobStat]:
+        for entry in self._list_tree('cas'):
+            if getattr(entry, 'type', None) != 'file':
+                continue
+            sha = entry.path.rsplit('/', 1)[-1]
+            if len(sha) != 64 or not set(sha) <= set('0123456789abcdef'):
+                continue
+            ts = entry.uploaded_at or entry.mtime
+            yield BlobStat(sha, entry.size, ts.timestamp() if ts is not None else None)
+
+    def delete_blobs(self, sha256s: Iterable[str]) -> None:
+        shas = list(sha256s)
+        for i in range(0, len(shas), 500):  # one commit per chunk, not per blob
+            self.api.batch_bucket_files(self.bucket, delete=[_cas_key(s) for s in shas[i : i + 500]])
+        # Purge the warm cache too: a stale local copy would make ``has`` claim
+        # the bucket still holds bytes it no longer does, and a later ``put`` of
+        # the same content would silently skip the re-upload.
+        for s in shas:
+            self._cache._blob_path(s).unlink(missing_ok=True)
+
+    def list_refs(self) -> list[str]:
+        return sorted(
+            e.path[len('refs/') : -len('.json')]
+            for e in self._list_tree('refs')
+            if getattr(e, 'type', None) == 'file' and e.path.endswith('.json')
+        )
 
     # -- report bundles (the publish-a-report handoff) ------------------------
     #

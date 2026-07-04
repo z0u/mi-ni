@@ -42,6 +42,7 @@ store for web-reachable :meth:`~Store.publish` slots in behind the same handle.
 from __future__ import annotations
 
 import contextvars
+import gc
 import hashlib
 import json
 import logging
@@ -49,15 +50,18 @@ import mimetypes
 import os
 import shutil
 import tomllib
+import types
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Any, Iterable, Iterator, Literal
 
 __all__ = [
     'Artifact',
+    'BlobStat',
+    'artifact_shas',
     'StaleWriteError',
     'Store',
     'LocalStore',
@@ -182,9 +186,49 @@ def _tree_sha(children: tuple[Artifact, ...]) -> str:
     return _hash_bytes(manifest.encode())
 
 
+# Object kinds a result's data graph never hides an Artifact behind: crossing
+# them would drag in whole modules (a callable's globals) for no extra recall.
+_OPAQUE = (types.ModuleType, types.FunctionType, types.BuiltinFunctionType, types.MethodType, types.CodeType, type)
+
+
+def artifact_shas(obj: Any) -> set[str]:
+    """Every *blob* sha reachable from *obj* — the reference set GC marks from.
+
+    Walks the full object graph (``gc.get_referents``: containers, dataclass
+    fields, instance dicts — anything a result value can nest handles in),
+    pruned at code/module/class boundaries. A tree's own sha names a manifest,
+    not a stored blob, so only ``file`` artifacts (including tree children)
+    contribute.
+    """
+    shas: set[str] = set()
+    seen: set[int] = set()
+    stack = [obj]
+    while stack:
+        o = stack.pop()
+        if isinstance(o, (str, bytes, int, float, bool, type(None))) or id(o) in seen:
+            continue
+        seen.add(id(o))
+        if isinstance(o, Artifact):
+            if o.kind == 'file':
+                shas.add(o.sha256)
+            stack.extend(o.children)
+        elif not isinstance(o, _OPAQUE):
+            stack.extend(gc.get_referents(o))
+    return shas
+
+
 # ---------------------------------------------------------------------------
 # The store
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BlobStat:
+    """One stored blob, as the GC sweep sees it (see ``Store.list_blobs``)."""
+
+    sha256: str
+    size: int
+    modified_at: float | None  # epoch seconds; None = unknown, treated as too new to sweep
 
 
 class Store(ABC):
@@ -290,6 +334,24 @@ class Store(ABC):
         """Resolve the name *name* to its artifact handle, or ``None`` if unset."""
         payload = self._read_ref(name)
         return Artifact.from_dict(json.loads(payload)) if payload is not None else None
+
+    # -- gc surface (optional capability) --------------------------------------
+    #
+    # Not abstract: only the durable backends (LocalStore, HFStore) can sweep;
+    # wrappers and read-only views (_FencedStore, ModalVolumeStore) need not
+    # pretend to. ``mini gc --store`` checks for NotImplementedError and says so.
+
+    def list_blobs(self) -> Iterator[BlobStat]:
+        """Every blob in the CAS, with size and last-modified (the sweep candidates)."""
+        raise NotImplementedError(f'{type(self).__name__} does not support gc')
+
+    def delete_blobs(self, sha256s: Iterable[str]) -> None:
+        """Remove blobs from the CAS (and any warm cache, so ``has`` cannot lie)."""
+        raise NotImplementedError(f'{type(self).__name__} does not support gc')
+
+    def list_refs(self) -> list[str]:
+        """Every ref name currently set (each is a GC root)."""
+        raise NotImplementedError(f'{type(self).__name__} does not support gc')
 
 
 @contextmanager
@@ -462,6 +524,28 @@ class LocalStore(Store):
         dest.parent.mkdir(parents=True, exist_ok=True)
         self._read_blob(art.sha256, dest)
         return dest.resolve().as_uri()
+
+    # -- gc --------------------------------------------------------------------
+
+    def list_blobs(self) -> Iterator[BlobStat]:
+        cas = self.root / 'cas'
+        if not cas.is_dir():
+            return
+        for p in sorted(cas.glob('*/*')):
+            # Only true blob names count: a .tmp from a crashed _write_blob is
+            # not part of the CAS (and never will be — the rename lost).
+            if p.is_file() and len(p.name) == 64 and set(p.name) <= set('0123456789abcdef'):
+                st = p.stat()
+                yield BlobStat(p.name, st.st_size, st.st_mtime)
+
+    def delete_blobs(self, sha256s: Iterable[str]) -> None:
+        for sha in sha256s:
+            self._blob_path(sha).unlink(missing_ok=True)
+
+    def list_refs(self) -> list[str]:
+        if not self.refs.is_dir():
+            return []
+        return sorted(p.relative_to(self.refs).as_posix()[: -len('.json')] for p in self.refs.rglob('*.json'))
 
 
 # ---------------------------------------------------------------------------

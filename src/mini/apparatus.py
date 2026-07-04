@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Generic, Iterab
 from mini.volume import Volume
 
 if TYPE_CHECKING:
+    from mini.gc import GcIO
     from mini.memo import MemoStore
     from mini.store import Store
 
@@ -192,6 +193,16 @@ class Apparatus(ABC, Generic[V]):
         Constructing it here (rather than at call sites) lets ``tick`` stay
         backend-agnostic.
         """
+
+    def gc_io(self, store: MemoStore) -> GcIO:
+        """The I/O-plane adapter ``mini gc`` sweeps this backend through.
+
+        Local result dirs are plain files under the store's ``data_dir``;
+        ``ModalApparatus`` overrides this to sweep the Volume by path instead.
+        """
+        from mini.gc import LocalGcIO
+
+        return LocalGcIO(store)
         ...
 
     @abstractmethod
