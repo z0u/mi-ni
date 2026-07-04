@@ -112,6 +112,16 @@ Auth: `./go auth` logs into Hugging Face (a fine-grained token with read+write t
 the bucket). `hf` caches it; the store and the Modal Secret read it from there, so
 `HF_TOKEN` need not be exported — the bucket name isn't a secret, only the token.
 
+## Upstream model caching (a separate tier)
+
+The artifact store holds bytes *you* produce. Upstream weights and datasets pulled
+via `from_pretrained`/`hf_hub_download` are a different tier: a **disposable read
+accelerator**, not a durable store. On Modal, every remote function mounts a shared
+`mini-hf-cache` Volume with `HF_HOME` pointing at it, so a multi-stage pipeline
+downloads a model once instead of once per container. Nothing to configure, nothing
+in your code changes, and deleting that Volume only costs re-downloads. Locally
+there's no such tier — `~/.cache/huggingface` already persists.
+
 ## Publishing to the web
 
 `publish(art, path)` is the store's outward-facing verb: it exposes a blob at a

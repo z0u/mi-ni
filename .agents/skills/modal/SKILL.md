@@ -31,8 +31,9 @@ You normally don't write any `modal.Image` code. `ModalApparatus` builds the ima
 - **Pins your deps from `pyproject.toml`.** It freezes the resolved versions (`uv_freeze`, all dependency groups except `local`/`dev`) so the remote matches your lockfile. The `cuda` group is included remotely (e.g. `jax[cuda12]`) while local installs stay CPU-only — so the same code runs CPU locally and picks up the GPU when one is attached.
 - **Ships your source automatically.** It adds the project's top-level `src/` packages via `add_local_python_source(*project_packages())` — so a remote worker can `import experiment...`/`import utils...` with no manual mounting or packaging. New top-level packages under `src/` are discovered automatically.
 - **Cached by content hash**, so it only rebuilds when deps or source change. The first build can take a few minutes; later runs are near-instant cache hits.
+- **Caches Hugging Face downloads across containers.** Every remote function mounts a shared `mini-hf-cache` Volume with `HF_HOME` pointing at it, so `from_pretrained`/`hf_hub_download` in a multi-stage pipeline pulls a model once, not once per container. It's a disposable cache (deleting the Volume only costs re-downloads); locally, `~/.cache/huggingface` already persists so nothing changes.
 
-To override (extra apt/pip, a custom base), pass `.w(image=my_image)`. See `make_image`/`requirements.py` and `ModalApparatus._ensure_image`.
+To override (extra apt/pip, a custom base), pass `.w(image=my_image)`. See `make_image`/`requirements.py` and `ModalApparatus._ensure_image`. The HF cache mount and `HF_HOME` still apply with a custom image (the env var rides in a Secret, not the image).
 
 **Running in restricted environments / cloud sandboxes**
 - **TLS-inspecting proxies:** `ModalApparatus.__init__` calls `ensure_grpc_trusts_system_ca()` (`mini/_tls.py`) so Modal's gRPC trusts a corporate/sandbox proxy CA. `bin/modal` applies the same fix (via `mini._modal_cli`) before handing off to modal's own CLI, so it also works behind these proxies — prefer it over a bare `modal` install, which does *not* apply this.

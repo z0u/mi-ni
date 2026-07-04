@@ -106,6 +106,38 @@ def make_image() -> modal.Image:
     )  # fmt: skip
 
 
+# The Hugging Face cache tier: one workspace-wide Volume, mounted where HF_HOME
+# points, so a multi-stage pipeline's `from_pretrained` pulls a model once — not
+# once per container (each container otherwise boots with an empty $HF_HOME).
+# One env var covers both HF sub-caches: `hub/` (model/dataset snapshots) and
+# `xet/` (transfer chunks, size-capped by hf_xet's own default). Purely a
+# disposable read accelerator, distinct from the artifact Store (durable,
+# content-addressed) and the per-experiment Volume (working dir + checkpoints):
+# no commit discipline (background commits suffice; a lost write costs one
+# re-download), concurrent writers at worst pull the same model twice, and
+# deleting the Volume is always safe. Locally this tier doesn't exist —
+# ~/.cache/huggingface already persists.
+HF_CACHE_VOLUME = 'mini-hf-cache'
+HF_CACHE_MOUNT = '/hf-cache'
+
+# Container-local root for the worker's HFStore warm cache: deliberately NOT under
+# the mounted Volume, where it would be committed alongside results and shadow
+# every bucket artifact on paid storage. Ephemeral is correct — the bucket is the
+# durable copy, and the cache only needs to outlive the container's own re-reads.
+WORKER_STORE_CACHE = Path('/tmp/mini-store-cache')
+
+
+def _attach_hf_cache(fn_kwargs: dict[str, Any]) -> None:
+    """Mount the shared HF cache Volume and point ``HF_HOME`` at it (in place).
+
+    The env var rides in a Secret rather than on the image so a user-supplied
+    ``.w(image=...)`` still gets it.
+    """
+    cache = modal.Volume.from_name(HF_CACHE_VOLUME, create_if_missing=True)
+    fn_kwargs['volumes'] = {**fn_kwargs.get('volumes', {}), HF_CACHE_MOUNT: cache}
+    fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), modal.Secret.from_dict({'HF_HOME': HF_CACHE_MOUNT})]
+
+
 # ---------------------------------------------------------------------------
 # Memoized-orchestration backend (control plane = modal.Dict, I/O plane = Volume)
 # ---------------------------------------------------------------------------
@@ -291,7 +323,7 @@ def _modal_task_entry(blob: bytes, key: str, gen: str, dict_name: str, volume_na
 
     from mini._taskworker import execute_task
     from mini.memo import MemoStore
-    from mini.modal_apparatus import ModalRecordStore
+    from mini.modal_apparatus import WORKER_STORE_CACHE, ModalRecordStore
     from mini.store import store_for
 
     fn, args, hooks = _cp.loads(blob)
@@ -299,9 +331,11 @@ def _modal_task_entry(blob: bytes, key: str, gen: str, dict_name: str, volume_na
     volume = _modal.Volume.from_name(volume_name)
     # With MINI_STORE_BUCKET set (passed in via a Modal Secret), put/get hit the
     # shared HF bucket — so another experiment, local or remote, reads these bytes
-    # back with no shared Volume. Otherwise the CAS rides *under* the mounted
-    # Volume (committed with the result), per-experiment until #22's project Volume.
-    artifacts = store_for(Path(mount_point) / 'store')
+    # back with no shared Volume; the warm cache goes to container-local disk, not
+    # the committed Volume (see WORKER_STORE_CACHE). Otherwise the CAS rides
+    # *under* the mounted Volume (committed with the result), per-experiment until
+    # #22's project Volume.
+    artifacts = store_for(Path(mount_point) / 'store', cache_root=WORKER_STORE_CACHE)
     execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts, gen=gen)
 
 
@@ -435,6 +469,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
                 }
             if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
                 fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), secret]
+            _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
             self._memo_fn = self.app.function(serialized=True, **fn_kwargs)(_modal_task_entry)
         return self._memo_fn
 
@@ -583,6 +618,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
             }
         if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
             fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), secret]
+        _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
         modal_fn = self.app.function(serialized=True, **fn_kwargs)(wrapped_fn)
         return modal_fn, startup_timeout
 
@@ -646,7 +682,12 @@ def _wrap_for_modal(
         dir_ctx = data_dir_context(data_dir) if data_dir is not None else nullcontext()
         # Build the store remotely (this fn is serialized): the CAS rides under the
         # mounted Volume, whose parent isn't shared remotely — so no store_root_for.
-        store_ctx = store_context(store_for(data_dir / 'store')) if data_dir is not None else nullcontext()
+        # The bucket path's warm cache stays off the committed Volume (WORKER_STORE_CACHE).
+        store_ctx = (
+            store_context(store_for(data_dir / 'store', cache_root=WORKER_STORE_CACHE))
+            if data_dir is not None
+            else nullcontext()
+        )
         with (
             progress_context(run_id, str(index), queue=queue, emission_interval=emission_interval),
             dir_ctx,
