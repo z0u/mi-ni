@@ -48,7 +48,13 @@
 
 - Implicit cross-experiment memo dedup, + optional shared working volume and a
   `materialize` front door — **#37**.
-- Private-CAS / public-publish two-bucket split; citable versioned publish tier — **#38**.
+- Private-CAS / public-publish split + citable versioned publish tier — **#38**. Landed as
+  an opt-in seam: `HFStore` routes `publish`/`export_*` to a Hugging Face **dataset repo**
+  (versioned → citable) when `[tool.mini] publish-repo` is set, leaving `cas/`+`refs/` in a
+  (now privatable) bucket; unset keeps the single-store default. Rationale (why the split
+  is by *write concurrency*, and why it costs no extra storage under account-wide Xet
+  dedup) in [Publishing](./publishing.md). Remaining: provisioning (a public dataset repo +
+  flipping the bucket private) and a live round-trip against a real repo.
 - Wire the artifact store through the interactive `app.map`/`arun` path — **#39**.
 - GC across the CAS, control plane, and Volume run dirs — **#15**, shipped: `mini gc
   <name>` (both backends) and `mini gc --store` (CAS mark-and-sweep). See

@@ -13,12 +13,44 @@ extensioned path; the bucket's resolve URL then sets `Content-Type` from that ex
 and serves `Content-Disposition: inline`. So one bucket is both the durable store and a
 CDN-backed asset host.
 
-Today **one public bucket** backs both the CAS and the published views, because HF
-buckets have **no per-prefix ACL** — public/private is bucket-level only. A private CAS
-+ public publish bucket is a genuine two-bucket split, and a citation-grade *versioned*
-publish tier would want a dataset repo (real git history) rather than a bucket. Both are
-deferred — **#38**; `HFStore` is kept backend-swappable so the publish tier can move
-later without touching experiment or report code.
+## Two tiers, split by write concurrency (#38)
+
+By default **one bucket** backs both the CAS and the published views. That's fine until
+you persist something that shouldn't be world-readable: HF buckets have **no per-prefix
+ACL** (public/private is bucket-level only), so a public bucket makes *every* `put`
+world-readable, not just what you `publish`. The fix is two stores — and the seam
+between them is **write concurrency**, not just visibility:
+
+| Tier | Namespaces | Writer | Concurrency | Backend |
+|---|---|---|---|---|
+| **Durable store** | `cas/<sha>`, `refs/` | workers | high, parallel | a **bucket** (no git history → concurrent writers never 412) — make it **private** |
+| **Publish tier** | `published/`, `exports/` | a driver / CI | low, single-writer | a **dataset repo** (real git history → versioned, citable) — **public** |
+
+The CAS *must* stay a bucket: that's the whole reason buckets were chosen (concurrent
+result writers would 412 on a git-backed repo's shared parent). But `publish` and report
+export are deliberate, single-writer, driver-side acts — so they can afford a git-backed
+**dataset repo**, which buys what a bucket can't:
+
+- a **public** face over a **private** CAS (the two-store split HF's bucket-level ACL forces), and
+- **versioned names with history** — a citation pins to `…/resolve/<commit-sha>/published/<path>`, which a mutable bucket path can't guarantee.
+
+So one move settles both halves of #38: point the publish tier at a dataset repo and it's
+public *and* citable.
+
+**Cost.** Not a byte more of storage. Xet chunk dedup is **account-wide**, so a blob
+published from the private CAS into the public repo references the *same* chunks —
+publishing pulls the blob local (the warm cache usually has it) and uploads, but Xet skips
+every chunk the CAS already stored, so it's a metadata + git-commit op, not a re-transfer.
+The only real deltas: public storage is best-effort quota (vs private's ~100 GB
+guaranteed), and each publish is a commit rather than the in-bucket instant by-hash copy.
+
+**Enabling it.** Set `[tool.mini] publish-repo = "<ns>/<repo>"` (or `MINI_PUBLISH_REPO`)
+and flip the existing bucket to private. Unset, everything stays in the one bucket — the
+seam is opt-in and `HFStore` routes `publish`/`export_*` on `publish_repo` alone, so no
+experiment or report code changes. Provisioning is typically just **one** new public
+dataset repo; a second public *bucket* is only needed if you want high-churn public assets
+that shouldn't be versioned (reports overwrite by name, so they don't accumulate — you
+usually don't).
 
 ## Reports are a bundle plus a `<base>` switch
 

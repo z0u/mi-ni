@@ -76,12 +76,19 @@ __all__ = [
     'store_for',
     'project_store',
     'store_bucket',
+    'publish_repo',
     'STORE_BUCKET_ENV',
+    'PUBLISH_REPO_ENV',
 ]
 
 # Env var naming the project's Hugging Face bucket — an *override* for the
 # `[tool.mini] store-bucket` committed in pyproject.toml (see `store_bucket`).
 STORE_BUCKET_ENV = 'MINI_STORE_BUCKET'
+
+# Env var naming the project's Hugging Face *dataset repo* for the public,
+# versioned publish tier — an override for `[tool.mini] publish-repo`. Unset →
+# publish/exports stay in the (durable) bucket, as before (see `publish_repo`).
+PUBLISH_REPO_ENV = 'MINI_PUBLISH_REPO'
 
 _CHUNK = 1 << 20  # 1 MiB streaming-hash chunk
 
@@ -410,6 +417,20 @@ def store_bucket() -> str | None:
     return os.environ.get(STORE_BUCKET_ENV) or _project_config().get('store-bucket')
 
 
+def publish_repo() -> str | None:
+    """The configured Hugging Face *dataset repo* for the publish tier, or ``None``.
+
+    When set, :meth:`~mini.hf_store.HFStore.publish` and the report-export methods
+    target this public, git-backed dataset repo instead of the durable bucket — so
+    the CAS bucket can be private (persisting an artifact never makes its bytes
+    world-readable) and published views get real history (a citation pins to a
+    commit sha). Unset → publish/exports stay in the bucket, the single-store
+    default. Resolution mirrors :func:`store_bucket` (``MINI_PUBLISH_REPO`` env
+    first, else ``[tool.mini] publish-repo``); the repo id isn't a secret.
+    """
+    return os.environ.get(PUBLISH_REPO_ENV) or _project_config().get('publish-repo')
+
+
 def _hf_token() -> str | None:
     """The Hugging Face token from the env or the ``hf auth login`` cache, or ``None``."""
     if tok := os.environ.get('HF_TOKEN'):
@@ -447,7 +468,7 @@ def store_for(root: Path | str, *, cache_root: Path | str | None = None) -> Stor
         from mini.hf_store import HFStore
 
         cache = LocalStore(cache_root if cache_root is not None else root.parent / 'store-cache' / 'hf')
-        return HFStore(bucket, cache=cache, token=token)
+        return HFStore(bucket, cache=cache, token=token, publish_repo=publish_repo())
     if bucket:
         log.warning(
             'store-bucket %r is configured but no Hugging Face token was found — using the local '

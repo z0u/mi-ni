@@ -18,6 +18,7 @@ from mini.store import (
     get_ref,
     get_store,
     publish,
+    publish_repo,
     put,
     set_ref,
     store_bucket,
@@ -183,6 +184,38 @@ def test_store_bucket_unset_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)
     assert store_bucket() is None
+
+
+def test_publish_repo_reads_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / 'pyproject.toml').write_text('[tool.mini]\npublish-repo = "ns/pub"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('MINI_PUBLISH_REPO', raising=False)
+    assert publish_repo() == 'ns/pub'
+
+
+def test_publish_repo_env_overrides_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / 'pyproject.toml').write_text('[tool.mini]\npublish-repo = "ns/pub"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('MINI_PUBLISH_REPO', 'other/override')
+    assert publish_repo() == 'other/override'
+
+
+def test_publish_repo_unset_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / 'pyproject.toml').write_text('[project]\nname = "x"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('MINI_PUBLISH_REPO', raising=False)
+    assert publish_repo() is None
+
+
+def test_store_for_threads_publish_repo_into_the_hfstore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from mini.hf_store import HFStore
+
+    monkeypatch.setenv('MINI_STORE_BUCKET', 'ns/bkt')
+    monkeypatch.setenv('MINI_PUBLISH_REPO', 'ns/pub')
+    monkeypatch.setattr('mini.store._hf_token', lambda: 'tok')
+    store = store_for(tmp_path / 'store')
+    assert isinstance(store, HFStore)
+    assert store.publish_repo == 'ns/pub'  # a bucket for the CAS, a repo for the publish tier
 
 
 def test_store_for_falls_back_to_local_without_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
