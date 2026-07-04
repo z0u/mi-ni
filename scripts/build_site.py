@@ -367,8 +367,10 @@ def main():
     links = prepare_dirs_and_resolver()
     store = _resolve_store()
     externalizing = isinstance(store, HFStore)
-    tier = (store.publish_repo or store.bucket) if externalizing else None
-    print(f'  asset mode: {"externalize ← " + tier if externalizing else "localize (no bucket)"}')
+    if isinstance(store, HFStore):  # the publish tier: its own repo if split off, else the bucket
+        print(f'  asset mode: externalize ← {store.publish_repo or store.bucket}')
+    else:
+        print('  asset mode: localize (no bucket)')
     build_reports(links, store, externalizing)
     copy_assets()
     copy_md_stylesheet()
