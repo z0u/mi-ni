@@ -5,7 +5,7 @@ here grows real, promote it to a GitHub issue and remove it from this list.
 
 Right now this file is empty of scratch items — everything below is the
 prioritized index into GitHub issues. Durable design rationale and recorded
-decisions live in [`research/design.md`](./research/design.md); each open issue
+decisions live in [`eng/`](./eng/README.md); each open issue
 also carries a grounding comment with current file:line refs, so it should be
 readable cold without re-deriving code state.
 
@@ -15,7 +15,7 @@ readable cold without re-deriving code state.
 PR #54), #47 (per-experiment backend memory for `--app`).
 
 **Storage/control-plane design.** These stem from the same list in
-`research/design.md`:
+[`eng/decisions.md`](./eng/decisions.md):
 
 - #38 — publish-tier hardening (private-CAS/public-publish bucket split;
   citable versioned publish via a dataset repo). Only matters once the template
@@ -31,13 +31,13 @@ PR #54), #47 (per-experiment backend memory for `--app`).
   Shipped in two cuts: the local per-experiment control-plane + I/O-plane sweep
   (`mini gc <name>`, PR #49), then the Modal Volume sweep and the CAS
   mark-and-sweep (`mini gc --store`, PR #60). Rationale and safety posture in
-  `research/design.md` (*Reclaiming storage*). Only #38 (bucket split) would
+  [`eng/gc.md`](./eng/gc.md). Only #38 (bucket split) would
   still reshape the CAS leg; the `mini-hf-cache` Volume (#50) stays out of scope
   (pure cache — `modal volume delete mini-hf-cache` is a safe reset).
 
 **Orthogonal, no code overlap with the above:**
 
-- #45 — docs rework. Touches `docs/`, `README.md`, `research/`, not `src/mini/`.
+- #45 — docs rework. Touches `docs/`, `README.md`, `eng/`, not `src/mini/`.
   Can run in parallel with anything.
 - #57 — CLI DevX: passing a name to `retry`/`run` dies with a raw traceback
   (tick verbs take a file, read verbs a name). Tier 1 (friendly error + help
