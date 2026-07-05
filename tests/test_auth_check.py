@@ -64,13 +64,23 @@ def test_modal_failure_surfaces_reason(monkeypatch):
 def test_hf_includes_user_and_bucket(monkeypatch):
     monkeypatch.setattr(auth_check, '_run', fake_run(0, 'user=octocat'))
     monkeypatch.setattr('mini.store.store_bucket', lambda: 'octocat/data-store')
+    monkeypatch.setattr('mini.store.publish_repo', lambda: None)  # publish tier off → not shown
     status = asyncio.run(auth_check.check_hf())
     assert status.ok and status.detail == 'user octocat, bucket octocat/data-store'
+
+
+def test_hf_shows_publish_repo_when_set(monkeypatch):
+    monkeypatch.setattr(auth_check, '_run', fake_run(0, 'user=octocat'))
+    monkeypatch.setattr('mini.store.store_bucket', lambda: 'octocat/data-store')
+    monkeypatch.setattr('mini.store.publish_repo', lambda: 'octocat/pub')
+    status = asyncio.run(auth_check.check_hf())
+    assert status.ok and status.detail == 'user octocat, bucket octocat/data-store, publish-repo octocat/pub'
 
 
 def test_hf_notes_missing_bucket(monkeypatch):
     monkeypatch.setattr(auth_check, '_run', fake_run(0, 'user=octocat'))
     monkeypatch.setattr('mini.store.store_bucket', lambda: None)
+    monkeypatch.setattr('mini.store.publish_repo', lambda: None)
     status = asyncio.run(auth_check.check_hf())
     assert status.ok and 'no store-bucket set' in status.detail
 

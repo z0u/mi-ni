@@ -85,8 +85,9 @@ def main() -> None:
         sys.exit('No HF bucket configured — set [tool.mini] store-bucket and run `./go auth`, then retry --publish.')
     for nb in nbs:
         publish_one(nb, store)
+    target = store.publish_repo or store.bucket  # exports route to the repo when a publish tier is set (#38)
     print(
-        f'\nPublished {len(nbs)} report(s) to {store.bucket}. '
+        f'\nPublished {len(nbs)} report(s) to {target}. '
         'Trigger the Pages build to update the site (push to main, or run the "Deploy Docs" workflow).'
     )
 
