@@ -164,8 +164,8 @@ def themed_figure_html(
     ``data-asset-name`` attribute on each ``<img>`` for provenance.
     """
     import base64
+    import hashlib
     import html
-    import secrets
     from io import BytesIO
 
     import matplotlib.pyplot as plt
@@ -202,7 +202,10 @@ def themed_figure_html(
     escaped_alt = html.escape(alt_text or 'Plot')
     style = f'max-width: {max_width};' if max_width is not None else ''
     escaped_style = html.escape(style)
-    class_suffix = secrets.token_hex(6)
+    # Derived from the asset name (not random) so re-exporting an unchanged report
+    # produces byte-identical HTML — a random suffix here would churn the report on
+    # every run even though the figures themselves are unchanged.
+    class_suffix = hashlib.sha256(asset_name.encode()).hexdigest()[:12]
     figure_class = f'mini-themed-figure-{class_suffix}'
     no_explicit_theme_selector = (
         'body:not([data-theme="dark"]):not([data-theme="light"])'
