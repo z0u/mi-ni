@@ -88,8 +88,9 @@ case "${1:-all}" in
     *)
         # Important: heredoc indented with tab characters.
         cat <<-EOF 1>&2
-			Usage: $0 {check|lint|format|types|tests|export|open|publish|build|scrub|serve}
+			Usage: $0 {auth|check|lint|format|types|tests|export|open|publish|build|scrub|serve}
 			  install:           install dependencies (uv sync) and git hooks
+			  auth   [--check]:  set up credentials, or --check to just probe & print their status
 			  check  [...args]:  run all checks in parallel (--lint --format --typecheck --test --fix)
 			  format [...args]:  format code (ruff format)
 			  lint   [...args]:  run linters (ruff check)
