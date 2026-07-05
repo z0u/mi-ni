@@ -461,20 +461,32 @@ def store_for(root: Path | str, *, cache_root: Path | str | None = None) -> Stor
     a fresh checkout before ``./go auth``) falls back to the local store with a
     warning rather than failing mid-run — the bucket name travels with the repo,
     but using it needs auth the trier doesn't have yet.
+
+    A :func:`publish_repo` alone (no bucket) also yields an :class:`HFStore`, but a
+    CAS-less one: it serves ``publish``/exports from the dataset repo and errors on
+    put/get/ref. That's the read-only site build's store — it reads exports off the
+    public repo, so CI needs only ``MINI_PUBLISH_REPO``, not the private bucket (#38).
     """
     root = Path(root)
-    bucket = store_bucket()
-    if bucket and (token := _hf_token()):
-        from mini.hf_store import HFStore
-
-        cache = LocalStore(cache_root if cache_root is not None else root.parent / 'store-cache' / 'hf')
-        return HFStore(bucket, cache=cache, token=token, publish_repo=publish_repo())
-    if bucket:
+    bucket, repo = store_bucket(), publish_repo()
+    token = _hf_token()
+    # A configured bucket needs a token (the CAS is usually private), so fall back to
+    # the local store rather than failing a fresh checkout mid-run. A publish-repo on
+    # its own needs no bucket — the read-only site build serves exports straight from
+    # the (public) dataset repo — so it's enough by itself to build the networked
+    # store, and CI can point at the repo without also naming the private bucket (#38).
+    if bucket and not token:
         log.warning(
             'store-bucket %r is configured but no Hugging Face token was found — using the local '
             'store instead. Run `./go auth` (or set HF_TOKEN) to read/write the shared bucket.',
             bucket,
         )
+        return LocalStore(root)
+    if bucket or repo:
+        from mini.hf_store import HFStore
+
+        cache = LocalStore(cache_root if cache_root is not None else root.parent / 'store-cache' / 'hf')
+        return HFStore(bucket, cache=cache, token=token, publish_repo=repo)
     return LocalStore(root)
 
 
