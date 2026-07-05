@@ -23,6 +23,16 @@ Three properties make this the durable, shareable tier:
 Blobs are warm-cached into a local :class:`~mini.store.LocalStore` so a re-read
 (or a re-``put`` of known bytes) skips the network. The bucket stays the source
 of truth; the cache is just an accelerator.
+
+**The publish tier can live in a separate dataset repo.** ``put``/``get``/refs run
+hot and concurrent (many workers), which is why the CAS is a bucket — buckets have
+no git history, so parallel writers never conflict. ``publish`` and report exports
+run cold and single-writer (a driver or CI), so they can afford a git-backed
+Hugging Face *dataset repo*, which buys two things a bucket can't: a **public**
+face over a **private** CAS (buckets have no per-prefix ACL, so this is a genuine
+two-store split), and **versioned names** — a citation pins to a commit sha. Set
+``publish_repo`` (``[tool.mini] publish-repo``) to route publish/exports there;
+unset, they stay in the bucket. See ``eng/publishing.md`` and issue #38.
 """
 
 from __future__ import annotations
@@ -45,8 +55,20 @@ __all__ = ['HFStore']
 class HFStore(Store):
     """A :class:`~mini.store.Store` backed by a Hugging Face bucket via ``HfApi``."""
 
-    def __init__(self, bucket: str, *, cache: LocalStore, token: str | None = None):
+    def __init__(
+        self,
+        bucket: str,
+        *,
+        cache: LocalStore,
+        token: str | None = None,
+        publish_repo: str | None = None,
+    ):
         self.bucket = bucket
+        # The public, versioned publish tier: a Hugging Face *dataset* repo (real git
+        # history → a citation pins to a commit sha) that backs publish() and report
+        # exports. ``None`` keeps both in ``bucket`` — the single-store default, which
+        # is also what makes the split opt-in and this class backend-swappable (#38).
+        self.publish_repo = publish_repo
         self._cache = cache  # local warm checkout, keyed by sha (a LocalStore)
         self._token = token or os.environ.get('HF_TOKEN')
         self._api: Any = None
@@ -87,12 +109,22 @@ class HFStore(Store):
         self.api.batch_bucket_files(self.bucket, add=[(str(src), _cas_key(sha256))])
         self._cache_blob(sha256, src)
 
-    def _read_blob(self, sha256: str, dest: Path) -> None:
+    def _local_blob(self, sha256: str) -> Path:
+        """The blob's path in the warm cache, pulled once from the CAS bucket if absent.
+
+        The single place bytes come off the bucket: :meth:`_read_blob` serves reads
+        from it, and :meth:`publish` needs a local file to hand the (separate) publish
+        repo so Xet can chunk it — the durable copy lives in the CAS, not the publish
+        tier, so publishing pulls-then-uploads rather than moving bytes server-side.
+        """
         blob = self._cache._blob_path(sha256)
         if not blob.exists():  # pull once into the warm cache, then serve locally
             blob.parent.mkdir(parents=True, exist_ok=True)
             self.api.download_bucket_files(self.bucket, files=[(_cas_key(sha256), str(blob))])
-        shutil.copyfile(blob, dest)
+        return blob
+
+    def _read_blob(self, sha256: str, dest: Path) -> None:
+        shutil.copyfile(self._local_blob(sha256), dest)
 
     def _put_tree(self, src: Path, *, name: str) -> Artifact:
         """Hash every shard locally, then upload the missing ones in **one** commit.
@@ -132,6 +164,12 @@ class HFStore(Store):
     def publish(self, art: Artifact, path: str) -> str:
         if art.kind == 'tree':
             raise ValueError('publish a single file (resolve a tree first, or publish its children)')
+        if self.publish_repo is not None:
+            return self._publish_to_repo(art, path)
+        return self._publish_to_bucket(art, path)
+
+    def _publish_to_bucket(self, art: Artifact, path: str) -> str:
+        """The single-store default: expose a CAS blob in-bucket under ``published/``."""
         info = list(self.api.get_bucket_paths_info(self.bucket, [_cas_key(art.sha256)]))
         if not info:
             raise FileNotFoundError(f'{art.sha256[:12]}… is not in the store — put() it before publish()')
@@ -141,6 +179,28 @@ class HFStore(Store):
         dest = f'published/{path}'
         self.api.batch_bucket_files(self.bucket, copy=[('bucket', self.bucket, info[0].xet_hash, dest)])
         return f'https://huggingface.co/buckets/{self.bucket}/resolve/{dest}'
+
+    def _publish_to_repo(self, art: Artifact, path: str) -> str:
+        """Expose a CAS blob on the public, versioned dataset repo (see :func:`publish_repo`).
+
+        No server-side by-hash copy exists across a bucket→repo boundary, so this
+        pulls the blob from the (possibly private) CAS into the warm cache and uploads
+        it. That's not a byte re-transfer: Xet chunk dedup is account-wide, so chunks
+        the CAS already stored aren't sent again — the upload is a metadata + git-commit
+        op. The commit is what gives the publish tier history: the returned ``resolve``
+        URL tracks the branch, and a citation can pin the same path to a commit sha.
+        """
+        if not self.has(art.sha256):
+            raise FileNotFoundError(f'{art.sha256[:12]}… is not in the store — put() it before publish()')
+        dest = f'published/{path}'
+        self.api.upload_file(
+            path_or_fileobj=str(self._local_blob(art.sha256)),
+            path_in_repo=dest,
+            repo_id=self.publish_repo,
+            repo_type='dataset',
+            commit_message=f'publish {path}',
+        )
+        return f'https://huggingface.co/datasets/{self.publish_repo}/resolve/main/{dest}'
 
     # -- gc --------------------------------------------------------------------
 
@@ -192,24 +252,65 @@ class HFStore(Store):
 
     def export_base(self, key: str) -> str:
         """The ``<base href>`` a published report's relative ``_assets/`` resolve against."""
+        if self.publish_repo is not None:
+            return f'https://huggingface.co/datasets/{self.publish_repo}/resolve/main/exports/{key}/'
         return f'https://huggingface.co/buckets/{self.bucket}/resolve/exports/{key}/'
 
     def sync_export(self, local_dir: Path, key: str) -> None:
-        """Mirror a report's local export dir to bucket ``exports/<key>/`` (delete stale).
+        """Mirror a report's local export dir to ``exports/<key>/`` (delete stale).
 
-        rsync-like (``sync_bucket``), so a re-export overwrites in place and drops assets
-        the report no longer references — the per-report bundle is the sync unit.
+        rsync-like — a re-export overwrites in place and drops assets the report no
+        longer references — with the per-report bundle as the sync unit. On the bucket
+        that's ``sync_bucket``; on the dataset repo it's one commit whose
+        ``delete_patterns`` prunes the bundle's now-absent files.
         """
+        if self.publish_repo is not None:
+            self.api.upload_folder(
+                folder_path=str(local_dir),
+                path_in_repo=f'exports/{key}',
+                repo_id=self.publish_repo,
+                repo_type='dataset',
+                delete_patterns='*',
+                commit_message=f'export {key}',
+            )
+            return
         self.api.sync_bucket(source=str(local_dir), dest=f'hf://buckets/{self.bucket}/exports/{key}', delete=True)
 
     def fetch_export(self, key: str, dest: Path) -> bool:
-        """Download bucket ``exports/<key>/`` into *dest*; ``False`` if nothing is synced.
+        """Download ``exports/<key>/`` into *dest*; ``False`` if nothing is synced.
 
         The build reads exports back this way — read-only, no notebook execution — so a
         report missing here just means it hasn't been ``./go publish``ed yet.
         """
+        if self.publish_repo is not None:
+            return self._fetch_export_from_repo(key, dest)
         if not self._remote_has(f'exports/{key}/index.html'):
             return False
         dest.mkdir(parents=True, exist_ok=True)
         self.api.sync_bucket(source=f'hf://buckets/{self.bucket}/exports/{key}', dest=str(dest))
+        return True
+
+    def _fetch_export_from_repo(self, key: str, dest: Path) -> bool:
+        from huggingface_hub import snapshot_download
+
+        repo = self.publish_repo
+        assert repo is not None  # only reached from fetch_export when the publish tier is a repo
+        prefix = f'exports/{key}'
+        if not self.api.file_exists(repo_id=repo, filename=f'{prefix}/index.html', repo_type='dataset'):
+            return False
+        dest.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory() as d:
+            snap = snapshot_download(
+                repo_id=repo,
+                repo_type='dataset',
+                allow_patterns=f'{prefix}/*',
+                local_dir=d,
+                token=self._token,
+            )
+            src = Path(snap) / prefix
+            for p in src.rglob('*'):  # lift the bundle out of its exports/<key>/ prefix into dest
+                if p.is_file():
+                    out = dest / p.relative_to(src)
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(p, out)
         return True

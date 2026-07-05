@@ -136,10 +136,24 @@ url = store.publish(art, f'reports/{exp}/loss.png')
 `LocalStore` returns a `file://` URL (the published view lives under the project
 store). With `MINI_STORE_BUCKET` set, `HFStore` returns a real `https://` resolve
 URL for the same handle — a server-side copy *by xet hash* (no bytes moved) to an
-extensioned path, served with a `Content-Type` from that extension. The bucket is
-**public**, so `publish` is the deliberate outward step; the durable CAS only goes
-public because we share one bucket for now (a private store + public publish bucket
-is a later split — see `todo.md`).
+extensioned path, served with a `Content-Type` from that extension.
+
+By default the CAS and the published views share one bucket, so persisting an
+artifact and publishing it land in the same (public-if-the-bucket-is) store. To keep
+the CAS **private** while published views stay public *and* gain version history, set
+a separate publish tier:
+
+```toml
+[tool.mini]
+store-bucket = "your-namespace/your-bucket"        # private CAS + refs
+publish-repo = "your-namespace/your-publish-repo"   # public, versioned dataset repo
+```
+
+With `publish-repo` set, `publish`/report-exports route to that dataset repo (a
+citation can pin to `…/resolve/<commit-sha>/…`); `put`/`get`/refs stay in the bucket.
+It costs no extra storage — Xet dedups chunks account-wide — so publishing is a
+commit, not a byte re-transfer. See [`eng/publishing.md`](../../../../eng/publishing.md)
+and issue #38 for the design.
 
 **Reports don't call `publish` directly** — they go through a report bundle
 (`use_publisher` + `asset_url`, and the publish/build split): [reports.md](./reports.md).

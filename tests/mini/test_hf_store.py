@@ -21,10 +21,17 @@ import pytest
 from mini.store import _cas_key
 
 BUCKET = os.environ.get('MINI_STORE_BUCKET')
+PUBLISH_REPO = os.environ.get('MINI_PUBLISH_REPO')
 
 pytestmark = pytest.mark.skipif(
     not (BUCKET and os.environ.get('HF_TOKEN')),
     reason='set MINI_STORE_BUCKET + HF_TOKEN to run the HF bucket integration test',
+)
+
+# The publish-tier cases also need a (public) dataset repo — see the split in #38.
+repo_publish = pytest.mark.skipif(
+    not (BUCKET and PUBLISH_REPO and os.environ.get('HF_TOKEN')),
+    reason='also set MINI_PUBLISH_REPO to run the publish-repo integration test',
 )
 
 
@@ -109,3 +116,72 @@ def test_export_round_trips_over_the_bucket(hf, tmp_path: Path):
     assert (dest / 'index.html').read_text().endswith(tag)
     assert (dest / '_assets' / 'fig.png').read_bytes().endswith(tag.encode())
     assert store.export_base(key) == f'https://huggingface.co/buckets/{BUCKET}/resolve/exports/{key}/'
+
+
+# -- publish tier on a dataset repo (the private-CAS / public-publish split, #38) -----
+
+
+@pytest.fixture
+def hf_repo(tmp_path: Path):
+    """An HFStore whose CAS is the bucket but whose publish tier is a dataset repo.
+
+    Cleans up both sides: the ``cas/`` blobs it wrote to the bucket and the
+    ``published/`` / ``exports/`` files it committed to the repo.
+    """
+    from huggingface_hub import HfApi
+
+    from mini.hf_store import HFStore
+    from mini.store import LocalStore
+
+    assert BUCKET is not None and PUBLISH_REPO is not None  # narrowed by the repo_publish skip
+    tag = secrets.token_hex(4)
+    store = HFStore(BUCKET, cache=LocalStore(tmp_path / 'cache'), publish_repo=PUBLISH_REPO)
+    cas_created: list[str] = []
+    repo_paths: list[str] = []
+    yield store, tag, cas_created, repo_paths
+    api = HfApi(token=os.environ['HF_TOKEN'])
+    if cas_created:
+        api.batch_bucket_files(BUCKET, delete=sorted(set(cas_created)))
+    for p in sorted(set(repo_paths)):
+        try:
+            api.delete_file(path_in_repo=p, repo_id=PUBLISH_REPO, repo_type='dataset')
+        except Exception:  # a test that failed before the upload left nothing to delete
+            pass
+
+
+@repo_publish
+def test_publish_lands_on_the_dataset_repo(hf_repo):
+    store, tag, cas_created, repo_paths = hf_repo
+    png = b'\x89PNG\r\n\x1a\n' + tag.encode()
+    art = store.put(png, name='fig.png')  # into the CAS bucket
+    cas_created.append(_cas_key(art.sha256))
+    path = f'_test/{tag}/fig.png'
+    url = store.publish(art, path)  # copy-through into the public repo
+    repo_paths.append(f'published/{path}')
+
+    assert url == f'https://huggingface.co/datasets/{PUBLISH_REPO}/resolve/main/published/{path}'
+    import requests
+
+    r = requests.get(url, timeout=30)
+    assert r.status_code == 200
+    assert r.content == png  # the resolve URL serves the published bytes back
+
+
+@repo_publish
+def test_export_round_trips_over_the_repo(hf_repo, tmp_path: Path):
+    store, tag, cas_created, repo_paths = hf_repo
+    key = f'_test/{tag}/report'
+    src = tmp_path / 'export'
+    (src / '_assets').mkdir(parents=True)
+    (src / 'index.html').write_text(f'<img src="_assets/fig.png"> {tag}')
+    (src / '_assets' / 'fig.png').write_bytes(b'\x89PNG\r\n\x1a\n' + tag.encode())
+
+    assert store.fetch_export(key, tmp_path / 'miss') is False  # nothing committed yet
+    store.sync_export(src, key)
+    repo_paths += [f'exports/{key}/index.html', f'exports/{key}/_assets/fig.png']
+
+    dest = tmp_path / 'pulled'
+    assert store.fetch_export(key, dest) is True
+    assert (dest / 'index.html').read_text().endswith(tag)
+    assert (dest / '_assets' / 'fig.png').read_bytes().endswith(tag.encode())
+    assert store.export_base(key) == f'https://huggingface.co/datasets/{PUBLISH_REPO}/resolve/main/exports/{key}/'

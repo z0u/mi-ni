@@ -39,12 +39,14 @@ from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
 from mini.runs import data_root
 from mini.store import (
+    PUBLISH_REPO_ENV,
     STORE_BUCKET_ENV,
     Artifact,
     LocalStore,
     Store,
     _cas_key,
     _hf_token,
+    publish_repo,
     store_bucket,
     store_context,
     store_for,
@@ -320,7 +322,10 @@ def _hf_store_secret() -> modal.Secret | None:
     token = _hf_token()  # env, or the cached `hf auth login`
     if not token:
         return None
-    return modal.Secret.from_dict({STORE_BUCKET_ENV: bucket, 'HF_TOKEN': token})
+    env: dict[str, str | None] = {STORE_BUCKET_ENV: bucket, 'HF_TOKEN': token}
+    if repo := publish_repo():  # so an in-step publish() targets the same tier as the driver
+        env[PUBLISH_REPO_ENV] = repo
+    return modal.Secret.from_dict(env)
 
 
 def _modal_task_entry(blob: bytes, key: str, gen: str, dict_name: str, volume_name: str, mount_point: str) -> None:

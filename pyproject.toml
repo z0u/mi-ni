@@ -68,6 +68,14 @@ pages = [
 # with MINI_STORE_BUCKET. Unset → the store stays local (no network).
 # store-bucket = "your-namespace/your-bucket"
 
+# The public, versioned publish tier: a Hugging Face *dataset repo* that backs
+# `publish()` and report exports. Set this to keep the CAS bucket above private
+# (persisting an artifact never makes its bytes world-readable) while published
+# views stay public and gain git history — a citation pins to a commit sha.
+# Unset → publish/exports stay in the bucket (the single-store default). Override
+# per-shell with MINI_PUBLISH_REPO. See eng/publishing.md and issue #38.
+# publish-repo = "your-namespace/your-publish-repo"
+
 [tool.uv]
 # Dependency cooldown to mitigate risk of supply chain attacks.
 # https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns
