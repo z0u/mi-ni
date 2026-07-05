@@ -225,6 +225,29 @@ def test_store_for_falls_back_to_local_without_token(tmp_path: Path, monkeypatch
     assert isinstance(store_for(tmp_path / 'store'), LocalStore)
 
 
+def test_store_for_builds_a_publish_only_store_from_a_repo_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A publish-repo with no bucket → a CAS-less HFStore for read-only export serving (the CI build)."""
+    from mini.hf_store import HFStore
+
+    monkeypatch.setattr('mini.store.store_bucket', lambda: None)  # no CAS bucket configured
+    monkeypatch.setattr('mini.store.publish_repo', lambda: 'ns/pub')
+    monkeypatch.setattr('mini.store._hf_token', lambda: None)  # a public repo needs no token
+    store = store_for(tmp_path / 'store')
+    assert isinstance(store, HFStore)
+    assert store.bucket is None and store.publish_repo == 'ns/pub'
+    # It can still serve exports — that's the whole point (build reads exports off the repo).
+    assert store.export_base('demo') == 'https://huggingface.co/datasets/ns/pub/resolve/main/exports/demo/'
+
+
+def test_publish_only_store_errors_on_cas_operations(tmp_path: Path):
+    """A CAS-less store names the missing config rather than failing opaquely on the bucket call."""
+    from mini.hf_store import HFStore
+
+    store = HFStore(None, cache=LocalStore(tmp_path / 'cache'), publish_repo='ns/pub')
+    with pytest.raises(RuntimeError, match='no CAS bucket'):
+        store.list_refs()
+
+
 def test_store_for_uses_bucket_with_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from mini.hf_store import HFStore
 

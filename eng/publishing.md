@@ -83,6 +83,10 @@ Two further decisions:
   and a report accumulates no orphans (the name is also what a browser "Save as"
   suggests, since the bucket sets no `Content-Disposition`).
 - **Publish/build split by trigger.** `./go publish` (authenticated, runs the notebook,
-  writes the bucket) is the heavy half; the CI build is **read-only** — it pulls each
-  bundle, resolves links, inserts the `<base>`, and never writes the bucket or runs a
-  notebook, so a read-only token suffices.
+  writes the store) is the heavy half; the CI build is **read-only** — it pulls each
+  bundle, resolves links, inserts the `<base>`, and never writes or runs a notebook, so
+  a read-only token suffices. When the publish tier is split off (#38) the build reads
+  exports straight from the public dataset repo and never touches the CAS, so CI needs
+  only `MINI_PUBLISH_REPO` — not the (now private) bucket. `store_for` builds a CAS-less
+  store from a `publish-repo` alone for exactly this; the single-bucket default still
+  serves the build off `MINI_STORE_BUCKET`. Set whichever your store layout uses.

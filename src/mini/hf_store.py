@@ -57,12 +57,16 @@ class HFStore(Store):
 
     def __init__(
         self,
-        bucket: str,
+        bucket: str | None,
         *,
         cache: LocalStore,
         token: str | None = None,
         publish_repo: str | None = None,
     ):
+        # ``None`` is the publish-only store: no CAS bucket, just the dataset repo
+        # for reading/serving exports (the read-only site build, which never touches
+        # the CAS). CAS/ref operations raise via :attr:`_cas`. A publish_repo must be
+        # set in that case — ``store_for`` only builds this with a bucket *or* a repo.
         self.bucket = bucket
         # The public, versioned publish tier: a Hugging Face *dataset* repo (real git
         # history → a citation pins to a commit sha) that backs publish() and report
@@ -81,6 +85,21 @@ class HFStore(Store):
             self._api = HfApi(token=self._token)
         return self._api
 
+    @property
+    def _cas(self) -> str:
+        """The bucket backing the CAS/refs — or a clear error if this store is publish-only.
+
+        A store built from a publish-repo alone (no ``store-bucket``) can serve exports
+        but has nowhere to put/get blobs, so every CAS/ref path narrows through here.
+        """
+        if self.bucket is None:
+            raise RuntimeError(
+                'this store has no CAS bucket — it was built from a publish-repo alone '
+                '(read-only export serving). Set store-bucket (or MINI_STORE_BUCKET) to '
+                'put/get/ref against the content-addressed store.'
+            )
+        return self.bucket
+
     # -- existence / cache ----------------------------------------------------
 
     def _remote_has(self, path: str) -> bool:
@@ -90,7 +109,7 @@ class HFStore(Store):
         from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 
         try:
-            return any(True for _ in self.api.get_bucket_paths_info(self.bucket, [path]))
+            return any(True for _ in self.api.get_bucket_paths_info(self._cas, [path]))
         except EntryNotFoundError, RepositoryNotFoundError:
             return False
 
@@ -106,7 +125,7 @@ class HFStore(Store):
     def _write_blob(self, sha256: str, src: Path) -> None:
         # Reached only on a cache+remote miss (the base ``put`` checks ``has``
         # first); Xet still dedups the chunks if the bytes happen to exist.
-        self.api.batch_bucket_files(self.bucket, add=[(str(src), _cas_key(sha256))])
+        self.api.batch_bucket_files(self._cas, add=[(str(src), _cas_key(sha256))])
         self._cache_blob(sha256, src)
 
     def _local_blob(self, sha256: str) -> Path:
@@ -120,7 +139,7 @@ class HFStore(Store):
         blob = self._cache._blob_path(sha256)
         if not blob.exists():  # pull once into the warm cache, then serve locally
             blob.parent.mkdir(parents=True, exist_ok=True)
-            self.api.download_bucket_files(self.bucket, files=[(_cas_key(sha256), str(blob))])
+            self.api.download_bucket_files(self._cas, files=[(_cas_key(sha256), str(blob))])
         return blob
 
     def _read_blob(self, sha256: str, dest: Path) -> None:
@@ -141,14 +160,14 @@ class HFStore(Store):
                 add.append((str(p), _cas_key(sha)))
             self._cache_blob(sha, p)
         if add:
-            self.api.batch_bucket_files(self.bucket, add=add)  # one round trip for the set
+            self.api.batch_bucket_files(self._cas, add=add)  # one round trip for the set
         kids = tuple(children)
         return Artifact(sha256=_tree_sha(kids), size=sum(c.size for c in kids), name=name, kind='tree', children=kids)
 
     # -- refs -----------------------------------------------------------------
 
     def _write_ref(self, name: str, payload: str) -> None:
-        self.api.batch_bucket_files(self.bucket, add=[(payload.encode(), f'refs/{name}.json')])
+        self.api.batch_bucket_files(self._cas, add=[(payload.encode(), f'refs/{name}.json')])
 
     def _read_ref(self, name: str) -> str | None:
         path = f'refs/{name}.json'
@@ -156,7 +175,7 @@ class HFStore(Store):
             return None
         with tempfile.TemporaryDirectory() as d:  # cleaned up, unlike a bare mkdtemp
             tmp = Path(d) / 'ref.json'
-            self.api.download_bucket_files(self.bucket, files=[(path, str(tmp))])
+            self.api.download_bucket_files(self._cas, files=[(path, str(tmp))])
             return tmp.read_text()
 
     # -- publish --------------------------------------------------------------
@@ -170,15 +189,16 @@ class HFStore(Store):
 
     def _publish_to_bucket(self, art: Artifact, path: str) -> str:
         """The single-store default: expose a CAS blob in-bucket under ``published/``."""
-        info = list(self.api.get_bucket_paths_info(self.bucket, [_cas_key(art.sha256)]))
+        bucket = self._cas
+        info = list(self.api.get_bucket_paths_info(bucket, [_cas_key(art.sha256)]))
         if not info:
             raise FileNotFoundError(f'{art.sha256[:12]}… is not in the store — put() it before publish()')
         # Server-side copy *by xet hash*: a metadata op, no bytes moved. The
         # extensioned destination is what makes the resolve URL serve a real
         # Content-Type (a bare cas/<sha> has none).
         dest = f'published/{path}'
-        self.api.batch_bucket_files(self.bucket, copy=[('bucket', self.bucket, info[0].xet_hash, dest)])
-        return f'https://huggingface.co/buckets/{self.bucket}/resolve/{dest}'
+        self.api.batch_bucket_files(bucket, copy=[('bucket', bucket, info[0].xet_hash, dest)])
+        return f'https://huggingface.co/buckets/{bucket}/resolve/{dest}'
 
     def _publish_to_repo(self, art: Artifact, path: str) -> str:
         """Expose a CAS blob on the public, versioned dataset repo (see :func:`publish_repo`).
@@ -210,7 +230,7 @@ class HFStore(Store):
         from huggingface_hub.errors import EntryNotFoundError
 
         try:
-            yield from self.api.list_bucket_tree(self.bucket, prefix=prefix, recursive=True)
+            yield from self.api.list_bucket_tree(self._cas, prefix=prefix, recursive=True)
         except EntryNotFoundError:
             return
 
@@ -227,7 +247,7 @@ class HFStore(Store):
     def delete_blobs(self, sha256s: Iterable[str]) -> None:
         shas = list(sha256s)
         for i in range(0, len(shas), 500):  # one commit per chunk, not per blob
-            self.api.batch_bucket_files(self.bucket, delete=[_cas_key(s) for s in shas[i : i + 500]])
+            self.api.batch_bucket_files(self._cas, delete=[_cas_key(s) for s in shas[i : i + 500]])
         # Purge the warm cache too: a stale local copy would make ``has`` claim
         # the bucket still holds bytes it no longer does, and a later ``put`` of
         # the same content would silently skip the re-upload.

@@ -40,18 +40,21 @@ jobs:
 
       - name: Build Site
         # Read-only, deterministic half of publishing: build_site pulls each synced
-        # bundle from the publish tier (the dataset repo when MINI_PUBLISH_REPO is set,
-        # else the bucket), resolves author links against this checkout, inserts one
-        # <base href> at exports/<key>/, and writes the HTML into _site. The assets stay
-        # on the CDN; the agent did the export+upload (`./go publish`). A read-only
-        # HF_TOKEN suffices — this job never writes or runs a notebook. (A report not yet
-        # published is skipped with a warning, not an error.)
+        # bundle from the publish tier, resolves author links against this checkout,
+        # inserts one <base href> at exports/<key>/, and writes the HTML into _site. The
+        # assets stay on the CDN; the agent did the export+upload (`./go publish`). A
+        # read-only HF_TOKEN suffices — this job never writes or runs a notebook. (A
+        # report not yet published is skipped with a warning, not an error.)
+        #
+        # Set *whichever* variable matches your store layout — an undefined repo variable
+        # expands to '' and is treated as unset, so leaving one blank is fine:
+        #   - split store (#38): MINI_PUBLISH_REPO alone → serve exports off the public
+        #     dataset repo (the bucket can be private; the build never reads it).
+        #   - single bucket (default): MINI_STORE_BUCKET → serve exports off the bucket.
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          MINI_STORE_BUCKET: ${{ vars.MINI_STORE_BUCKET }}
-          # Set the MINI_PUBLISH_REPO repo variable to serve the site off the public
-          # dataset repo — required once the CAS bucket is flipped private (#38).
           MINI_PUBLISH_REPO: ${{ vars.MINI_PUBLISH_REPO }}
+          MINI_STORE_BUCKET: ${{ vars.MINI_STORE_BUCKET }}
         run: ./go build
 
       - name: Setup Pages
