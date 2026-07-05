@@ -5,9 +5,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 URL_MODE=open
+CHECK=
 for arg in "$@"; do
-    [[ "$arg" == "--qr" ]] && URL_MODE=qr
+    case "$arg" in
+        --qr) URL_MODE=qr ;;
+        --check|--status|-c) CHECK=1 ;;
+    esac
 done
+
+# `--check`: just probe the tokens (in parallel) and print their statuses —
+# no interactive setup, no secrets echoed. Handy for confirming Modal/HF are
+# already authenticated without poking the raw tools.
+if [[ -n "$CHECK" ]]; then
+    exec uv run "$SCRIPT_DIR/auth_check.py"
+fi
 
 intercept() {
     uv run "$SCRIPT_DIR/intercept_urls.py" "--$URL_MODE" "$@"
