@@ -81,15 +81,15 @@ def test_hf_not_logged_in(monkeypatch):
     assert not status.ok
 
 
-def test_wandb_reads_entity_from_json(monkeypatch):
-    out = '{\n  "api_key": "secret",\n  "entity": "acme"\n}'
-    monkeypatch.setattr(auth_check, '_run', fake_run(0, out))
+def test_wandb_reads_username_from_login(monkeypatch):
+    err = 'wandb: Currently logged in as: acme to https://api.wandb.ai. Use `wandb login --relogin` to force relogin'
+    monkeypatch.setattr(auth_check, '_run', fake_run(0, '', err))
     status = asyncio.run(auth_check.check_wandb())
-    assert status.ok and status.detail == 'entity acme'
+    assert status.ok and status.detail == 'user acme'
 
 
-def test_wandb_null_api_key_is_failure(monkeypatch):
-    monkeypatch.setattr(auth_check, '_run', fake_run(0, '{"api_key": null, "entity": null}'))
+def test_wandb_not_logged_in_is_failure(monkeypatch):
+    monkeypatch.setattr(auth_check, '_run', fake_run(1, '', 'Error: No API key configured.'))
     status = asyncio.run(auth_check.check_wandb())
     assert not status.ok and 'no API key' in status.detail
 

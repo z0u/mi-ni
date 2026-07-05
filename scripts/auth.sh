@@ -34,8 +34,9 @@ if ! uv run modal token info &>/dev/null; then
 fi
 echo "✅ Modal authenticated"
 
-# WandB
-if uv run wandb status 2>/dev/null | grep -q '"api_key": null'; then
+# WandB — `wandb login` (no key) checks WANDB_API_KEY, the settings file, and
+# ~/.netrc in order and is a no-op if any already has credentials.
+if ! uv run wandb login </dev/null &>/dev/null; then
     intercept wandb login
 fi
 echo "✅ WandB authenticated"

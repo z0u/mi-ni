@@ -21,13 +21,16 @@ Pull requests: If the principal (user) is a _collaborator_ on the repository, om
 - Prefer brevity.
 - Use single quotes for strings, except for multiline strings.
 
-Don't get distracted by unfamiliar syntax, e.g.:
+This is valid syntax in Python 3.14:
 
 ```python
+try:
+    pass
 except A, B:  # PEP 758
+    pass
 ```
 
-If the linters say it's fine, it's probably fine.
+Do not get distracted by such things. If the linters say it's fine, it's probably fine, so move on.
 
 ### Typing
 
@@ -52,3 +55,7 @@ uvx --from yq tomlq '.tool.mini' pyproject.toml
 ```
 
 Resources (compute, storage, etc.): find out what you can access with `./go auth --check`.
+
+Take care to not leak secrets into the chat transcript. To see which environment
+variables are set (e.g. "is there an `HF_*` token?"), use `compgen -v HF_` (bash
+builtin).
