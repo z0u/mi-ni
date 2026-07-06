@@ -10,7 +10,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 
-Stylesheet = Literal['base', 'light', 'dark', 'transparent'] | Mapping[str, str]
+Stylesheet = Literal["base", "light", "dark", "transparent"] | Mapping[str, str]
 
 
 @contextmanager
@@ -21,10 +21,10 @@ def use_style(*styles: Stylesheet):
     will resolve against it inside the block.
     """
     with mpl.rc_context():
-        stylesheet_dir = Path(__file__).parent / 'mplstyles'
+        stylesheet_dir = Path(__file__).parent / "mplstyles"
         for style in styles:
             if isinstance(style, Mapping):
                 plt.style.use(dict(style))
             else:
-                plt.style.use(stylesheet_dir / f'{style}.mplstyle')
+                plt.style.use(stylesheet_dir / f"{style}.mplstyle")
         yield

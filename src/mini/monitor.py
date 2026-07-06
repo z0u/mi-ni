@@ -33,27 +33,27 @@ from mini.memo import PollCache
 from mini.orchestration import BudgetExpired, tick
 from mini.runs import SETTLED, RunState, is_queued
 
-__all__ = ['drive_and_watch', 'watch']
+__all__ = ["drive_and_watch", "watch"]
 
 _COLOR = {
-    RunState.RUNNING: 'cyan',
-    RunState.DONE: 'green',
-    RunState.FAILED: 'red',
-    RunState.CANCELLED: 'yellow',
+    RunState.RUNNING: "cyan",
+    RunState.DONE: "green",
+    RunState.FAILED: "red",
+    RunState.CANCELLED: "yellow",
 }
-_QUEUED_COLOR = 'blue'  # launched but no worker yet (RUNNING record, no env)
+_QUEUED_COLOR = "blue"  # launched but no worker yet (RUNNING record, no env)
 
 
 def _fmt_metrics(metrics: dict[str, float]) -> str:
-    return '  '.join(f'{k}={v:g}' for k, v in metrics.items())
+    return "  ".join(f"{k}={v:g}" for k, v in metrics.items())
 
 
 def _refresh(progress: Progress, bars: dict[str, TaskID], records: list[dict[str, Any]]) -> None:
     """Reflect the latest memo records onto the live bars (one per task key)."""
     for rec in records:
-        key = rec['key']
-        state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
-        step, total = rec.get('step', 0), rec.get('total', 0)
+        key = rec["key"]
+        state = RunState(rec["state"]) if rec.get("state") else RunState.PENDING
+        step, total = rec.get("step", 0), rec.get("total", 0)
         if state == RunState.DONE:  # prep steps emit no progress; show them full
             total = total or 1
             step = total
@@ -62,15 +62,15 @@ def _refresh(progress: Progress, bars: dict[str, TaskID], records: list[dict[str
         queued = is_queued(rec)  # RUNNING claimed, but no worker has started yet
         desc = key
         if queued:
-            desc += ' — queued'
-        if rec.get('message'):
-            desc += f' — {rec["message"]}'
-        if rec.get('metrics'):
-            desc += f'  {_fmt_metrics(rec["metrics"])}'
-        if rec.get('error'):
-            desc += f'  !! {rec["error"]}'
-        color = _QUEUED_COLOR if queued else _COLOR.get(state, 'white')
-        desc = f'[{color}]{escape(desc)}[/]'  # escape: errors/messages may hold [...]
+            desc += " — queued"
+        if rec.get("message"):
+            desc += f" — {rec['message']}"
+        if rec.get("metrics"):
+            desc += f"  {_fmt_metrics(rec['metrics'])}"
+        if rec.get("error"):
+            desc += f"  !! {rec['error']}"
+        color = _QUEUED_COLOR if queued else _COLOR.get(state, "white")
+        desc = f"[{color}]{escape(desc)}[/]"  # escape: errors/messages may hold [...]
         if key not in bars:
             bars[key] = progress.add_task(desc, total=total or None)
         progress.update(bars[key], completed=step, total=total or None, description=desc)
@@ -79,7 +79,7 @@ def _refresh(progress: Progress, bars: dict[str, TaskID], records: list[dict[str
 def _progress(console: Console | None) -> Progress:
     """The shared live-bar layout (one row per task key)."""
     return Progress(
-        TextColumn('[progress.description]{task.description}'),
+        TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
         TimeElapsedColumn(),
@@ -88,7 +88,7 @@ def _progress(console: Console | None) -> Progress:
 
 
 def _rec_state(rec: dict[str, Any]) -> RunState:
-    return RunState(rec['state']) if rec.get('state') else RunState.PENDING
+    return RunState(rec["state"]) if rec.get("state") else RunState.PENDING
 
 
 def watch(
@@ -167,7 +167,7 @@ def drive_and_watch(
                 records = cache.records(store)
                 apparatus.reap_dead(store, records)  # settle vanished workers so a kill can't wedge the drain
                 _refresh(progress, bars, records)
-                if not any(r.get('state') == RunState.RUNNING for r in records):
+                if not any(r.get("state") == RunState.RUNNING for r in records):
                     break
                 time.sleep(poll)
             # Loop back to re-tick. Any terminal-but-not-DONE task (FAILED/CANCELLED)

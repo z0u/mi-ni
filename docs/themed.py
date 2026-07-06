@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = '0.23.3'
-app = marimo.App(width='medium', auto_download=['html'])
+__generated_with = "0.23.3"
+app = marimo.App(width="medium", auto_download=["html"])
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -50,8 +50,8 @@ def _():
     @themed
     def plot_plain() -> plt.Figure:
         fig, ax = plt.subplots(figsize=(6, 3))
-        ax.plot(x, np.sin(x), color=light_dark('#1a5f8a', '#6ab0d4'), lw=2)
-        ax.set_title('sin(x)')
+        ax.plot(x, np.sin(x), color=light_dark("#1a5f8a", "#6ab0d4"), lw=2)
+        ax.set_title("sin(x)")
         return fig
 
     mo.Html(plot_plain())
@@ -71,13 +71,13 @@ def _():
 
 @app.cell
 def _(x):
-    @themed(alt_text='sin and cos')
+    @themed(alt_text="sin and cos")
     def plot_factory() -> plt.Figure:
         fig, ax = plt.subplots(figsize=(6, 3))
-        color_sin = light_dark('#1a5f8a', '#6ab0d4')
-        color_cos = light_dark('#8a3a1a', '#d49a6a')
-        ax.plot(x, np.sin(x), color=color_sin, lw=2, label='sin')
-        ax.plot(x, np.cos(x), color=color_cos, lw=2, label='cos')
+        color_sin = light_dark("#1a5f8a", "#6ab0d4")
+        color_cos = light_dark("#8a3a1a", "#d49a6a")
+        ax.plot(x, np.sin(x), color=color_sin, lw=2, label="sin")
+        ax.plot(x, np.cos(x), color=color_cos, lw=2, label="cos")
         ax.legend()
         return fig
 
@@ -99,13 +99,13 @@ def _():
 def _(x):
     def _plot_raw() -> plt.Figure:
         fig, ax = plt.subplots(figsize=(6, 3))
-        ax.plot(x, np.sin(x) * np.exp(-x / 6), color=light_dark('#2a6e3a', '#7ad49a'), lw=2)
-        ax.set_title('Damped sine')
+        ax.plot(x, np.sin(x) * np.exp(-x / 6), color=light_dark("#2a6e3a", "#7ad49a"), lw=2)
+        ax.set_title("Damped sine")
         return fig
 
-    mo.Html(themed(_plot_raw, alt_text='Damped sine wave')())
+    mo.Html(themed(_plot_raw, alt_text="Damped sine wave")())
     return
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()

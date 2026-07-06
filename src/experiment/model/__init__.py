@@ -13,13 +13,13 @@ from experiment.model._shared import Generation, LanguageModel, SingleGeneration
 from experiment.model.gpt import GPT
 from experiment.model.ngpt import NGPT
 
-__all__ = ['GPT', 'NGPT', 'Generation', 'LanguageModel', 'SingleGeneration', 'build_model']
+__all__ = ["GPT", "NGPT", "Generation", "LanguageModel", "SingleGeneration", "build_model"]
 
 
 def build_model(config: ModelConfig, *, key: PRNGKeyArray) -> LanguageModel:
     """Construct the model variant named by `config.architecture`."""
     match config.architecture:
-        case 'gpt':
+        case "gpt":
             return GPT(config, key=key)
-        case 'ngpt':
+        case "ngpt":
             return NGPT(config, key=key)

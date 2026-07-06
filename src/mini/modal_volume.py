@@ -11,7 +11,7 @@ import modal
 
 from mini.volume import PathLike, Volume
 
-__all__ = ['ModalVolume']
+__all__ = ["ModalVolume"]
 
 
 class ModalVolume(Volume):
@@ -22,7 +22,7 @@ class ModalVolume(Volume):
     mount point is created by Modal automatically when the volume is attached.
     """
 
-    def __init__(self, name: str, mount_point: str = '/vol', *, create: bool = True):
+    def __init__(self, name: str, mount_point: str = "/vol", *, create: bool = True):
         # ``create=False`` for read-only peeks (gc's mark phase): a look at an
         # experiment's volume must not mint an empty one on Modal.
         self._mount_point = Path(mount_point)
@@ -82,7 +82,7 @@ class ModalVolume(Volume):
         if len(entries) == 1 and entries[0].path == str(remote):
             # Single file
             dst.parent.mkdir(parents=True, exist_ok=True)
-            with open(dst, 'wb') as f:
+            with open(dst, "wb") as f:
                 async for chunk in self._modal_volume.read_file.aio(str(remote)):
                     f.write(chunk)
         else:
@@ -91,8 +91,8 @@ class ModalVolume(Volume):
             for entry in entries:
                 entry_remote = PurePosixPath(entry.path)
                 entry_local = dst / entry_remote.relative_to(remote)
-                if entry.type.name == 'FILE':
+                if entry.type.name == "FILE":
                     entry_local.parent.mkdir(parents=True, exist_ok=True)
-                    with open(entry_local, 'wb') as f:
+                    with open(entry_local, "wb") as f:
                         async for chunk in self._modal_volume.read_file.aio(entry.path):
                             f.write(chunk)

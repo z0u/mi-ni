@@ -40,25 +40,25 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 __all__ = [
-    'Publisher',
-    'report_bundle',
-    'export_key',
-    'export_dir',
-    'is_report_notebook',
-    'report_notebooks',
-    'SOURCE_ONLY_MARKER',
-    'use_publisher',
-    'current_publisher',
-    'relative_urls',
-    'stray_links',
-    'rewrite_links',
-    'insert_base',
-    'set_theme',
-    'set_banner',
+    "Publisher",
+    "report_bundle",
+    "export_key",
+    "export_dir",
+    "is_report_notebook",
+    "report_notebooks",
+    "SOURCE_ONLY_MARKER",
+    "use_publisher",
+    "current_publisher",
+    "relative_urls",
+    "stray_links",
+    "rewrite_links",
+    "insert_base",
+    "set_theme",
+    "set_banner",
 ]
 
 # Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
-_ROOT_MARKERS = ('pyproject.toml', '.git')
+_ROOT_MARKERS = ("pyproject.toml", ".git")
 
 log = logging.getLogger(__name__)
 
@@ -70,8 +70,8 @@ log = logging.getLogger(__name__)
 
 def _safe_leaf(name: str) -> str:
     """A filesystem/URL-safe leaf filename from *name* (its readable download name)."""
-    leaf = re.sub(r'[^A-Za-z0-9._-]', '-', PurePosixPath(name).name)
-    return leaf or 'asset'
+    leaf = re.sub(r"[^A-Za-z0-9._-]", "-", PurePosixPath(name).name)
+    return leaf or "asset"
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,7 @@ class Publisher:
     """
 
     asset_dir: Path
-    link: str = '_assets'
+    link: str = "_assets"
     # name -> sha of what we wrote under it this export, so a second *different*
     # blob under the same name is caught rather than silently clobbering.
     _written: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
@@ -110,16 +110,16 @@ class Publisher:
         sha = hashlib.sha256(blob).hexdigest()
         if (prev := self._written.get(leaf)) is not None and prev != sha:
             raise ValueError(
-                f'two different assets written as {leaf!r} in one report — pass a distinct '
-                'name= to disambiguate (the asset name is the stable URL now, with no content hash)'
+                f"two different assets written as {leaf!r} in one report — pass a distinct "
+                "name= to disambiguate (the asset name is the stable URL now, with no content hash)"
             )
         self._written[leaf] = sha
         dest = self.asset_dir / leaf
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(f'{leaf}.tmp')
+        tmp = dest.with_name(f"{leaf}.tmp")
         tmp.write_bytes(blob)
         tmp.replace(dest)  # atomic + overwrite-in-place: a re-render replaces, never piles up
-        return f'{self.link}/{leaf}'
+        return f"{self.link}/{leaf}"
 
 
 def _project_root(start: Path) -> Path:
@@ -148,13 +148,13 @@ def export_key(notebook_file: str | Path) -> str:
     its URL ``<key>/`` — so each report is one independently syncable bundle.
     """
     p = Path(notebook_file).resolve()
-    docs = _project_root(p) / 'docs'
+    docs = _project_root(p) / "docs"
     try:
         rel = p.relative_to(docs)
     except ValueError:
         rel = Path(p.name)
-    key = rel.with_suffix('')
-    if key.name == 'report' and key.parent != Path('.'):
+    key = rel.with_suffix("")
+    if key.name == "report" and key.parent != Path("."):
         key = key.parent  # a directory's canonical report drops the redundant /report
     return key.as_posix()
 
@@ -166,7 +166,7 @@ def export_dir(notebook_file: str | Path) -> Path:
     Kept under ``.mini`` (already gitignored) so exported HTML never enters Git.
     """
     p = Path(notebook_file).resolve()
-    return _project_root(p) / '.mini' / 'exports' / export_key(p)
+    return _project_root(p) / ".mini" / "exports" / export_key(p)
 
 
 # A docs notebook carrying this marker is a source-only *example*, not a rendered
@@ -175,7 +175,7 @@ def export_dir(notebook_file: str | Path) -> Path:
 # read-from-store report model — e.g. ``docs/gpt.py`` trains inline on every run, so
 # exporting it would re-run the whole experiment. Put it in a cell the notebook tool
 # preserves (e.g. the setup block), since the text is matched literally.
-SOURCE_ONLY_MARKER = 'mini:source-only'
+SOURCE_ONLY_MARKER = "mini:source-only"
 
 
 def is_report_notebook(path: str | Path) -> bool:
@@ -188,21 +188,21 @@ def is_report_notebook(path: str | Path) -> bool:
     set — a report is on the site iff its ``.py`` is in the repo and its bundle is synced.
     """
     p = Path(path)
-    if p.suffix != '.py':
+    if p.suffix != ".py":
         return False
     try:
-        text = p.read_text('utf-8', errors='ignore')
+        text = p.read_text("utf-8", errors="ignore")
     except OSError:
         return False
-    return 'marimo.App(' in text and SOURCE_ONLY_MARKER not in text
+    return "marimo.App(" in text and SOURCE_ONLY_MARKER not in text
 
 
 def report_notebooks(docs: str | Path) -> list[Path]:
     """Every Marimo report notebook under *docs* (sorted); see :func:`is_report_notebook`."""
-    return sorted(p for p in Path(docs).rglob('*.py') if is_report_notebook(p))
+    return sorted(p for p in Path(docs).rglob("*.py") if is_report_notebook(p))
 
 
-def report_bundle(notebook_file: str | Path, *, link: str = '_assets') -> Publisher:
+def report_bundle(notebook_file: str | Path, *, link: str = "_assets") -> Publisher:
     """A :class:`Publisher` writing assets beside a report's exported HTML.
 
     A report exports to its own self-contained dir :func:`export_dir` (HTML as
@@ -248,7 +248,7 @@ _URL_ATTR = re.compile(r'(?:src|href)\s*=\s*\\?["\']([^"\'\\]+)')
 # A URL is "external/anchored" (not a relative path we'd resolve against a base) if it
 # carries a scheme (``https:``, ``data:``, ``mailto:``…), is protocol-relative (``//``),
 # or is a bare fragment (``#cell-id``).
-_ANCHORED = re.compile(r'(?:[a-z][a-z0-9+.\-]*:|//|#)', re.IGNORECASE)
+_ANCHORED = re.compile(r"(?:[a-z][a-z0-9+.\-]*:|//|#)", re.IGNORECASE)
 
 
 def relative_urls(html: str) -> list[str]:
@@ -256,13 +256,13 @@ def relative_urls(html: str) -> list[str]:
     return [u for u in _URL_ATTR.findall(html) if u and not _ANCHORED.match(u)]
 
 
-def stray_links(html: str, *, link: str = '_assets') -> list[str]:
+def stray_links(html: str, *, link: str = "_assets") -> list[str]:
     """Relative URLs that are *not* store assets — the ones a ``<base>`` would break.
 
     These are author-written nav/source links (``./experiment.py``) that should be
     absolute. Returned sorted and de-duplicated so a build can resolve or warn on them.
     """
-    prefix = f'{link}/'
+    prefix = f"{link}/"
     return sorted({u for u in relative_urls(html) if not u.startswith(prefix)})
 
 
@@ -278,8 +278,8 @@ def rewrite_links(html: str, mapping: dict[str, str]) -> str:
     """
     for token, target in mapping.items():
         for q in ('"', "'"):
-            html = html.replace(f'{q}{token}{q}', f'{q}{target}{q}')  # plain
-            html = html.replace(f'\\{q}{token}\\{q}', f'\\{q}{target}\\{q}')  # escaped-in-JSON
+            html = html.replace(f"{q}{token}{q}", f"{q}{target}{q}")  # plain
+            html = html.replace(f"\\{q}{token}\\{q}", f"\\{q}{target}\\{q}")  # escaped-in-JSON
     return html
 
 
@@ -289,7 +289,7 @@ def insert_base(html: str, href: str) -> str:
     Placed before any resource reference so it governs all of them. Idempotent enough
     for a build step: it rewrites the first ``<head>`` only.
     """
-    return re.sub(r'(<head[^>]*>)', lambda m: f'{m.group(1)}\n    <base href="{href}" />', html, count=1)
+    return re.sub(r"(<head[^>]*>)", lambda m: f'{m.group(1)}\n    <base href="{href}" />', html, count=1)
 
 
 # The ``display.theme`` inside Marimo's frozen mount config. The block is flat JSON
@@ -299,7 +299,7 @@ _DISPLAY_THEME = re.compile(r'("display"\s*:\s*\{[^{}]*?"theme"\s*:\s*")(?:light
 # What the document declares to the browser, so the UA paints its chrome (the canvas
 # behind the page, scrollbars, form controls) in the right scheme from the very first
 # paint — before any stylesheet or script runs.
-_COLOR_SCHEME = {'system': 'light dark', 'light': 'light', 'dark': 'dark'}
+_COLOR_SCHEME = {"system": "light dark", "light": "light", "dark": "dark"}
 
 # Runs synchronously as the first thing in <body> — before first paint, since Marimo's
 # stylesheets are render-blocking and already loaded by then. It sets the same body
@@ -308,17 +308,17 @@ _COLOR_SCHEME = {'system': 'light dark', 'light': 'light', 'dark': 'dark'}
 # bundle mounts. Marimo recomputes the same value for a ``system`` config, so its later
 # take-over is a no-op (no second repaint).
 _FLASH_GUARD = (
-    '<script>'
-    '(function(){'
+    "<script>"
+    "(function(){"
     'var t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";'
     'document.body.classList.add(t,t+"-theme");'
-    'document.body.dataset.theme=t;'
-    '})();'
-    '</script>'
+    "document.body.dataset.theme=t;"
+    "})();"
+    "</script>"
 )
 
 
-def set_theme(html: str, theme: str = 'system') -> str:
+def set_theme(html: str, theme: str = "system") -> str:
     """Rewrite a Marimo export's theme so a published report follows the device, flicker-free.
 
     Marimo bakes the *exporting* machine's ``display.theme`` into the mount config and a
@@ -331,18 +331,18 @@ def set_theme(html: str, theme: str = 'system') -> str:
     (UA chrome) and inject a tiny blocking :data:`_FLASH_GUARD` (the content) to get the
     right theme on the first paint. A no-op if no theme is present (a non-Marimo page).
     """
-    html, n = _DISPLAY_THEME.subn(lambda m: f'{m.group(1)}{theme}{m.group(2)}', html, count=1)
+    html, n = _DISPLAY_THEME.subn(lambda m: f"{m.group(1)}{theme}{m.group(2)}", html, count=1)
     if not n:
         return html  # not a Marimo export — nothing to theme
-    scheme = _COLOR_SCHEME.get(theme, 'light dark')
+    scheme = _COLOR_SCHEME.get(theme, "light dark")
     html = re.sub(
-        r'(<head[^>]*>)',
+        r"(<head[^>]*>)",
         lambda m: f'{m.group(1)}\n    <meta name="color-scheme" content="{scheme}" />',
         html,
         count=1,
     )
-    if theme == 'system':
-        html = re.sub(r'(<body[^>]*>)', lambda m: f'{m.group(1)}\n    {_FLASH_GUARD}', html, count=1)
+    if theme == "system":
+        html = re.sub(r"(<body[^>]*>)", lambda m: f"{m.group(1)}\n    {_FLASH_GUARD}", html, count=1)
     return html
 
 
@@ -361,15 +361,15 @@ _HIDE_MARIMO_BANNER = '[data-testid="static-notebook-banner"]{display:none!impor
 # theme-aware system colors (the export declares ``color-scheme``, so they track the
 # device theme); a blurred translucent backdrop keeps it legible over content.
 _BANNER_STYLE = (
-    'position:fixed;top:.5rem;left:.5rem;z-index:2147483647;'
-    'display:flex;gap:.75rem;align-items:center;'
-    'padding:.3rem .65rem;font-size:.8125rem;line-height:1.4;'
-    'font-family:system-ui,sans-serif;border-radius:.375rem;'
-    'background:color-mix(in srgb, Canvas 80%, transparent);'
-    'border:1px solid color-mix(in srgb, CanvasText 18%, transparent);'
-    '-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);'
+    "position:fixed;top:.5rem;left:.5rem;z-index:2147483647;"
+    "display:flex;gap:.75rem;align-items:center;"
+    "padding:.3rem .65rem;font-size:.8125rem;line-height:1.4;"
+    "font-family:system-ui,sans-serif;border-radius:.375rem;"
+    "background:color-mix(in srgb, Canvas 80%, transparent);"
+    "border:1px solid color-mix(in srgb, CanvasText 18%, transparent);"
+    "-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);"
 )
-_BANNER_LINK = 'color:inherit;text-decoration:underline'
+_BANNER_LINK = "color:inherit;text-decoration:underline"
 
 
 def set_banner(html: str, *, index_url: str | None = None, source_url: str | None = None) -> str:
@@ -390,15 +390,15 @@ def set_banner(html: str, *, index_url: str | None = None, source_url: str | Non
     def link(href: str, label: str) -> str:
         return f'<a href="{href}" style="{_BANNER_LINK}">{label}</a>'
 
-    links = [link(url, label) for url, label in ((index_url, '&larr; Index'), (source_url, 'Source')) if url]
+    links = [link(url, label) for url, label in ((index_url, "&larr; Index"), (source_url, "Source")) if url]
     bar = f'<nav data-mini-banner style="{_BANNER_STYLE}">{"".join(links)}</nav>'
 
     html = re.sub(
-        r'(</head>)',
+        r"(</head>)",
         lambda m: (
-            f'    <style>{_HIDE_MARIMO_BANNER}\n    @media print{{[data-mini-banner]{{display:none}}}}</style>\n{m.group(1)}'
+            f"    <style>{_HIDE_MARIMO_BANNER}\n    @media print{{[data-mini-banner]{{display:none}}}}</style>\n{m.group(1)}"
         ),
         html,
         count=1,
     )
-    return re.sub(r'(<body[^>]*>)', lambda m: f'{m.group(1)}\n    {bar}', html, count=1)
+    return re.sub(r"(<body[^>]*>)", lambda m: f"{m.group(1)}\n    {bar}", html, count=1)

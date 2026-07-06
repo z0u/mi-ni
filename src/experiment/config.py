@@ -7,10 +7,10 @@ from utils.param_types import IntX8, IntX32, IntX64, ZeroToOne
 
 
 class ModelConfig(BaseModel, validate_assignment=True):
-    architecture: Literal['gpt', 'ngpt'] = 'gpt'
+    architecture: Literal["gpt", "ngpt"] = "gpt"
     """Which model family to build: baseline 'gpt' or normalized 'ngpt'."""
 
-    ngpt_variant: Literal['crude', 'full'] = 'crude'
+    ngpt_variant: Literal["crude", "full"] = "crude"
     """nGPT flavour (ignored unless architecture == 'ngpt'): scalar gains +
     additive retraction ('crude') or per-channel eigen-LRs + LERP ('full')."""
 

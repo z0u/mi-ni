@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from mini.apparatus import Apparatus
     from mini.orchestration import Ctx
 
-__all__ = ['Experiment', 'load_experiment']
+__all__ = ["Experiment", "load_experiment"]
 
 
 @dataclass
@@ -54,7 +54,7 @@ class Experiment:
         if self.roles is None:
             return {}
         if isinstance(self.roles, Mapping):
-            table = cast('Mapping[str, Mapping[str, Any]]', self.roles)
+            table = cast("Mapping[str, Mapping[str, Any]]", self.roles)
             return {label: base.w(**kwargs) for label, kwargs in table.items()}
         return dict(self.roles(base))
 
@@ -62,12 +62,12 @@ class Experiment:
 def load_experiment(path: str | Path) -> Experiment:
     """Import a file and return its module-level ``experiment = Experiment(...)``."""
     path = Path(path)
-    spec = importlib.util.spec_from_file_location(f'mini_experiment_{path.stem}', path)
+    spec = importlib.util.spec_from_file_location(f"mini_experiment_{path.stem}", path)
     if spec is None or spec.loader is None:
-        raise ImportError(f'cannot load experiment from {path}')
+        raise ImportError(f"cannot load experiment from {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    experiment = getattr(module, 'experiment', None)
+    experiment = getattr(module, "experiment", None)
     if not isinstance(experiment, Experiment):
-        raise AttributeError(f'{path} must define a module-level `experiment = Experiment(...)`')
+        raise AttributeError(f"{path} must define a module-level `experiment = Experiment(...)`")
     return experiment

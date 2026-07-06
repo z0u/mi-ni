@@ -27,7 +27,7 @@ from __future__ import annotations
 from mini import Ctx, Experiment, get_data_dir
 from mini.store import put, set_ref
 
-DATASET = 'tiny-shakespeare'
+DATASET = "tiny-shakespeare"
 N_LAYERS, N_NEURONS, N_TOKENS = 4, 16, 256
 
 
@@ -40,25 +40,25 @@ def extract_activations(dataset: str) -> dict:
     # A *stable* seed (Python's str hash is per-process randomized) so the same
     # dataset yields byte-identical shards — the precondition for the content
     # hashes to coincide across runs, processes, and experiments.
-    seed = int.from_bytes(hashlib.sha256(dataset.encode()).digest()[:4], 'big')
+    seed = int.from_bytes(hashlib.sha256(dataset.encode()).digest()[:4], "big")
     rng = np.random.default_rng(seed)
-    cache = get_data_dir() / 'activations'
+    cache = get_data_dir() / "activations"
     cache.mkdir(parents=True, exist_ok=True)
     for layer in range(N_LAYERS):
-        acts = rng.standard_normal((N_TOKENS, N_NEURONS)).astype('float32')
-        np.save(cache / f'layer_{layer:02d}.npy', acts)
+        acts = rng.standard_normal((N_TOKENS, N_NEURONS)).astype("float32")
+        np.save(cache / f"layer_{layer:02d}.npy", acts)
 
     # One handle for the whole directory: each shard is its own CAS blob, so an
     # identical cache anywhere in the project coincides, and a consumer can pull
     # one shard without the set.
-    art = put(cache, name=f'{dataset}-activations')
+    art = put(cache, name=f"{dataset}-activations")
     # Name it so another experiment can find it without knowing our memo key.
-    set_ref(f'activations/{dataset}', art)
-    return {'dataset': dataset, 'artifact': art, 'shards': len(art.children), 'bytes': art.size}
+    set_ref(f"activations/{dataset}", art)
+    return {"dataset": dataset, "artifact": art, "shards": len(art.children), "bytes": art.size}
 
 
 def main(ctx: Ctx) -> dict:
     return ctx.run(extract_activations, DATASET)
 
 
-experiment = Experiment(name='acts', main=main)
+experiment = Experiment(name="acts", main=main)

@@ -6,9 +6,9 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Literal
 
-ThemeName = Literal['light', 'dark']
+ThemeName = Literal["light", "dark"]
 
-_current_theme: ContextVar[ThemeName] = ContextVar('_current_theme', default='light')
+_current_theme: ContextVar[ThemeName] = ContextVar("_current_theme", default="light")
 
 
 @contextmanager
@@ -32,4 +32,4 @@ def current_theme() -> ThemeName:
 
 def light_dark[T](light: T, dark: T) -> T:
     """Pick a value based on the active theme (like CSS ``light-dark()``)."""
-    return dark if _current_theme.get() == 'dark' else light
+    return dark if _current_theme.get() == "dark" else light

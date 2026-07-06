@@ -19,7 +19,6 @@ Pull requests: If the principal (user) is a _collaborator_ on the repository, om
 - Even in Python, prefer JavaScript-style method chaining (newline before the dot, use outer parentheses as necessary).
 - Use cutting-edge syntax.
 - Prefer brevity.
-- Use single quotes for strings, except for multiline strings.
 
 This is valid syntax in Python 3.14:
 

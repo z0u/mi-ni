@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from mini.apparatus import Apparatus
     from mini.experiment import Experiment
 
-__all__ = ['MemoError', 'Pending', 'TaskFailed', 'BudgetExpired', 'MISSING', 'Ctx', 'tick', 'retry']
+__all__ = ["MemoError", "Pending", "TaskFailed", "BudgetExpired", "MISSING", "Ctx", "tick", "retry"]
 
 
 class MemoError(Exception):
@@ -48,7 +48,7 @@ class BudgetExpired(MemoError):
 
     def __init__(self, cancelled: list[str]):
         self.cancelled = cancelled
-        super().__init__(f'wall-clock budget elapsed — cancelled {len(cancelled)} in-flight task(s)')
+        super().__init__(f"wall-clock budget elapsed — cancelled {len(cancelled)} in-flight task(s)")
 
 
 class TaskFailed(MemoError):
@@ -72,13 +72,13 @@ class TaskFailed(MemoError):
     Recover with ``mini retry``.
     """
 
-    def __init__(self, key: str, state: RunState, error: str = '', exc_type: str = ''):
+    def __init__(self, key: str, state: RunState, error: str = "", exc_type: str = ""):
         self.key = key
         self.state = state
         self.error = error
         self.exc_type = exc_type
-        head = f'{key} settled {state}'
-        super().__init__(f'{head}\n{error}' if error and error != '(no logs)' else head)
+        head = f"{key} settled {state}"
+        super().__init__(f"{head}\n{error}" if error and error != "(no logs)" else head)
 
 
 class _Missing:
@@ -105,7 +105,7 @@ class _Missing:
         return False
 
     def __repr__(self) -> str:
-        return '<missing>'
+        return "<missing>"
 
     def __reduce__(self) -> tuple:
         return (_Missing, ())  # round-trips to the same singleton through (cloud)pickle
@@ -154,11 +154,11 @@ class Ctx:
     def _route(self, on: Apparatus | None, role: str | None) -> Apparatus:
         """Resolve which apparatus a step runs on: ``role`` label, ``on=``, or default."""
         if on is not None and role is not None:
-            raise ValueError('pass either role= or on=, not both')
+            raise ValueError("pass either role= or on=, not both")
         if role is not None:
             if role not in self.roles:
-                known = ', '.join(sorted(self.roles)) or '(none defined)'
-                raise ValueError(f'unknown role {role!r}; defined roles: {known}')
+                known = ", ".join(sorted(self.roles)) or "(none defined)"
+                raise ValueError(f"unknown role {role!r}; defined roles: {known}")
             return self.roles[role]
         return on or self.apparatus
 
@@ -187,26 +187,26 @@ class Ctx:
         key, parts = task_key_parts(fn, args, version)
         self.requested.append(key)
         rec = self.store.record(key)
-        state = RunState(rec['state']) if rec.get('state') else None
-        stale = state is not None and (rec.get('code_fp'), rec.get('version')) != (
-            parts['code_fp'],
-            parts.get('version'),
+        state = RunState(rec["state"]) if rec.get("state") else None
+        stale = state is not None and (rec.get("code_fp"), rec.get("version")) != (
+            parts["code_fp"],
+            parts.get("version"),
         )
         keep = stale and state == RunState.DONE and self.keep_stale
         if keep:
             self.stale_kept.append(key)
         to_launch: tuple[str, str, Callable, tuple, list] | None = None
         if state is None or (stale and state != RunState.RUNNING and not keep):
-            gen = self.store.mark_running(fn, key, parts, expect_gen=rec.get('gen'))
+            gen = self.store.mark_running(fn, key, parts, expect_gen=rec.get("gen"))
             if gen is not None:
-                to_launch = (key, gen, fn, args, getattr(app, '_before_hooks', []))
+                to_launch = (key, gen, fn, args, getattr(app, "_before_hooks", []))
                 self.launched.append(key)
             state = RunState.RUNNING
         return key, state, to_launch
 
     def _task_failed(self, key: str, state: RunState) -> TaskFailed:
         """Build a ``TaskFailed`` for a settled-but-not-DONE key, with its stored traceback + type."""
-        return TaskFailed(key, state, self.store.error(key), self.store.record(key).get('exc_type', ''))
+        return TaskFailed(key, state, self.store.error(key), self.store.record(key).get("exc_type", ""))
 
     def run[R](
         self,
@@ -225,7 +225,7 @@ class Ctx:
         if state in SETTLED:  # terminal, not DONE -> FAILED/CANCELLED; surface rather than suspend
             raise self._task_failed(key, state)
         self.pending.append(key)
-        raise Pending(f'waiting on {key}')
+        raise Pending(f"waiting on {key}")
 
     @overload
     def map[R](
@@ -303,10 +303,10 @@ class Ctx:
         if batch:  # one spawn for the whole fan-out
             app.spawn_tasks(self.store, batch)
         if self.pending:  # wait for in-flight tasks first, regardless of allow_partial
-            raise Pending(f'{len(self.pending)} task(s) in flight')
+            raise Pending(f"{len(self.pending)} task(s) in flight")
         if failed and not allow_partial:  # everything settled — surface the failures together
             raise ExceptionGroup(
-                f'{len(failed)} of {len(calls)} task(s) failed',
+                f"{len(failed)} of {len(calls)} task(s) failed",
                 [self._task_failed(key, state) for key, state in failed],
             )
         return results
@@ -373,12 +373,12 @@ def retry(store: MemoStore, key: str | None = None) -> list[str]:
     requested = store.requested_keys()
     targets: list[str] = []
     for rec in store.records():
-        k = rec['key']
+        k = rec["key"]
         if key is not None and k != key:
             continue
         if key is None and requested is not None and k not in requested:
             continue  # superseded — the DAG no longer requests this key
-        state = RunState(rec['state']) if rec.get('state') else None
+        state = RunState(rec["state"]) if rec.get("state") else None
         if state in (RunState.FAILED, RunState.CANCELLED):
             store.reset(k)
             targets.append(k)

@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = '0.23.3'
-app = marimo.App(width='medium', auto_download=['html'])
+__generated_with = "0.23.3"
+app = marimo.App(width="medium", auto_download=["html"])
 
 with app.setup(hide_code=True):
     import logging
@@ -26,10 +26,10 @@ with app.setup(hide_code=True):
     from utils.lr_finder.vis import plot_lr_finder
     from utils.time import duration as t
 
-    logging_config = SimpleLoggingConfig().info('notebook', 'experiment', 'mini', 'utils')
+    logging_config = SimpleLoggingConfig().info("notebook", "experiment", "mini", "utils")
     logging_config.apply()
 
-    log = logging.getLogger('notebook')
+    log = logging.getLogger("notebook")
 
     # mini:source-only — this notebook trains inline (a full run on every execution), so
     # it doesn't fit the read-from-store report model the site build assumes. It's excluded
@@ -58,7 +58,7 @@ def _():
 @app.cell(hide_code=True)
 def _(app_type, arch, ngpt_variant, run_button):
     mo.md(f"""
-    {arch} {ngpt_variant if arch.value == 'ngpt' else ''}
+    {arch} {ngpt_variant if arch.value == "ngpt" else ""}
 
     {app_type} {run_button}
     """)
@@ -69,7 +69,7 @@ def _(app_type, arch, ngpt_variant, run_button):
 def configuration(arch, is_headless, ngpt_variant, run_button):
     mo.stop(not run_button.value and not is_headless)
 
-    _is_ngpt = arch.value == 'ngpt'
+    _is_ngpt = arch.value == "ngpt"
     config = TrainingConfig(
         model=ModelConfig(
             vocab_size=64,  # set after loading the dataset
@@ -108,22 +108,22 @@ def configuration(arch, is_headless, ngpt_variant, run_button):
 def apparatus(app_type, is_headless, run_button):
     mo.stop(not run_button.value and not is_headless)
 
-    if app_type.value == 'local':
-        app = LocalApparatus('nanogpt')
-    elif app_type.value == 'modal':
+    if app_type.value == "local":
+        app = LocalApparatus("nanogpt")
+    elif app_type.value == "modal":
         app = (
-            ModalApparatus('nanogpt')
+            ModalApparatus("nanogpt")
             .w(
-                gpu='L4',
+                gpu="L4",
                 max_containers=1,
-                timeout=int(t('30 min')),  # cold L4: JIT-compile + a full 100-epoch run
+                timeout=int(t("30 min")),  # cold L4: JIT-compile + a full 100-epoch run
             )
             .before_each(logging_config.apply)
         )
     else:
-        raise ValueError(f'Unknown apparatus {app_type.value}')
+        raise ValueError(f"Unknown apparatus {app_type.value}")
 
-    mo.md(f'Using **{app}**')
+    mo.md(f"Using **{app}**")
     return (app,)
 
 
@@ -155,13 +155,13 @@ def download_pride_and_prejudice():
 
     from experiment.config import DatasetMetadata
 
-    url = 'https://huggingface.co/api/datasets/larenwell/book-gutenberg-train/parquet/default/train/0.parquet'
-    df = pd.read_parquet(url, columns=['text'])
-    text = df.iloc[0]['text']
+    url = "https://huggingface.co/api/datasets/larenwell/book-gutenberg-train/parquet/default/train/0.parquet"
+    df = pd.read_parquet(url, columns=["text"])
+    text = df.iloc[0]["text"]
     text, explanation = ftfy.fix_and_explain(text)
     metadata = DatasetMetadata(
-        title='Pride and Prejudice',
-        author='Jane Austen',
+        title="Pride and Prejudice",
+        author="Jane Austen",
         url=url,
         fixes=explanation or [],
         total_chars=len(text),
@@ -189,7 +189,7 @@ async def _(app, config):
     config.tokenizer = input_metadata.tokenizer_config.model_copy()
     config.model.vocab_size = align(config.tokenizer.vocab_size, 64)
 
-    input_metadata.model_dump(exclude={'tokenizer_config'})
+    input_metadata.model_dump(exclude={"tokenizer_config"})
     return
 
 
@@ -241,14 +241,14 @@ async def _(app, config):
     suggested_lr, lr_config, lr_history = await app.arun(find_learning_rate, config)
 
     config.optimizer.learning_rate = suggested_lr
-    mo.output.append(mo.md(f'Suggested learning rate: **{suggested_lr:.2e}**'))
+    mo.output.append(mo.md(f"Suggested learning rate: **{suggested_lr:.2e}**"))
     return lr_config, lr_history
 
 
 @app.cell(hide_code=True)
 def _(lr_config, lr_history):
     mo.Html(
-        themed(plot_lr_finder, alt_text='Learning-rate finder plot')(
+        themed(plot_lr_finder, alt_text="Learning-rate finder plot")(
             lr_history,
             lr_config,
         )
@@ -292,9 +292,9 @@ def _(training_metrics):
     @themed
     def plot():
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.set_title('Validation loss')
-        ax.set_xlabel('Epoch')
-        ax.set_ylabel('Loss')
+        ax.set_title("Validation loss")
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Loss")
         ax.plot(epochs, val_losses)
         return fig
 
@@ -325,12 +325,12 @@ def generate(prompts: list[str], max_new_tokens: int, temperature: float):
     from experiment.data.tokenizer import CharTokenizer
 
     data_dir = get_data_dir()
-    log.info('Loading model from checkpoint')
+    log.info("Loading model from checkpoint")
     model, cfg, _ = load_checkpoint(data_dir)
     tokenizer = CharTokenizer(cfg.tokenizer)
     context = np.asarray(tokenizer.encode(prompts, cfg.model.block_size), dtype=np.int32)
 
-    log.info(f'Generating {max_new_tokens} tokens at temperature {temperature}')
+    log.info(f"Generating {max_new_tokens} tokens at temperature {temperature}")
     output = model.generate(context, max_new_tokens=max_new_tokens, temperature=temperature, key=jr.key(cfg.seed))
 
     toks = cast(list[list[int]], output.tokens.tolist())
@@ -340,15 +340,15 @@ def generate(prompts: list[str], max_new_tokens: int, temperature: float):
 @app.cell(hide_code=True)
 async def _(app):
     prompts = [
-        'It is a truth uni',
-        'Mr. Darcy walked across the',
+        "It is a truth uni",
+        "Mr. Darcy walked across the",
     ]
     continuations, gen_metadata = await app.arun(
         partial(generate, prompts=prompts, max_new_tokens=300, temperature=0.5),
     )
 
     for seq in continuations:
-        print(''.join(seq)[:80])
+        print("".join(seq)[:80])
     return continuations, gen_metadata
 
 
@@ -378,8 +378,8 @@ def _(continuations, gen_metadata):
     svg = viz.plot(
         continuations[0],
         [
-            Series(gen_metadata[0].surprise_surprise, label='S\u2082'),
-            Series(-gen_metadata[0].surprise_surprise, label='-S\u2082', dasharray='1'),
+            Series(gen_metadata[0].surprise_surprise, label="S\u2082"),
+            Series(-gen_metadata[0].surprise_surprise, label="-S\u2082", dasharray="1"),
         ],
     )
     mo.Html(svg)
@@ -406,29 +406,29 @@ def _():
 @app.cell(hide_code=True)
 def options():
     app_type = mo.ui.radio(
-        label='Apparatus',
-        options=['local', 'modal'],
-        value=str(mo.cli_args().get('app', 'local')),
+        label="Apparatus",
+        options=["local", "modal"],
+        value=str(mo.cli_args().get("app", "local")),
         inline=True,
     )
     arch = mo.ui.radio(
-        label='Architecture',
-        options=['gpt', 'ngpt'],
-        value=str(mo.cli_args().get('arch', 'gpt')),
+        label="Architecture",
+        options=["gpt", "ngpt"],
+        value=str(mo.cli_args().get("arch", "gpt")),
         inline=True,
     )
     ngpt_variant = mo.ui.radio(
-        label='nGPT variant',
-        options=['crude', 'full'],
-        value=str(mo.cli_args().get('ngpt_variant', 'crude')),
+        label="nGPT variant",
+        options=["crude", "full"],
+        value=str(mo.cli_args().get("ngpt_variant", "crude")),
         inline=True,
     )
     run_button = mo.ui.run_button(
-        label='Run',
+        label="Run",
     )
     is_headless = mo.app_meta().request is None
     return app_type, arch, is_headless, ngpt_variant, run_button
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()

@@ -14,11 +14,11 @@ runs twice — once per theme — so you can use `light_dark()` inside to pick
 theme-dependent values. It can be used as a decorator with or without arguments:
 
 ```py
-@themed(alt_text='Plot of a sine wave')
+@themed(alt_text="Plot of a sine wave")
 def plot_factory() -> plt.Figure:
     fig, ax = plt.subplots(figsize=(6, 3))
-    ax.plot(x, np.sin(x), color=light_dark('#1a5f8a', '#6ab0d4'), lw=2)
-    ax.set_title('sin(x)')
+    ax.plot(x, np.sin(x), color=light_dark("#1a5f8a", "#6ab0d4"), lw=2)
+    ax.set_title("sin(x)")
     return fig
 
 mo.Html(plot_factory())
@@ -38,7 +38,7 @@ from mini.reports import use_publisher, report_bundle
 
 use_publisher(report_bundle(__file__))   # assets → this report's bundle dir (_assets/)
 
-@themed(alt_text='…', name='loss-curve')  # name → loss-curve-{light,dark}.png
+@themed(alt_text="…", name="loss-curve")  # name → loss-curve-{light,dark}.png
 def _plot(): ...
 mo.Html(_plot())
 ```

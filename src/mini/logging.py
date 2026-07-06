@@ -31,14 +31,14 @@ class ConciseFormatter(logging.Formatter):
     def format(self, record):
         elapsed = time.monotonic() - self.start_time
         abbreviated_log_level = record.levelname[0]
-        abbreviated_module_name = '.'.join(p[:2] for p in record.name.split('.'))
+        abbreviated_module_name = ".".join(p[:2] for p in record.name.split("."))
 
         # Format the message
-        prefix = f'{abbreviated_log_level} {elapsed:.1f} {abbreviated_module_name}:'
-        return f'{prefix:15s}{record.getMessage()}'
+        prefix = f"{abbreviated_log_level} {elapsed:.1f} {abbreviated_module_name}:"
+        return f"{prefix:15s}{record.getMessage()}"
 
 
-NamedFd: TypeAlias = Literal['stdout', 'stderr']
+NamedFd: TypeAlias = Literal["stdout", "stderr"]
 
 
 @dataclass
@@ -48,7 +48,7 @@ class SimpleLoggingConfig:
     def __init__(self):
         # These need to be serializable
         self._base_level: int = logging.WARNING
-        self._stream: NamedFd = 'stdout'
+        self._stream: NamedFd = "stdout"
         self._critical: list[str] = []
         self._error: list[str] = []
         self._warning: list[str] = []
@@ -106,9 +106,9 @@ class SimpleLoggingConfig:
 
     def apply(self):
         """Apply the logging configuration."""
-        logging.addLevelName(TRACE, 'TRACE')
+        logging.addLevelName(TRACE, "TRACE")
 
-        handler = logging.StreamHandler(sys.stdout if self._stream == 'stdout' else sys.stderr)
+        handler = logging.StreamHandler(sys.stdout if self._stream == "stdout" else sys.stderr)
         handler.setFormatter(ConciseFormatter())
         logging.basicConfig(level=self._base_level, handlers=[handler])
 

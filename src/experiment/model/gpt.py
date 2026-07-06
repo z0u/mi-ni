@@ -49,7 +49,7 @@ class CausalSelfAttention(eqx.Module):
         self.proj = Linear(self.n_v_tot, config.n_embd, key=proj_key)
         self.dropout = eqx.nn.Dropout(config.dropout)
 
-    def __call__(self, x: Float[Array, 'B T C'], enc: RotaryEncoding, *, key: PRNGKeyArray | None = None):
+    def __call__(self, x: Float[Array, "B T C"], enc: RotaryEncoding, *, key: PRNGKeyArray | None = None):
         _B, T, _C = x.shape
         q, k, v = jnp.split(self.qkv(x), [self.n_kq_tot, 2 * self.n_kq_tot], axis=-1)
         q = split_heads(q, self.n_head)
@@ -105,7 +105,7 @@ class Block(eqx.Module):
 
 
 class Transformer(eqx.Module):
-    wte: Float[Array, 'V C']
+    wte: Float[Array, "V C"]
     blocks: tuple[Block, ...]
     rotary_enc: RotaryEncoding
     ln_f: LayerNorm
@@ -124,15 +124,15 @@ class GPT(LanguageModel):
     transformer: Transformer
 
     def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
-        log.info('Initializing GPT model with config: %s', config)
+        log.info("Initializing GPT model with config: %s", config)
         self.block_size = config.block_size
         self.vocab_size = config.vocab_size
         self.transformer = Transformer(config, key=key)
 
-        log.info('number of parameters: %.2fM', self.get_num_params() / 1e6)
+        log.info("number of parameters: %.2fM", self.get_num_params() / 1e6)
 
-    def __call__(self, idx: Int[Array, 'B T'], *, key: PRNGKeyArray | None = None):
-        x: Float[Array, 'B T C'] = self.transformer.wte[idx]
+    def __call__(self, idx: Int[Array, "B T"], *, key: PRNGKeyArray | None = None):
+        x: Float[Array, "B T C"] = self.transformer.wte[idx]
         # Gradient-checkpoint each block: the backward pass recomputes
         # activations instead of storing every layer's O(T²) attention maps.
         enc = self.transformer.rotary_enc

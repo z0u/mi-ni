@@ -16,10 +16,10 @@ There are two ways to compute: interactive, and detached.
 **Interactive.** Map a function over a sweep, right in a notebook. Swap the apparatus to change where it runs; the code stays the same:
 
 ```py
-# app = LocalApparatus('my-experiment', max_workers=4)
-app = ModalApparatus('my-experiment').w(gpu='L4')
+# app = LocalApparatus("my-experiment", max_workers=4)
+app = ModalApparatus("my-experiment").w(gpu="L4")
 metrics = list(app.map(train, sweep_configs))
-app.volume.download('outputs', 'local/outputs')
+app.volume.download("outputs", "local/outputs")
 ```
 
 ```bash
@@ -36,7 +36,7 @@ def main(ctx):
     meta = ctx.run(prepare_data)                  # one step
     return ctx.map(train, derive_configs(meta))   # a sweep that depends on it
 
-experiment = Experiment(name='pipeline', main=main)
+experiment = Experiment(name="pipeline", main=main)
 ```
 
 ```bash
@@ -54,7 +54,7 @@ from mini.vis import themed
 
 use_publisher(report_bundle(__file__))   # themed figures → _assets/, by name
 
-@themed(alt_text='Final validation loss...')
+@themed(alt_text="Final validation loss...")
 def _loss_chart() -> plt.Figure: ...
 ```
 

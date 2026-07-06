@@ -21,7 +21,7 @@ class ProgressMessage:
     job_id: str
     step: int
     total: int
-    message: str = ''
+    message: str = ""
     metrics: dict[str, float] = field(default_factory=dict)
 
     def __str__(self) -> str:
@@ -30,22 +30,22 @@ class ProgressMessage:
     def to_urn(self) -> str:
         """Convert to a URN."""
         return to_urn(
-            'mini', 'run', self.run_id, 'progress', self.job_id, str(self.step), str(self.total), self.message
+            "mini", "run", self.run_id, "progress", self.job_id, str(self.step), str(self.total), self.message
         )
 
     @classmethod
     def matches(cls, message: str) -> bool:
-        return matches_urn(message, 'mini:run:*:progress:*:*:*:*')
+        return matches_urn(message, "mini:run:*:progress:*:*:*:*")
 
     @classmethod
     def from_urn(cls, message: str) -> ProgressMessage:
         """Convert from a URN."""
         parts = parse_urn(message)
         match parts:
-            case ('mini', 'run', run_id, 'progress', job_id, step, total, msg):
+            case ("mini", "run", run_id, "progress", job_id, step, total, msg):
                 return cls(run_id=run_id, job_id=job_id, step=int(step), total=int(total), message=msg)
             case _:
-                raise ValueError(f'Invalid progress message format: {message}')
+                raise ValueError(f"Invalid progress message format: {message}")
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ class JobContext:
     queue: QueueLike[ProgressMessage] | None = None
     emission_interval: float = 0.1
     metrics: dict[str, float] = field(default_factory=dict)
-    _last: tuple[int, int, str] = field(default=(0, 0, ''), init=False, repr=False)
+    _last: tuple[int, int, str] = field(default=(0, 0, ""), init=False, repr=False)
     _emitter: Debouncer = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -76,7 +76,7 @@ class JobContext:
             print(progress, flush=True)
 
 
-_job_context: contextvars.ContextVar[JobContext | None] = contextvars.ContextVar('mini_job_context', default=None)
+_job_context: contextvars.ContextVar[JobContext | None] = contextvars.ContextVar("mini_job_context", default=None)
 
 
 @contextmanager
@@ -98,7 +98,7 @@ def progress_context(run_id: str, job_id: str, queue: QueueLike[ProgressMessage]
         _job_context.reset(token)
 
 
-def emit_progress(step: int, total: int, message: str = ''):
+def emit_progress(step: int, total: int, message: str = ""):
     """
     Emit a progress update for the current job.
 

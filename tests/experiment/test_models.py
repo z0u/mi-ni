@@ -14,11 +14,11 @@ from experiment.model import NGPT, build_model
 from experiment.model._shared import normalize
 
 ARCHS = [
-    {'architecture': 'gpt'},
-    {'architecture': 'ngpt', 'ngpt_variant': 'crude'},
-    {'architecture': 'ngpt', 'ngpt_variant': 'full'},
+    {"architecture": "gpt"},
+    {"architecture": "ngpt", "ngpt_variant": "crude"},
+    {"architecture": "ngpt", "ngpt_variant": "full"},
 ]
-NGPT_ARCHS = [a for a in ARCHS if a['architecture'] == 'ngpt']
+NGPT_ARCHS = [a for a in ARCHS if a["architecture"] == "ngpt"]
 
 
 def make_config(**overrides) -> ModelConfig:
@@ -35,7 +35,7 @@ def make_config(**overrides) -> ModelConfig:
     )
 
 
-@pytest.mark.parametrize('arch', ARCHS)
+@pytest.mark.parametrize("arch", ARCHS)
 def test_forward_shape_and_finite(arch):
     config = make_config(**arch)
     model = build_model(config, key=jr.key(0))
@@ -45,7 +45,7 @@ def test_forward_shape_and_finite(arch):
     assert jnp.isfinite(logits).all()
 
 
-@pytest.mark.parametrize('arch', NGPT_ARCHS)
+@pytest.mark.parametrize("arch", NGPT_ARCHS)
 def test_hidden_state_stays_on_sphere(arch):
     """Every nGPT block must return unit-norm hidden states."""
     config = make_config(**arch)
@@ -61,7 +61,7 @@ def test_hidden_state_stays_on_sphere(arch):
         np.testing.assert_allclose(norms, jnp.ones_like(norms), rtol=0, atol=1e-5)
 
 
-@pytest.mark.parametrize('arch', NGPT_ARCHS)
+@pytest.mark.parametrize("arch", NGPT_ARCHS)
 def test_normalize_weights_projects_onto_sphere(arch):
     """After normalization, each matrix is a stack of unit vectors along its hidden axis."""
     model = cast(NGPT, build_model(make_config(**arch), key=jr.key(0)))
@@ -87,7 +87,7 @@ def test_normalize_weights_projects_onto_sphere(arch):
 
 def test_baseline_normalize_weights_is_noop():
     """The baseline carries no hypersphere constraint, so the training hook does nothing."""
-    model = build_model(make_config(architecture='gpt'), key=jr.key(0))
+    model = build_model(make_config(architecture="gpt"), key=jr.key(0))
     normalized = model.normalize_weights()
     for a, b in zip(
         jax.tree.leaves(eqx.filter(model, eqx.is_array)),

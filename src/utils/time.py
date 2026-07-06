@@ -1,7 +1,7 @@
 import re
 
 
-units = {'ms': 0.001, 's': 1, 'm': 60, 'min': 60, 'h': 3600, 'd': 86400}
+units = {"ms": 0.001, "s": 1, "m": 60, "min": 60, "h": 3600, "d": 86400}
 
 
 def duration(d: str) -> float:
@@ -21,8 +21,8 @@ def duration(d: str) -> float:
         ```
     """
     # Order matters: `ms`/`min` must be tried before the single-char `m`/`s`.
-    match = re.match(r'([+-]?[0-9.]+(?:[eE][+-]?[0-9]+)?) ?(ms|min|m|s|h|d)', d, re.IGNORECASE)
+    match = re.match(r"([+-]?[0-9.]+(?:[eE][+-]?[0-9]+)?) ?(ms|min|m|s|h|d)", d, re.IGNORECASE)
     if match:
         value, unit = match.groups()
         return float(value) * units[unit.lower()]
-    raise ValueError(f'Invalid duration format: {d}')
+    raise ValueError(f"Invalid duration format: {d}")

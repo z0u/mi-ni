@@ -93,7 +93,7 @@ from mini import MISSING
 
 results = ctx.map(train, configs, allow_partial=True)   # [r0, MISSING, r2, ...]
 ok = [(c, r) for c, r in zip(configs, results, strict=True) if r is not MISSING]
-best = min(ok, key=lambda cr: cr[1]['val_loss'])
+best = min(ok, key=lambda cr: cr[1]["val_loss"])
 ```
 
 `MISSING` is a falsey singleton distinct from `None` (which a task may legitimately
@@ -109,9 +109,9 @@ store directly via the apparatus:
 ```python
 from mini import LocalApparatus, RunState
 
-store = LocalApparatus('my-exp').memo_store()    # ModalApparatus(...).memo_store() for --app modal
+store = LocalApparatus("my-exp").memo_store()    # ModalApparatus(...).memo_store() for --app modal
 records = store.records()                          # per-task state/metrics
-done = [store.result(r['key']) for r in records if r.get('state') == RunState.DONE]
+done = [store.result(r["key"]) for r in records if r.get("state") == RunState.DONE]
 ```
 
 This is exactly what `mini status`/`results` and a `report.py` notebook do.

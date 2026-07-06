@@ -9,9 +9,9 @@ class Series:
     """A series of values for visualization with optional styling."""
 
     raw: np.ndarray
-    color: str = ''
-    dasharray: str = ''
-    label: str = ''
+    color: str = ""
+    dasharray: str = ""
+    label: str = ""
 
     @property
     def values(self) -> np.ndarray:

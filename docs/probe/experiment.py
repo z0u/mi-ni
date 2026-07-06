@@ -21,7 +21,7 @@ from __future__ import annotations
 from mini import Ctx, Experiment, get_data_dir
 from mini.store import get, get_ref, put
 
-DATASET = 'tiny-shakespeare'
+DATASET = "tiny-shakespeare"
 
 
 def probe_activations(dataset: str) -> dict:
@@ -30,25 +30,25 @@ def probe_activations(dataset: str) -> dict:
 
     import numpy as np
 
-    art = get_ref(f'activations/{dataset}')
+    art = get_ref(f"activations/{dataset}")
     if art is None:
-        raise FileNotFoundError(f'no activation cache published for {dataset!r} — run docs/acts/experiment.py first')
+        raise FileNotFoundError(f"no activation cache published for {dataset!r} — run docs/acts/experiment.py first")
 
     # Pull the shared tree into this step's volume (a warm checkout); the bytes
     # come from the project store, not from a recomputed prep.
-    local = get(art, get_data_dir() / 'acts-in')
+    local = get(art, get_data_dir() / "acts-in")
     per_layer_means = {
         shard.stem: np.load(shard).mean(axis=0).round(4).tolist()  # per-neuron mean
-        for shard in sorted(local.glob('*.npy'))
+        for shard in sorted(local.glob("*.npy"))
     }
 
-    summary = {'dataset': dataset, 'source_sha': art.sha256, 'per_layer_means': per_layer_means}
-    asset = put(json.dumps(summary).encode(), name=f'{dataset}-neuron-means.json')
+    summary = {"dataset": dataset, "source_sha": art.sha256, "per_layer_means": per_layer_means}
+    asset = put(json.dumps(summary).encode(), name=f"{dataset}-neuron-means.json")
     return {
-        'dataset': dataset,
-        'source_sha': art.sha256,  # proof we read A's exact bytes
-        'n_layers': len(per_layer_means),
-        'summary': asset,
+        "dataset": dataset,
+        "source_sha": art.sha256,  # proof we read A's exact bytes
+        "n_layers": len(per_layer_means),
+        "summary": asset,
     }
 
 
@@ -56,4 +56,4 @@ def main(ctx: Ctx) -> dict:
     return ctx.run(probe_activations, DATASET)
 
 
-experiment = Experiment(name='probe', main=main)
+experiment = Experiment(name="probe", main=main)

@@ -5,9 +5,9 @@ from annotated_types import Gt, Interval, MultipleOf, Predicate
 from pydantic import ConfigDict
 from pydantic import validate_call as _validate_call
 
-__all__ = ['ZeroToOne', 'IntX8', 'IntX32', 'IntX64', 'PowerOf2', 'validate_call']
+__all__ = ["ZeroToOne", "IntX8", "IntX32", "IntX64", "PowerOf2", "validate_call"]
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 ZeroToOne = Annotated[float, Interval(ge=0, le=1)]
@@ -25,7 +25,7 @@ IntX64 = Annotated[int, Gt(0), MultipleOf(64)]
 PowerOf2 = Annotated[int, Gt(0), Predicate(lambda v: (v & (v - 1)) == 0)]
 """Power of 2"""
 
-AnyCallableT = TypeVar('AnyCallableT', bound=Callable[..., Any])
+AnyCallableT = TypeVar("AnyCallableT", bound=Callable[..., Any])
 
 
 @overload

@@ -11,5 +11,5 @@ def _no_ambient_backend(monkeypatch):
     network on any empty read. Tests opt in to a backend explicitly (flags,
     markers, or mocks); a test of the hint itself re-patches `_peek`.
     """
-    monkeypatch.delenv('MINI_APP', raising=False)
-    monkeypatch.setattr('mini.__main__._peek', lambda name, backend: 0)
+    monkeypatch.delenv("MINI_APP", raising=False)
+    monkeypatch.setattr("mini.__main__._peek", lambda name, backend: 0)

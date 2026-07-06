@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = '0.23.3'
-app = marimo.App(width='medium', auto_download=['html'])
+__generated_with = "0.23.3"
+app = marimo.App(width="medium", auto_download=["html"])
 
 with app.setup(hide_code=True):
     import json
@@ -21,14 +21,14 @@ with app.setup(hide_code=True):
     use_publisher(report_bundle(__file__))
 
     # Sweep axes (kept in sync with experiment.py), and per-arch plot colours.
-    LRS = ['3e-3', '1e-2', '4e-2']
-    ARCHS = ['baseline', 'nGPT', 'nGPT (scalar)']
-    ARCH_COLORS = {'baseline': 'tab:gray', 'nGPT': 'tab:red', 'nGPT (scalar)': 'tab:green'}
+    LRS = ["3e-3", "1e-2", "4e-2"]
+    ARCHS = ["baseline", "nGPT", "nGPT (scalar)"]
+    ARCH_COLORS = {"baseline": "tab:gray", "nGPT": "tab:red", "nGPT (scalar)": "tab:green"}
 
     # The experiment publishes its curves to the project-scoped store under this
     # name (see experiment.py); we resolve them by name at export time, so no data
     # file is committed to Git. The store is the HF bucket when configured, else local.
-    CURVES_REF = 'reports/gpt-sweep/curves'
+    CURVES_REF = "reports/gpt-sweep/curves"
 
     def load_curves() -> dict[str, list[float]]:
         """Resolve `{arch|lr: [val_loss per epoch]}` from the store, or `{}` if unpublished."""
@@ -37,7 +37,7 @@ with app.setup(hide_code=True):
         if art is None:
             return {}
         with tempfile.TemporaryDirectory() as d:
-            return json.loads(store.get(art, Path(d) / 'curves.json').read_text())
+            return json.loads(store.get(art, Path(d) / "curves.json").read_text())
 
 
 @app.cell(hide_code=True)
@@ -76,15 +76,15 @@ def _(curves):
     mo.stop(
         not curves,
         mo.md(
-            'No results yet — run the experiment (it publishes its curves to the store on completion):\n\n'
-            '```bash\nbin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9\n```'
+            "No results yet — run the experiment (it publishes its curves to the store on completion):\n\n"
+            "```bash\nbin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9\n```"
         ),
     )
-    flat = {(a, lr): v for a in ARCHS for lr in LRS if (v := curves.get(f'{a}|{lr}'))}
+    flat = {(a, lr): v for a in ARCHS for lr in LRS if (v := curves.get(f"{a}|{lr}"))}
     best_arch, best_lr = min(flat, key=lambda k: min(flat[k]))
     mo.md(
-        f'**Best run:** {best_arch} at peak LR {best_lr} — val_loss '
-        f'**{min(flat[(best_arch, best_lr)]):.2f}** over {len(flat)} completed cells.'
+        f"**Best run:** {best_arch} at peak LR {best_lr} — val_loss "
+        f"**{min(flat[(best_arch, best_lr)]):.2f}** over {len(flat)} completed cells."
     )
     return
 
@@ -114,25 +114,25 @@ def _(curves):
     mo.stop(not curves)
 
     @themed(
-        alt_text='Three panels, one per peak learning rate. Each plots validation loss versus epoch '
-        'for the baseline, nGPT, and nGPT (scalar) architectures, with the minimum of each curve marked. '
-        'At the lowest learning rate the baseline edges ahead; at higher rates the two nGPT variants reach '
-        'slightly lower loss and track each other almost exactly.'
+        alt_text="Three panels, one per peak learning rate. Each plots validation loss versus epoch "
+        "for the baseline, nGPT, and nGPT (scalar) architectures, with the minimum of each curve marked. "
+        "At the lowest learning rate the baseline edges ahead; at higher rates the two nGPT variants reach "
+        "slightly lower loss and track each other almost exactly."
     )
     def plot() -> plt.Figure:
         fig, axes = plt.subplots(1, 3, figsize=(12, 3.6), sharey=True)
         for ax, lr in zip(axes, LRS, strict=True):
             for arch in ARCHS:
-                ys = curves.get(f'{arch}|{lr}')
+                ys = curves.get(f"{arch}|{lr}")
                 if not ys:
                     continue
                 ax.plot(range(1, len(ys) + 1), ys, color=ARCH_COLORS[arch], lw=1.5, label=arch)
                 best = min(range(len(ys)), key=ys.__getitem__)
                 ax.scatter([best + 1], [ys[best]], color=ARCH_COLORS[arch], s=18, zorder=5)
-            ax.set_title(f'peak LR = {lr}')
-            ax.set_xlabel('epoch')
+            ax.set_title(f"peak LR = {lr}")
+            ax.set_xlabel("epoch")
             ax.grid(alpha=0.3)
-        axes[0].set_ylabel('val_loss')
+        axes[0].set_ylabel("val_loss")
         axes[0].legend()
         fig.tight_layout()
         return fig
@@ -146,18 +146,18 @@ def _(curves):
     mo.stop(not curves)
 
     def _cell(arch: str, lr: str) -> str:
-        ys = curves.get(f'{arch}|{lr}')
-        return f'{min(ys):.2f}' if ys else '—'
+        ys = curves.get(f"{arch}|{lr}")
+        return f"{min(ys):.2f}" if ys else "—"
 
     # Bold the best (lowest) architecture in each LR column.
     def _row(lr: str) -> str:
-        vals = {a: min(curves[f'{a}|{lr}']) for a in ARCHS if curves.get(f'{a}|{lr}')}
+        vals = {a: min(curves[f"{a}|{lr}"]) for a in ARCHS if curves.get(f"{a}|{lr}")}
         best = min(vals, key=lambda a: vals[a]) if vals else None
-        cells = ' | '.join(f'**{_cell(a, lr)}**' if a == best else _cell(a, lr) for a in ARCHS)
-        return f'| {lr} | {cells} |'
+        cells = " | ".join(f"**{_cell(a, lr)}**" if a == best else _cell(a, lr) for a in ARCHS)
+        return f"| {lr} | {cells} |"
 
-    table = '\n'.join(
-        ['| peak LR | baseline | nGPT | nGPT (scalar) |', '| --- | --- | --- | --- |', *(_row(lr) for lr in LRS)]
+    table = "\n".join(
+        ["| peak LR | baseline | nGPT | nGPT (scalar) |", "| --- | --- | --- | --- |", *(_row(lr) for lr in LRS)]
     )
     mo.md(f"""
     Best (minimum) validation loss per cell:
@@ -194,5 +194,5 @@ def _():
     return
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()

@@ -15,10 +15,10 @@ from mini import get_data_dir
 from mini.store import put, get, get_ref, set_ref, publish
 
 def extract(cfg) -> dict:
-    cache = get_data_dir() / 'acts'
+    cache = get_data_dir() / "acts"
     run_model(cfg, into=cache)
-    art = put(cache, name='activations')   # hashed into the store; handle returned
-    return {'cfg': cfg.id, 'activations': art}
+    art = put(cache, name="activations")   # hashed into the store; handle returned
+    return {"cfg": cfg.id, "activations": art}
 ```
 
 `put`/`get` resolve an **ambient store** the worker enters around the step — the
@@ -60,11 +60,11 @@ stable name, without the consumer knowing the producer's memo key:
 
 ```python
 # producer experiment
-set_ref(f'activations/{dataset}', art)
+set_ref(f"activations/{dataset}", art)
 
 # consumer experiment — no recompute, no shared volume
-art = get_ref(f'activations/{dataset}')
-local = get(art, get_data_dir() / 'acts-in')
+art = get_ref(f"activations/{dataset}")
+local = get(art, get_data_dir() / "acts-in")
 ```
 
 See `docs/acts` (producer) and `docs/probe` (consumer) for a runnable pair.
@@ -130,7 +130,7 @@ named, extensioned path and returns a URL (the extension drives the served
 never publishes it as a side effect.
 
 ```python
-url = store.publish(art, f'reports/{exp}/loss.png')
+url = store.publish(art, f"reports/{exp}/loss.png")
 ```
 
 `LocalStore` returns a `file://` URL (the published view lives under the project

@@ -84,29 +84,29 @@ class _FencedStore(Store):
         self._inner, self._memo, self._key, self._gen = inner, memo, key, gen
 
     def _fence(self, verb: str, after: bool = False) -> None:
-        if self._memo.record(self._key).get('gen') != self._gen:
+        if self._memo.record(self._key).get("gen") != self._gen:
             raise StaleWriteError(
-                f'{verb}: attempt {self._gen} of task {self._key} was superseded (relaunched or cancelled)'
-                + (" during the write — the name may briefly hold this attempt's value" if after else '')
+                f"{verb}: attempt {self._gen} of task {self._key} was superseded (relaunched or cancelled)"
+                + (" during the write — the name may briefly hold this attempt's value" if after else "")
             )
 
     # Fenced mutable-name verbs — everything else passes through untouched.
 
     def set_ref(self, name: str, art: Artifact) -> None:
-        self._fence(f'set_ref({name!r})')
+        self._fence(f"set_ref({name!r})")
         self._inner.set_ref(name, art)
-        self._fence(f'set_ref({name!r})', after=True)
+        self._fence(f"set_ref({name!r})", after=True)
 
     def publish(self, art: Artifact, path: str) -> str:
-        self._fence(f'publish({path!r})')
+        self._fence(f"publish({path!r})")
         url = self._inner.publish(art, path)
-        self._fence(f'publish({path!r})', after=True)
+        self._fence(f"publish({path!r})", after=True)
         return url
 
     def _write_ref(self, name: str, payload: str) -> None:
-        self._fence(f'set_ref({name!r})')
+        self._fence(f"set_ref({name!r})")
         self._inner._write_ref(name, payload)
-        self._fence(f'set_ref({name!r})', after=True)
+        self._fence(f"set_ref({name!r})", after=True)
 
     # Pass-throughs: forward the public verbs (not the shared high-level logic)
     # so a backend's own overrides — HF batching, cache warming — stay in play.
@@ -208,7 +208,7 @@ def execute_task(
         record(
             state=RunState.FAILED,
             error=tb.strip().splitlines()[-1],
-            exc_type=f'{type(exc).__module__}.{type(exc).__qualname__}',
+            exc_type=f"{type(exc).__module__}.{type(exc).__qualname__}",
             heartbeat_at=time.time(),
         )
 
@@ -228,5 +228,5 @@ def main() -> None:
     run_task(Path(sys.argv[1]), sys.argv[2])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

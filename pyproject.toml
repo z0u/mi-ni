@@ -92,9 +92,6 @@ namespace = true
 line-length = 120
 extend-exclude = [".vulture-*"]
 
-[tool.ruff.format]
-quote-style = 'single'
-
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "C", "D", "T"]
 ignore = [

@@ -12,10 +12,10 @@ from .transitions import DynamicProp, LogDynamicProp
 
 # Map interpolator names to classes
 INTERPOLATOR_MAP: dict[str, Type[TimingFunction]] = {
-    'minjerk': MinimumJerkTimingFunction,
-    'linear': LinearTimingFunction,
-    'step': StepEndTimingFunction,  # Allow 'step' as alias for 'step-end'
-    'step-end': StepEndTimingFunction,
+    "minjerk": MinimumJerkTimingFunction,
+    "linear": LinearTimingFunction,
+    "step": StepEndTimingFunction,  # Allow 'step' as alias for 'step-end'
+    "step-end": StepEndTimingFunction,
 }
 DEFAULT_TIMING_FUNCTION = MinimumJerkTimingFunction
 
@@ -54,7 +54,7 @@ class Timeline:
             initial_value = initial_values.get(prop, 0.0)
 
             # Create appropriate SmoothProp based on space setting
-            if prop_config.space == 'log':
+            if prop_config.space == "log":
                 # Use LogSpaceSmoothProp for logarithmic space
                 self.props[prop] = LogDynamicProp(
                     value=initial_value,
@@ -93,7 +93,7 @@ class Timeline:
     def step(self) -> TStep:
         """Advance the timeline by one step."""
         if self._step >= self._max_steps:
-            raise IndexError('Timeline has reached the end.')
+            raise IndexError("Timeline has reached the end.")
 
         self._step += 1
         for prop in self.props.values():

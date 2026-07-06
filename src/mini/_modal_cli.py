@@ -18,13 +18,13 @@ from mini._tls import ensure_grpc_trusts_system_ca
 def main() -> None:
     ensure_grpc_trusts_system_ca()  # before any modal import — see mini/_tls.py
 
-    sys.argv[0] = 'modal'  # so click/typer help text reads `modal`, not us
+    sys.argv[0] = "modal"  # so click/typer help text reads `modal`, not us
 
-    modal_entry_points = [ep for ep in entry_points(group='console_scripts') if ep.name == 'modal']
+    modal_entry_points = [ep for ep in entry_points(group="console_scripts") if ep.name == "modal"]
     if not modal_entry_points:
         raise RuntimeError("No 'modal' console-script entry point found — is the `modal` package installed?")
     sys.exit(modal_entry_points[0].load()())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

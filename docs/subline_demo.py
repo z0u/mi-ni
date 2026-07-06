@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = '0.23.3'
-app = marimo.App(width='medium', auto_download=['html'])
+__generated_with = "0.23.3"
+app = marimo.App(width="medium", auto_download=["html"])
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -39,7 +39,7 @@ def _():
 
 @app.cell
 def _():
-    text = 'The quick brown fox'
+    text = "The quick brown fox"
     tokens = list(text)
 
     # Rough per-character surprisal (higher = more unexpected)
@@ -53,7 +53,7 @@ def _():
         0.30, 0.20, 0.90,             # fox
     ])  # fmt: skip
 
-    mo.Html(Subline().plot(tokens, [Series(surprise, label='Surprisal')]))
+    mo.Html(Subline().plot(tokens, [Series(surprise, label="Surprisal")]))
     return surprise, tokens
 
 
@@ -79,8 +79,8 @@ def _(surprise, tokens):
         Subline().plot(
             tokens,
             [
-                Series(model_a, label='Model A'),
-                Series(model_b, label='Model B', dasharray='2'),
+                Series(model_a, label="Model A"),
+                Series(model_b, label="Model B", dasharray="2"),
             ],
         )
     )
@@ -101,15 +101,15 @@ def _():
 
 @app.cell
 def _():
-    long_text = 'To be or not to be, that is the question: whether tis nobler in the mind to suffer'
+    long_text = "To be or not to be, that is the question: whether tis nobler in the mind to suffer"
     long_tokens = long_text.split()
-    long_tokens = [long_tokens[0]] + [f' {tok}' for tok in long_tokens[1:]]
+    long_tokens = [long_tokens[0]] + [f" {tok}" for tok in long_tokens[1:]]
     rng2 = np.random.default_rng(1)
     vals = np.abs(rng2.normal(0.35, 0.2, len(long_tokens))).clip(0, 1)
 
-    mo.Html(Subline(chars_per_line=50).plot(long_tokens, [Series(vals, label='Surprisal')]))
+    mo.Html(Subline(chars_per_line=50).plot(long_tokens, [Series(vals, label="Surprisal")]))
     return
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()

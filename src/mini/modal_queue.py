@@ -22,8 +22,8 @@ from mini._queues import EndOfQueue, QueueLike
 
 log = logging.getLogger(__name__)
 
-T = TypeVar('T')
-R = TypeVar('R')
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 class ModalQueue(QueueLike[T]):
@@ -47,7 +47,7 @@ class ModalQueue(QueueLike[T]):
         # Modal's Queue returns None instead of raising Empty when no item is available.
         items = self._queue.get_many(self._batch_size, block=block, timeout=timeout)
         if not items:
-            raise Empty('Modal queue returned no items, treating as empty')
+            raise Empty("Modal queue returned no items, treating as empty")
 
         cleaned: list[T] = []
         for item in items:
@@ -61,7 +61,7 @@ class ModalQueue(QueueLike[T]):
         if not cleaned:
             if self._saw_end:
                 raise EndOfQueue()
-            raise Empty('Modal queue returned no items, treating as empty')
+            raise Empty("Modal queue returned no items, treating as empty")
 
         self._buffer.extend(cleaned)
         return self._buffer.popleft()

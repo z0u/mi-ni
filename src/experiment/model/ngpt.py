@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 
 
 def _is_full(config: ModelConfig) -> bool:
-    return config.ngpt_variant == 'full'
+    return config.ngpt_variant == "full"
 
 
 class CausalSelfAttention(eqx.Module):
@@ -71,7 +71,7 @@ class CausalSelfAttention(eqx.Module):
             self.s_qk = Scale(1, init=config.n_head_dim**0.5, scale=config.n_embd**-0.5)
             self.qk_scale = 1.0
 
-    def __call__(self, x: Float[Array, 'B T C'], enc: RotaryEncoding):
+    def __call__(self, x: Float[Array, "B T C"], enc: RotaryEncoding):
         _B, T, _C = x.shape
         q, k, v = jnp.split(self.qkv(x), [self.n_kq_tot, 2 * self.n_kq_tot], axis=-1)
         q = split_heads(q, self.n_head)
@@ -156,7 +156,7 @@ class Block(eqx.Module):
 
 
 class Transformer(eqx.Module):
-    wte: Float[Array, 'V C']
+    wte: Float[Array, "V C"]
     blocks: tuple[Block, ...]
     rotary_enc: RotaryEncoding
 
@@ -175,11 +175,11 @@ class NGPT(LanguageModel):
     s_z: Scale
 
     def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
-        log.info('Initializing nGPT (%s) model with config: %s', config.ngpt_variant, config)
+        log.info("Initializing nGPT (%s) model with config: %s", config.ngpt_variant, config)
         # nGPT is deliberately dropout-free: the unit-hypersphere constraint is the
         # regularizer, and threading PRNG keys for dropout complicates the forward.
         if config.dropout:
-            raise ValueError(f'nGPT does not support dropout; set dropout=0 (got {config.dropout})')
+            raise ValueError(f"nGPT does not support dropout; set dropout=0 (got {config.dropout})")
         self.block_size = config.block_size
         self.vocab_size = config.vocab_size
         self.transformer = Transformer(config, key=key)
@@ -191,11 +191,11 @@ class NGPT(LanguageModel):
         normalized = self.normalize_weights()
         self.transformer = normalized.transformer
 
-        log.info('number of parameters: %.2fM', self.get_num_params() / 1e6)
+        log.info("number of parameters: %.2fM", self.get_num_params() / 1e6)
 
-    def __call__(self, idx: Int[Array, 'B T'], *, key: PRNGKeyArray | None = None):
+    def __call__(self, idx: Int[Array, "B T"], *, key: PRNGKeyArray | None = None):
         # Token embeddings, projected onto the unit hypersphere.
-        x: Float[Array, 'B T C'] = normalize(self.transformer.wte[idx])
+        x: Float[Array, "B T C"] = normalize(self.transformer.wte[idx])
 
         # Gradient-checkpoint each block: the backward pass recomputes
         # activations instead of storing every layer's O(T²) attention maps.
@@ -208,7 +208,7 @@ class NGPT(LanguageModel):
         # apply the learnable logit temperature.
         return (x @ self.transformer.wte.T) * self.s_z()
 
-    def normalize_weights(self) -> 'NGPT':
+    def normalize_weights(self) -> "NGPT":
         """Project every hidden-dim matrix back onto the unit hypersphere.
 
         Apply after each optimizer step to enforce nGPT's weight constraint:
@@ -247,9 +247,9 @@ class NGPT(LanguageModel):
         """
         blocks = self.transformer.blocks
         return {
-            'alpha_a': [float(jnp.mean(b.alpha_a())) for b in blocks],
-            'alpha_m': [float(jnp.mean(b.alpha_m())) for b in blocks],
-            's_qk': [float(jnp.mean(b.attn.s_qk())) for b in blocks],
-            's_u': [float(jnp.mean(b.mlp.s_u())) for b in blocks],
-            's_z': float(jnp.mean(self.s_z())),
+            "alpha_a": [float(jnp.mean(b.alpha_a())) for b in blocks],
+            "alpha_m": [float(jnp.mean(b.alpha_m())) for b in blocks],
+            "s_qk": [float(jnp.mean(b.attn.s_qk())) for b in blocks],
+            "s_u": [float(jnp.mean(b.mlp.s_u())) for b in blocks],
+            "s_z": float(jnp.mean(self.s_z())),
         }

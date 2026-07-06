@@ -42,8 +42,8 @@ class Linear(eqx.Module):
     (B, T, C) style.
     """
 
-    weight: Float[Array, 'out in']
-    bias: Float[Array, ' out'] | None
+    weight: Float[Array, "out in"]
+    bias: Float[Array, " out"] | None
 
     def __init__(self, in_features: int, out_features: int, *, key: PRNGKeyArray, use_bias: bool = True):
         wkey, bkey = jr.split(key)
@@ -51,7 +51,7 @@ class Linear(eqx.Module):
         self.weight = jr.uniform(wkey, (out_features, in_features), minval=-lim, maxval=lim)
         self.bias = jr.uniform(bkey, (out_features,), minval=-lim, maxval=lim) if use_bias else None
 
-    def __call__(self, x: Float[Array, '... in']) -> Float[Array, '... out']:
+    def __call__(self, x: Float[Array, "... in"]) -> Float[Array, "... out"]:
         y = x @ self.weight.T
         return y if self.bias is None else y + self.bias
 
@@ -59,8 +59,8 @@ class Linear(eqx.Module):
 class LayerNorm(eqx.Module):
     """Layer normalization over the last axis, broadcasting over the rest."""
 
-    weight: Float[Array, ' dim']
-    bias: Float[Array, ' dim']
+    weight: Float[Array, " dim"]
+    bias: Float[Array, " dim"]
     eps: float = eqx.field(static=True)
 
     def __init__(self, dim: int, eps: float = 1e-5):
@@ -68,7 +68,7 @@ class LayerNorm(eqx.Module):
         self.bias = jnp.zeros(dim)
         self.eps = eps
 
-    def __call__(self, x: Float[Array, '... dim']) -> Float[Array, '... dim']:
+    def __call__(self, x: Float[Array, "... dim"]) -> Float[Array, "... dim"]:
         mean = x.mean(axis=-1, keepdims=True)
         var = x.var(axis=-1, keepdims=True)
         return (x - mean) * jax.lax.rsqrt(var + self.eps) * self.weight + self.bias
@@ -91,7 +91,7 @@ class RotaryEncoding(eqx.Module):
         self.n_head_dim = n_head_dim
         self.base = base
 
-    def __call__(self, q: Float[Array, 'B H T D'], k: Float[Array, 'B H T D']):
+    def __call__(self, q: Float[Array, "B H T D"], k: Float[Array, "B H T D"]):
         T = q.shape[-2]
         inv_freq = 1.0 / (self.base ** (jnp.arange(0, self.n_head_dim, 2) / self.n_head_dim))
         enc = jnp.concatenate((f := jnp.outer(jnp.arange(T), inv_freq), f), axis=-1)  # (T, n_head_dim)
@@ -112,7 +112,7 @@ class Scale(eqx.Module):
     so Adam's step dynamics are decoupled from the value's magnitude.
     """
 
-    weight: Float[Array, ' n']
+    weight: Float[Array, " n"]
     forward_scale: float = eqx.field(static=True)
 
     def __init__(self, n: int, init: float, scale: float):
@@ -123,13 +123,13 @@ class Scale(eqx.Module):
         return self.weight * self.forward_scale
 
 
-def split_heads(x: Float[Array, 'B T C'], n_head: int) -> Float[Array, 'B H T D']:
+def split_heads(x: Float[Array, "B T C"], n_head: int) -> Float[Array, "B H T D"]:
     """Reshape (B, T, n_head * n_head_dim) into (B, n_head, T, n_head_dim)."""
     B, T, C = x.shape
     return x.reshape(B, T, n_head, C // n_head).swapaxes(1, 2)
 
 
-def merge_heads(x: Float[Array, 'B H T D']) -> Float[Array, 'B T C']:
+def merge_heads(x: Float[Array, "B H T D"]) -> Float[Array, "B T C"]:
     """Reshape (B, n_head, T, n_head_dim) back into (B, T, n_head * n_head_dim)."""
     B, n_head, T, d = x.shape
     return x.swapaxes(1, 2).reshape(B, T, n_head * d)
@@ -147,10 +147,10 @@ class LanguageModel(eqx.Module):
     block_size: int = eqx.field(static=True)
     vocab_size: int = eqx.field(static=True)
 
-    def __call__(self, idx: Int[Array, 'B T'], *, key: PRNGKeyArray | None = None) -> Float[Array, 'B T V']:
+    def __call__(self, idx: Int[Array, "B T"], *, key: PRNGKeyArray | None = None) -> Float[Array, "B T V"]:
         raise NotImplementedError
 
-    def normalize_weights(self) -> 'LanguageModel':
+    def normalize_weights(self) -> "LanguageModel":
         """Re-project weights onto the unit hypersphere; identity unless overridden."""
         return self
 
@@ -160,13 +160,13 @@ class LanguageModel(eqx.Module):
 
     def generate(
         self,
-        tok_idx: Int[Array, 'B T'] | Int[np.ndarray, 'B T'],
+        tok_idx: Int[Array, "B T"] | Int[np.ndarray, "B T"],
         max_new_tokens: PositiveInt,
         temperature: NonNegativeFloat = 1.0,
         pad_token_id: int = 0,
         *,
         key: PRNGKeyArray,
-    ) -> 'Generation':
+    ) -> "Generation":
         model = eqx.nn.inference_mode(self)
         forward = eqx.filter_jit(model.__call__)
 
@@ -239,25 +239,25 @@ class LanguageModel(eqx.Module):
 
 
 class Generation(BaseModel, arbitrary_types_allowed=True):
-    tokens: Int[np.ndarray, 'B T']
+    tokens: Int[np.ndarray, "B T"]
     """Generated token indices"""
 
     vocab_size: PositiveInt
     """Vocabulary size"""
 
-    surprisal: Float[np.ndarray, 'B T']
+    surprisal: Float[np.ndarray, "B T"]
     """Perplexity of each token in the sequence"""
 
-    entropy: Float[np.ndarray, 'B T']
+    entropy: Float[np.ndarray, "B T"]
     """Entropy of each token in the sequence"""
 
-    surprise_surprise: Float[np.ndarray, 'B T']
+    surprise_surprise: Float[np.ndarray, "B T"]
     """The normalized differences between surprisal and entropy (s2)"""
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def same_lengths(self):
         if not (len(self.tokens) == len(self.surprisal) == len(self.entropy) == len(self.surprise_surprise)):
-            raise ValueError('All tensors must be of equal length')
+            raise ValueError("All tensors must be of equal length")
         return self
 
     def __getitem__(self, item: int):
@@ -272,23 +272,23 @@ class Generation(BaseModel, arbitrary_types_allowed=True):
 
 
 class SingleGeneration(BaseModel, arbitrary_types_allowed=True):
-    tokens: Int[np.ndarray, ' T']
+    tokens: Int[np.ndarray, " T"]
     """Generated token indices"""
 
     vocab_size: PositiveInt
     """Vocabulary size"""
 
-    surprisal: Float[np.ndarray, ' T']
+    surprisal: Float[np.ndarray, " T"]
     """Perplexity of each token in the sequence"""
 
-    entropy: Float[np.ndarray, ' T']
+    entropy: Float[np.ndarray, " T"]
     """Entropy of each token in the sequence"""
 
-    surprise_surprise: Float[np.ndarray, ' T']
+    surprise_surprise: Float[np.ndarray, " T"]
     """The normalized differences between surprisal and entropy (s2)"""
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def same_lengths(self):
         if not (len(self.tokens) == len(self.surprisal) == len(self.entropy) == len(self.surprise_surprise)):
-            raise ValueError('All tensors must be of equal length')
+            raise ValueError("All tensors must be of equal length")
         return self

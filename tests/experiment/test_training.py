@@ -21,7 +21,7 @@ from experiment.config import (
 )
 from mini.progress import ProgressMessage, progress_context
 
-VOCAB = [chr(ord('a') + i) for i in range(26)]
+VOCAB = [chr(ord("a") + i) for i in range(26)]
 
 
 @pytest.fixture
@@ -58,11 +58,11 @@ def make_training_config(dropout: float = 0.1, **model_overrides) -> TrainingCon
     )
 
 
-@pytest.mark.parametrize('arch', ['gpt', 'ngpt'])
+@pytest.mark.parametrize("arch", ["gpt", "ngpt"])
 def test_train_model_end_to_end(data_dir, arch):
     """Training produces per-epoch metrics and a checkpoint equivalent to the returned model."""
     # nGPT is dropout-free (the unit-hypersphere constraint regularizes instead).
-    config = make_training_config(architecture=arch, dropout=0 if arch == 'ngpt' else 0.1)
+    config = make_training_config(architecture=arch, dropout=0 if arch == "ngpt" else 0.1)
     model, metrics = train_model(config, data_dir)
 
     assert [m.epoch for m in metrics] == [0, 1]
@@ -84,16 +84,16 @@ def test_progress_emitted_during_training(data_dir):
     q: queue.Queue = queue.Queue()
     config = make_training_config()
     # Long debounce interval: the flush at context exit delivers the trailing message.
-    with progress_context('run-1', 'job-1', queue=q, emission_interval=10.0):
+    with progress_context("run-1", "job-1", queue=q, emission_interval=10.0):
         train_model(config, data_dir)
 
     messages: list[ProgressMessage] = []
     while not q.empty():
         messages.append(q.get_nowait())
 
-    assert messages, 'expected at least one progress message'
-    assert all(m.run_id == 'run-1' and m.job_id == 'job-1' for m in messages)
+    assert messages, "expected at least one progress message"
+    assert all(m.run_id == "run-1" and m.job_id == "job-1" for m in messages)
     steps = [m.step for m in messages]
     assert steps == sorted(steps)
-    assert {m.total for m in messages} == {max(steps)}, 'final step should equal the reported total'
-    assert 'loss=' in messages[-1].message
+    assert {m.total for m in messages} == {max(steps)}, "final step should equal the reported total"
+    assert "loss=" in messages[-1].message

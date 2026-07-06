@@ -10,7 +10,7 @@ from pathlib import Path
 
 from mini.volume import PathLike, Volume
 
-__all__ = ['LocalVolume']
+__all__ = ["LocalVolume"]
 
 
 class LocalVolume(Volume):
