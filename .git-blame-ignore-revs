@@ -1,5 +1,5 @@
 # Mechanical reformats — skipped by `git blame` (see `git blame --ignore-revs-file`).
-# Configure once: `git config blame.ignoreRevsFile .git-blame-ignore-revs`
+# `./go install` wires this up locally; GitHub honours it by default.
 
 # Switch Python string quote style from single to double
 91d519ebde7931ab1fcee857b3b4b0cd0aaa3aec
