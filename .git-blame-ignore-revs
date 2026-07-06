@@ -1,0 +1,5 @@
+# Mechanical reformats — skipped by `git blame` (see `git blame --ignore-revs-file`).
+# Configure once: `git config blame.ignoreRevsFile .git-blame-ignore-revs`
+
+# Switch Python string quote style from single to double
+8c87c53517d99b8ffb3151546dbe745ca8931100
