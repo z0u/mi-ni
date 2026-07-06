@@ -32,20 +32,20 @@ from mini.reports import (
 )
 
 WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
-SITE_DIR = WORKSPACE_ROOT / '_site'
-DOCS_DIR = WORKSPACE_ROOT / 'docs'
+SITE_DIR = WORKSPACE_ROOT / "_site"
+DOCS_DIR = WORKSPACE_ROOT / "docs"
 
 # The relative dir, beside each report's index.html, holding its externalized assets
 # (figures, data blobs) written by mini.reports.Publisher.
-ASSET_LINK = '_assets'
+ASSET_LINK = "_assets"
 
 # Source suffixes that the build renders into a report page (so an author link to one
 # resolves to the rendered result, not the dead source file).
-_RENDERED_SUFFIXES = ('.py', '.ipynb', '.md')
+_RENDERED_SUFFIXES = (".py", ".ipynb", ".md")
 
 
 def prepare_dirs():
-    print('Preparing site directory...')
+    print("Preparing site directory...")
     if SITE_DIR.exists():
         shutil.rmtree(SITE_DIR)
     SITE_DIR.mkdir()
@@ -60,7 +60,7 @@ def _resolve_store():
     """
     from mini.store import store_for
 
-    return store_for(WORKSPACE_ROOT / '.mini' / 'store')
+    return store_for(WORKSPACE_ROOT / ".mini" / "store")
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ def _resolve_store():
 # mode (no base) rendered links stay relative so offline navigation still works.
 # ---------------------------------------------------------------------------
 
-_ANCHORED = re.compile(r'(?:[a-z][a-z0-9+.\-]*:|//|/|#)', re.IGNORECASE)
+_ANCHORED = re.compile(r"(?:[a-z][a-z0-9+.\-]*:|//|/|#)", re.IGNORECASE)
 
 
 def _strip_index(url: str) -> str:
@@ -83,23 +83,23 @@ def _strip_index(url: str) -> str:
     Operates before any ``#fragment`` and leaves non-index pages (``foo.html``) untouched.
     Used only when publishing — offline (``file://``) navigation keeps the explicit file.
     """
-    return re.sub(r'(^|/)index\.html(?=$|#)', r'\1', url)
+    return re.sub(r"(^|/)index\.html(?=$|#)", r"\1", url)
 
 
 def _repo_slug() -> str | None:
     """``owner/repo`` from ``$MINI_REPO`` or the git ``origin`` remote, or ``None``."""
-    url = os.environ.get('MINI_REPO')
+    url = os.environ.get("MINI_REPO")
     if not url:
         try:
             url = subprocess.run(
-                ['git', '-C', str(WORKSPACE_ROOT), 'remote', 'get-url', 'origin'],
+                ["git", "-C", str(WORKSPACE_ROOT), "remote", "get-url", "origin"],
                 capture_output=True,
                 text=True,
                 check=True,
             ).stdout.strip()
         except OSError, subprocess.CalledProcessError:
             return None
-    m = re.search(r'[:/]([^/]+/[^/]+?)(?:\.git)?$', url)
+    m = re.search(r"[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
     return m.group(1) if m else None
 
 
@@ -121,30 +121,30 @@ class LinkResolver:
     repo_root: Path | None = None  # used to confirm a link escaping docs/ exists in the repo
 
     @classmethod
-    def discover(cls) -> 'LinkResolver':
+    def discover(cls) -> "LinkResolver":
         render_map: dict[str, str] = {}
-        for md in DOCS_DIR.rglob('*.md'):
-            if md.name == 'README.md':
+        for md in DOCS_DIR.rglob("*.md"):
+            if md.name == "README.md":
                 continue
             rel = md.relative_to(DOCS_DIR).as_posix()
-            render_map[rel] = PurePosixPath(rel).with_suffix('.html').as_posix()
+            render_map[rel] = PurePosixPath(rel).with_suffix(".html").as_posix()
         for nb in report_notebooks(DOCS_DIR):
-            out = f'{export_key(nb)}/index.html'
+            out = f"{export_key(nb)}/index.html"
             stem_rel = nb.relative_to(DOCS_DIR)
             # The report came from this notebook; register every suffix an author might
             # have linked (``report.py`` → its rendered ``<key>/index.html``).
             for suffix in _RENDERED_SUFFIXES:
                 render_map[stem_rel.with_suffix(suffix).as_posix()] = out
 
-        source_files = frozenset(p.relative_to(DOCS_DIR).as_posix() for p in DOCS_DIR.rglob('*') if p.is_file())
+        source_files = frozenset(p.relative_to(DOCS_DIR).as_posix() for p in DOCS_DIR.rglob("*") if p.is_file())
 
         slug = _repo_slug()
-        site_base = os.environ.get('MINI_SITE_URL')
-        source_base = os.environ.get('MINI_SOURCE_URL')
+        site_base = os.environ.get("MINI_SITE_URL")
+        source_base = os.environ.get("MINI_SOURCE_URL")
         if slug:
-            owner, repo = slug.split('/', 1)
-            site_base = site_base or f'https://{owner}.github.io/{repo}/'
-            source_base = source_base or f'https://github.com/{slug}/blob/main/'
+            owner, repo = slug.split("/", 1)
+            site_base = site_base or f"https://{owner}.github.io/{repo}/"
+            source_base = source_base or f"https://github.com/{slug}/blob/main/"
         return cls(render_map, source_files, site_base, source_base, repo_root=WORKSPACE_ROOT)
 
     def resolve(self, token: str, *, from_dir: str, out_dir: str, externalizing: bool) -> str | None:
@@ -157,10 +157,10 @@ class LinkResolver:
         """
         if not token or _ANCHORED.match(token):
             return None
-        path_part, _, frag = token.partition('#')
-        frag = f'#{frag}' if frag else ''
+        path_part, _, frag = token.partition("#")
+        frag = f"#{frag}" if frag else ""
         norm = os.path.normpath(PurePosixPath(from_dir, path_part).as_posix())
-        if norm.startswith('..'):
+        if norm.startswith(".."):
             # Escaped docs/, but often still inside the repo — a report linking to its
             # source modules (``../src/experiment``, ``../../src/.../README.md``). Point
             # such a link at the GitHub source so it survives the asset <base> (which
@@ -168,22 +168,22 @@ class LinkResolver:
             # it escapes the repo root too, or the target doesn't exist in the repo.
             if self.source_base is None:
                 return None
-            repo_rel = os.path.normpath(PurePosixPath('docs', norm).as_posix())
-            if repo_rel.startswith('..'):
+            repo_rel = os.path.normpath(PurePosixPath("docs", norm).as_posix())
+            if repo_rel.startswith(".."):
                 return None
             if self.repo_root is not None and not (self.repo_root / repo_rel).exists():
                 return None
-            return f'{self.source_base}{repo_rel}{frag}'
+            return f"{self.source_base}{repo_rel}{frag}"
 
         if norm in self.render_map:
             out = self.render_map[norm]
             if externalizing:
-                return None if self.site_base is None else f'{self.site_base}{_strip_index(out)}{frag}'
+                return None if self.site_base is None else f"{self.site_base}{_strip_index(out)}{frag}"
             # localize: keep it relative, resolved from where this page renders (out_dir)
-            rel = os.path.relpath(out, out_dir or '.')
-            return f'{PurePosixPath(rel).as_posix()}{frag}'
+            rel = os.path.relpath(out, out_dir or ".")
+            return f"{PurePosixPath(rel).as_posix()}{frag}"
         if norm in self.source_files:
-            return None if self.source_base is None else f'{self.source_base}docs/{norm}{frag}'
+            return None if self.source_base is None else f"{self.source_base}docs/{norm}{frag}"
         return None
 
 
@@ -204,41 +204,41 @@ def build_reports(links: LinkResolver, store, externalizing: bool):
     from ``.mini/exports`` and copy its ``_assets/`` beside the HTML so it works offline.
     Author links are resolved to absolute/relative targets either way.
     """
-    print('Building reports...')
+    print("Building reports...")
     for nb in report_notebooks(DOCS_DIR):
         key = export_key(nb)
         from_dir = nb.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
-        from_dir = '' if from_dir == '.' else from_dir
+        from_dir = "" if from_dir == "." else from_dir
         nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
 
         with tempfile.TemporaryDirectory() as tmp:
             if externalizing:
                 bundle = Path(tmp)
                 if not store.fetch_export(key, bundle):
-                    print(f'  ! {key}: no synced export on the bucket — run `./go publish` (skipping)')
+                    print(f"  ! {key}: no synced export on the bucket — run `./go publish` (skipping)")
                     continue
                 base_href = store.export_base(key)
             else:
                 bundle = export_dir(nb)
-                if not (bundle / 'index.html').exists():
-                    print(f'  ! {key}: not exported locally — run `./go export {nb_rel}` (skipping)')
+                if not (bundle / "index.html").exists():
+                    print(f"  ! {key}: not exported locally — run `./go export {nb_rel}` (skipping)")
                     continue
                 base_href = None
 
-            html = (bundle / 'index.html').read_text('utf-8')
+            html = (bundle / "index.html").read_text("utf-8")
             html = _resolve_html_links(html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
             html = set_theme(html)  # follow the visitor's device, not the exporter's setting
             index_url, source_url = _nav_urls(links, key=key, nb_rel=nb_rel, externalizing=externalizing)
             html = set_banner(html, index_url=index_url, source_url=source_url)
             if base_href:
                 html = insert_base(html, base_href)
-            dest = SITE_DIR / key / 'index.html'
+            dest = SITE_DIR / key / "index.html"
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(html, 'utf-8')
+            dest.write_text(html, "utf-8")
 
             if not externalizing and (bundle / ASSET_LINK).is_dir():
                 shutil.copytree(bundle / ASSET_LINK, dest.parent / ASSET_LINK, dirs_exist_ok=True)
-            print(f'  {key} -> _site/{key}/index.html{" [+base]" if base_href else ""}')
+            print(f"  {key} -> _site/{key}/index.html{' [+base]' if base_href else ''}")
 
 
 def _nav_urls(links: LinkResolver, *, key: str, nb_rel: str, externalizing: bool) -> tuple[str | None, str | None]:
@@ -250,11 +250,11 @@ def _nav_urls(links: LinkResolver, *, key: str, nb_rel: str, externalizing: bool
     ``_site/<key>/index.html`` when localizing, so offline navigation works. Either is
     ``None`` if its base is unavailable.
     """
-    source_url = f'{links.source_base}{nb_rel}' if links.source_base else None
+    source_url = f"{links.source_base}{nb_rel}" if links.source_base else None
     if externalizing:
         index_url = links.site_base  # the site root serves index.html
     else:
-        index_url = '../' * (key.count('/') + 1) + 'index.html'
+        index_url = "../" * (key.count("/") + 1) + "index.html"
     return index_url, source_url
 
 
@@ -266,43 +266,43 @@ def _resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, out_di
         if target is not None:
             mapping[token] = target
         else:
-            print(f'  ! {from_dir or "."}: unresolved relative link {token!r} — a <base> would break it')
+            print(f"  ! {from_dir or '.'}: unresolved relative link {token!r} — a <base> would break it")
     return rewrite_links(html, mapping) if mapping else html
 
 
 def copy_assets():
     """Copy non-notebook, non-markdown files from docs/ to _site/."""
-    print('Copying assets...')
-    skip_dirs = {'__marimo__', '__pycache__'}
-    skip_suffixes = {'.py', '.md', '.ipynb', '.pyc', '.pyo'}
-    for item in sorted(DOCS_DIR.rglob('*')):
+    print("Copying assets...")
+    skip_dirs = {"__marimo__", "__pycache__"}
+    skip_suffixes = {".py", ".md", ".ipynb", ".pyc", ".pyo"}
+    for item in sorted(DOCS_DIR.rglob("*")):
         if not item.is_file():
             continue
         parts = item.relative_to(DOCS_DIR).parts
-        if any(p in skip_dirs or p.startswith('.') for p in parts):
+        if any(p in skip_dirs or p.startswith(".") for p in parts):
             continue
         if item.suffix in skip_suffixes:
             continue
         rel = item.relative_to(DOCS_DIR)
         dest = SITE_DIR / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        print(f'  {item.relative_to(WORKSPACE_ROOT)} -> {dest.relative_to(WORKSPACE_ROOT)}')
+        print(f"  {item.relative_to(WORKSPACE_ROOT)} -> {dest.relative_to(WORKSPACE_ROOT)}")
         shutil.copy2(item, dest)
 
 
 def site_root(dest: Path) -> str:
     """Return the relative path prefix from dest back to the site root."""
     depth = len(dest.relative_to(SITE_DIR).parts) - 1
-    return '../' * depth
+    return "../" * depth
 
 
 def copy_md_stylesheet():
     """Copy the Markdown page stylesheet to _site/."""
-    print('Copying Markdown stylesheet...')
-    css_src = WORKSPACE_ROOT / 'scripts' / 'md.css'
-    css_dest = SITE_DIR / 'md.css'
+    print("Copying Markdown stylesheet...")
+    css_src = WORKSPACE_ROOT / "scripts" / "md.css"
+    css_dest = SITE_DIR / "md.css"
     shutil.copy2(css_src, css_dest)
-    print(f'  {css_src.relative_to(WORKSPACE_ROOT)} -> {css_dest.relative_to(WORKSPACE_ROOT)}')
+    print(f"  {css_src.relative_to(WORKSPACE_ROOT)} -> {css_dest.relative_to(WORKSPACE_ROOT)}")
 
 
 def _rewrite_md_links(text: str, links: LinkResolver, *, from_dir: str, pretty: bool) -> str:
@@ -320,45 +320,45 @@ def _rewrite_md_links(text: str, links: LinkResolver, *, from_dir: str, pretty: 
         target = links.resolve(token, from_dir=from_dir, out_dir=from_dir, externalizing=False)
         if target is None:
             return m.group(0)
-        return f']({_strip_index(target) if pretty else target})'
+        return f"]({_strip_index(target) if pretty else target})"
 
-    return re.sub(r'\]\(([^)\s]+)\)', repl, text)
+    return re.sub(r"\]\(([^)\s]+)\)", repl, text)
 
 
 def convert_markdown(links: LinkResolver, externalizing: bool):
     """Convert all .md files in docs/ (except README.md) to .html in _site/."""
-    print('Converting Markdown...')
-    skip = {'README.md'}
-    for md_file in sorted(DOCS_DIR.rglob('*.md')):
+    print("Converting Markdown...")
+    skip = {"README.md"}
+    for md_file in sorted(DOCS_DIR.rglob("*.md")):
         if md_file.name in skip:
             continue
-        rel = md_file.relative_to(DOCS_DIR).with_suffix('.html')
+        rel = md_file.relative_to(DOCS_DIR).with_suffix(".html")
         dest = SITE_DIR / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         from_dir = md_file.parent.relative_to(DOCS_DIR).as_posix()
-        from_dir = '' if from_dir == '.' else from_dir
-        text = _rewrite_md_links(md_file.read_text('utf-8'), links, from_dir=from_dir, pretty=externalizing)
-        body = md_lib.markdown(text, extensions=['extra'])
-        title_match = re.search(r'^#\s+(.+)$', text, re.MULTILINE)
+        from_dir = "" if from_dir == "." else from_dir
+        text = _rewrite_md_links(md_file.read_text("utf-8"), links, from_dir=from_dir, pretty=externalizing)
+        body = md_lib.markdown(text, extensions=["extra"])
+        title_match = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else md_file.stem
         root = site_root(dest)
         html = (
-            '<!DOCTYPE html>\n'
+            "<!DOCTYPE html>\n"
             '<html lang="en">\n'
-            '<head>\n'
+            "<head>\n"
             '<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-            f'<title>{title}</title>\n'
+            f"<title>{title}</title>\n"
             f'<link rel="stylesheet" href="{root}md.css">\n'
-            '</head>\n'
-            '<body>\n' + body + '\n</body>\n</html>\n'
+            "</head>\n"
+            "<body>\n" + body + "\n</body>\n</html>\n"
         )
-        dest.write_text(html, 'utf-8')
-        print(f'  {md_file.relative_to(WORKSPACE_ROOT)} -> {dest.relative_to(WORKSPACE_ROOT)}')
+        dest.write_text(html, "utf-8")
+        print(f"  {md_file.relative_to(WORKSPACE_ROOT)} -> {dest.relative_to(WORKSPACE_ROOT)}")
 
 
 def add_nojekyll():
-    (SITE_DIR / '.nojekyll').touch()
+    (SITE_DIR / ".nojekyll").touch()
 
 
 def main():
@@ -368,16 +368,16 @@ def main():
     store = _resolve_store()
     externalizing = isinstance(store, HFStore)
     if isinstance(store, HFStore):  # the publish tier: its own repo if split off, else the bucket
-        print(f'  asset mode: externalize ← {store.publish_repo or store.bucket}')
+        print(f"  asset mode: externalize ← {store.publish_repo or store.bucket}")
     else:
-        print('  asset mode: localize (no bucket)')
+        print("  asset mode: localize (no bucket)")
     build_reports(links, store, externalizing)
     copy_assets()
     copy_md_stylesheet()
     convert_markdown(links, externalizing)
     add_nojekyll()
-    print(f'\nSite written to {SITE_DIR.relative_to(WORKSPACE_ROOT)}/')
+    print(f"\nSite written to {SITE_DIR.relative_to(WORKSPACE_ROOT)}/")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

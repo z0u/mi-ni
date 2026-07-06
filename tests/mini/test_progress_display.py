@@ -43,13 +43,13 @@ def test_route_logging_to_writes_records_through_console():
     try:
         root.setLevel(logging.INFO)
         with _route_logging_to(console):
-            logging.getLogger('mini.test').info('hello-from-test')
+            logging.getLogger("mini.test").info("hello-from-test")
     finally:
         root.handlers = saved_handlers
         root.setLevel(saved_level)
 
     output = buf.getvalue()
-    assert 'hello-from-test' in output
+    assert "hello-from-test" in output
 
 
 def test_route_logging_to_restores_on_exception():
@@ -62,7 +62,7 @@ def test_route_logging_to_restores_on_exception():
         console = Console(file=io.StringIO(), force_terminal=False)
         try:
             with _route_logging_to(console):
-                raise RuntimeError('boom')
+                raise RuntimeError("boom")
         except RuntimeError:
             pass
         assert root.handlers == [marker]
@@ -89,8 +89,8 @@ def test_rich_progress_display_routes_logging_while_running():
                     break
                 time.sleep(0.02)
             assert isinstance(root.handlers[0], RichHandler)
-            logging.getLogger('mini.test').warning('mid-run-log')
-            queue.put(ProgressMessage(run_id='r', job_id='j', step=1, total=1))
+            logging.getLogger("mini.test").warning("mid-run-log")
+            queue.put(ProgressMessage(run_id="r", job_id="j", step=1, total=1))
             queue.put(EndOfQueue())
         # After exit, original handlers are restored.
         assert root.handlers == saved_handlers
@@ -98,4 +98,4 @@ def test_rich_progress_display_routes_logging_while_running():
         root.handlers = saved_handlers
         root.setLevel(saved_level)
 
-    assert 'mid-run-log' in buf.getvalue()
+    assert "mid-run-log" in buf.getvalue()

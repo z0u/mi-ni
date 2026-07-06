@@ -44,10 +44,10 @@ from mini.reports import Publisher, current_publisher
 from mini.vis.plt import Stylesheet
 
 
-__all__ = ['themed', 'themed_figure_html']
+__all__ = ["themed", "themed_figure_html"]
 
-P = ParamSpec('P')
-R = TypeVar('R')
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 log = logging.getLogger(__name__)
@@ -91,8 +91,8 @@ def themed(
     max_width: str | None = None,
     name: str | None = None,
     publish: Publisher | None = None,
-    light_styles: Sequence[Stylesheet] = ('base', 'light'),
-    dark_styles: Sequence[Stylesheet] = ('base', 'dark'),
+    light_styles: Sequence[Stylesheet] = ("base", "light"),
+    dark_styles: Sequence[Stylesheet] = ("base", "dark"),
 ) -> Callable[P, str] | Callable[[Callable[P, Figure]], Callable[P, str]]:
     """Wrap a plot function to render in both light and dark themes.
 
@@ -120,13 +120,13 @@ def themed(
     def decorator(fn: Callable[P, Figure]) -> Callable[P, str]:
         @wraps(fn)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> str:
-            with use_theme('light'), use_style(*light_styles):
+            with use_theme("light"), use_style(*light_styles):
                 light_fig = fn(*args, **kwargs)
-            with use_theme('dark'), use_style(*dark_styles):
+            with use_theme("dark"), use_style(*dark_styles):
                 dark_fig = fn(*args, **kwargs)
 
             if light_fig is None or dark_fig is None:
-                msg = f'{fn.__name__} returned None'
+                msg = f"{fn.__name__} returned None"
                 raise ValueError(msg)
 
             return themed_figure_html(
@@ -134,7 +134,7 @@ def themed(
                 dark_fig,
                 alt_text=alt_text,
                 max_width=max_width,
-                name=name or getattr(fn, '__name__', '').lstrip('_') or 'figure',
+                name=name or getattr(fn, "__name__", "").lstrip("_") or "figure",
                 publish=publish if publish is not None else current_publisher(),
             )
 
@@ -171,14 +171,14 @@ def themed_figure_html(
     import matplotlib.pyplot as plt
 
     defaults = {
-        'bbox_inches': 'tight',
-        'dpi': 150,
+        "bbox_inches": "tight",
+        "dpi": 150,
     }
     save_args = defaults | savefig_kwargs
 
     def _png_bytes(fig: Figure) -> bytes:
         img_io = BytesIO()
-        fig.savefig(img_io, format='png', facecolor=fig.get_facecolor(), **save_args)  # ty:ignore[invalid-argument-type]
+        fig.savefig(img_io, format="png", facecolor=fig.get_facecolor(), **save_args)  # ty:ignore[invalid-argument-type]
         return img_io.getvalue()
 
     light_png = _png_bytes(light_fig)
@@ -188,28 +188,28 @@ def themed_figure_html(
         plt.close(light_fig)
         plt.close(dark_fig)
 
-    asset_name = name or 'figure'
+    asset_name = name or "figure"
 
     def _src(data: bytes, theme: str) -> str:
         if publish is not None:
-            return publish.asset_url(data, name=f'{asset_name}-{theme}.png')
-        return f'data:image/png;base64,{base64.b64encode(data).decode("ascii")}'
+            return publish.asset_url(data, name=f"{asset_name}-{theme}.png")
+        return f"data:image/png;base64,{base64.b64encode(data).decode('ascii')}"
 
-    light_uri = _src(light_png, 'light')
-    dark_uri = _src(dark_png, 'dark')
+    light_uri = _src(light_png, "light")
+    dark_uri = _src(dark_png, "dark")
 
     escaped_name = html.escape(asset_name)
-    escaped_alt = html.escape(alt_text or 'Plot')
-    style = f'max-width: {max_width};' if max_width is not None else ''
+    escaped_alt = html.escape(alt_text or "Plot")
+    style = f"max-width: {max_width};" if max_width is not None else ""
     escaped_style = html.escape(style)
     # Derived from the asset name (not random) so re-exporting an unchanged report
     # produces byte-identical HTML — a random suffix here would churn the report on
     # every run even though the figures themselves are unchanged.
     class_suffix = hashlib.sha256(asset_name.encode()).hexdigest()[:12]
-    figure_class = f'mini-themed-figure-{class_suffix}'
+    figure_class = f"mini-themed-figure-{class_suffix}"
     no_explicit_theme_selector = (
         'body:not([data-theme="dark"]):not([data-theme="light"])'
-        ':not(.dark):not(.dark-theme):not(.light):not(.light-theme)'
+        ":not(.dark):not(.dark-theme):not(.light):not(.light-theme)"
     )
     css = dedent(f"""
         <style>
@@ -259,4 +259,4 @@ def themed_figure_html(
         </figure>
         """)
 
-    return f'{css}{figure_html}'
+    return f"{css}{figure_html}"

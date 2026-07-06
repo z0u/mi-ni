@@ -24,7 +24,7 @@ class Apparatus:
 An appartus instance is usually named `app`. Usage:
 
 ```py
-app = LocalApparatus('demo', max_workers=3)
+app = LocalApparatus("demo", max_workers=3)
 
 # Step 1: write shared config to the volume
 await app.arun(prep)
@@ -33,7 +33,7 @@ await app.arun(prep)
 metrics = [x async for x in app.amap(train, [1, 2, 3, 4, 5])]
 
 # Step 3: pull outputs back from the volume
-await app.volume.download('outputs', f'/data/outputs')
+await app.volume.download("outputs", f"/data/outputs")
 ```
 
 The apparatus takes care of setting up the environment with Python packages and a volume to write to.
@@ -44,8 +44,8 @@ To change the compute provider, just swap in another `Apparatus`, e.g. `ModalApp
 A notebook can make the backend a runtime choice rather than hard-coding it, so the same `.py` runs locally while you iterate and on Modal for the real run:
 
 ```py
-app_type = mo.cli_args().get('app', 'local')   # a marimo radio in edit mode; a CLI arg when headless
-app = ModalApparatus('demo').w(gpu='L4') if app_type == 'modal' else LocalApparatus('demo')
+app_type = mo.cli_args().get("app", "local")   # a marimo radio in edit mode; a CLI arg when headless
+app = ModalApparatus("demo").w(gpu="L4") if app_type == "modal" else LocalApparatus("demo")
 ```
 
 Export it headless with `./go export`, passing notebook options after a `--`:

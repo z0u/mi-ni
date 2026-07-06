@@ -5,4 +5,4 @@ import os
 # easily exceeding the RAM of a modest dev machine. Prefer the memory-frugal
 # scheduler. Takes effect when the XLA backend initializes (i.e. on first use
 # of jax after this package is imported); no effect on GPU/TPU.
-os.environ.setdefault('XLA_FLAGS', '--xla_cpu_enable_concurrency_optimized_scheduler=false')
+os.environ.setdefault("XLA_FLAGS", "--xla_cpu_enable_concurrency_optimized_scheduler=false")

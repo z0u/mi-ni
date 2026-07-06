@@ -1,6 +1,6 @@
 from typing import Generic, Protocol, TypeVar
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class QueueLike(Protocol, Generic[T]):

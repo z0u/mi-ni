@@ -24,7 +24,7 @@ import ssl
 import tempfile
 from pathlib import Path
 
-__all__ = ['ensure_grpc_trusts_system_ca']
+__all__ = ["ensure_grpc_trusts_system_ca"]
 
 log = logging.getLogger(__name__)
 
@@ -34,10 +34,10 @@ _configured = False
 def _system_ca_files() -> list[str]:
     """Candidate system CA bundles, most-specific first (env wins over defaults)."""
     candidates = [
-        os.environ.get('SSL_CERT_FILE'),
-        os.environ.get('REQUESTS_CA_BUNDLE'),
+        os.environ.get("SSL_CERT_FILE"),
+        os.environ.get("REQUESTS_CA_BUNDLE"),
         ssl.get_default_verify_paths().cafile,
-        '/etc/ssl/certs/ca-certificates.crt',
+        "/etc/ssl/certs/ca-certificates.crt",
     ]
     return [c for c in candidates if c]
 
@@ -72,7 +72,7 @@ def ensure_grpc_trusts_system_ca() -> None:
             continue
         seen.add(real)
         try:
-            extra += b'\n' + Path(cand).read_bytes()
+            extra += b"\n" + Path(cand).read_bytes()
         except OSError:
             continue
 
@@ -81,7 +81,7 @@ def ensure_grpc_trusts_system_ca() -> None:
 
     combined = base + bytes(extra)
     digest = hashlib.sha256(combined).hexdigest()[:16]
-    out = Path(tempfile.gettempdir()) / f'mini-ca-bundle-{digest}.pem'
+    out = Path(tempfile.gettempdir()) / f"mini-ca-bundle-{digest}.pem"
     try:
         if not out.exists():
             out.write_bytes(combined)
@@ -89,4 +89,4 @@ def ensure_grpc_trusts_system_ca() -> None:
         return
 
     certifi.where = lambda: str(out)  # type: ignore
-    log.debug('Pointed certifi at combined CA bundle for gRPC TLS: %s', out)
+    log.debug("Pointed certifi at combined CA bundle for gRPC TLS: %s", out)

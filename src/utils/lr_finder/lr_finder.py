@@ -26,7 +26,7 @@ def lr_finder_search(
     num_zooms: int = 5,
     steps_per_zoom: int = 10,
     zoom_factor: float = 0.5,
-    method: SearchMethod = 'steepest',
+    method: SearchMethod = "steepest",
     *,
     key: PRNGKeyArray,
 ) -> tuple[float, LRFinderConfig, list[LRFinderSeries]]:
@@ -51,7 +51,7 @@ def lr_finder_search(
         key: PRNG key for dropout.
     """
     if start_lr >= end_lr:
-        raise ValueError('start_lr must be less than end_lr')
+        raise ValueError("start_lr must be less than end_lr")
 
     optimizer = optax.inject_hyperparams(make_optimizer)(learning_rate=start_lr)
     initial_params = eqx.filter(model, eqx.is_inexact_array)
@@ -72,14 +72,14 @@ def lr_finder_search(
         end_lr=end_lr,
     )
 
-    best_lr = float('nan')
-    steepest_lr = float('nan')
-    lowest_lr = float('inf')
+    best_lr = float("nan")
+    steepest_lr = float("nan")
+    lowest_lr = float("inf")
     history: list[LRFinderSeries] = []
 
     current_range = (start_lr, end_lr)
     for zoom in range(num_zooms):
-        emit_progress(zoom * steps_per_zoom, total_steps, message=f'zoom {zoom + 1}/{num_zooms}')
+        emit_progress(zoom * steps_per_zoom, total_steps, message=f"zoom {zoom + 1}/{num_zooms}")
 
         lr_schedule = _get_lr_schedule(current_range, steps_per_zoom)
         # Restart from the initial model and fresh optimizer state (the
@@ -89,7 +89,7 @@ def lr_finder_search(
         lrs: list[float] = []
         losses: list[float] = []
         for i, lr in enumerate(lr_schedule):
-            opt_state.hyperparams['learning_rate'] = lr  # ty: ignore[unresolved-attribute]
+            opt_state.hyperparams["learning_rate"] = lr  # ty: ignore[unresolved-attribute]
             inputs, targets = next(batches)
             key, step_key = jr.split(key)
             trial_model, opt_state, loss = test_lr(trial_model, opt_state, inputs, targets, step_key)
@@ -98,10 +98,10 @@ def lr_finder_search(
             emit_progress(
                 zoom * steps_per_zoom + i + 1,
                 total_steps,
-                message=f'zoom {zoom + 1}/{num_zooms}',
+                message=f"zoom {zoom + 1}/{num_zooms}",
             )
 
-            if loss < min(losses, default=float('inf')):
+            if loss < min(losses, default=float("inf")):
                 lrs.append(float(lr))
                 losses.append(loss)
 
@@ -118,7 +118,7 @@ def lr_finder_search(
         current_range = _calculate_zoom_range(proposed_range, current_range, zoom_factor)
 
     if not np.isfinite(best_lr):
-        raise RuntimeError('No valid learning rate found. Try increasing the range.')
+        raise RuntimeError("No valid learning rate found. Try increasing the range.")
 
     return best_lr, config, history
 
@@ -169,11 +169,11 @@ def _find_lowest_lr(lrs: list[float], losses: list[float]) -> float:
 
 @validate_call
 def _propose_range(method: SearchMethod, steepest_lr: float, lowest_lr: float) -> Range:
-    if method == 'balanced':
+    if method == "balanced":
         return (steepest_lr, lowest_lr)
-    elif method == 'steepest':
+    elif method == "steepest":
         return (steepest_lr, steepest_lr)
-    elif method == 'lowest':
+    elif method == "lowest":
         return (lowest_lr, lowest_lr)
     else:
-        raise ValueError('Unknown optimization method')
+        raise ValueError("Unknown optimization method")

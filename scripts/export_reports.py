@@ -21,7 +21,7 @@ from clean_docs import clean_html  # noqa: E402
 from mini.reports import export_dir, export_key, is_report_notebook, report_notebooks  # noqa: E402
 
 ROOT = Path(__file__).parent.parent.resolve()
-DOCS = ROOT / 'docs'
+DOCS = ROOT / "docs"
 
 
 def notebooks_to_export(paths: list[str]) -> list[Path]:
@@ -39,16 +39,16 @@ def notebooks_to_export(paths: list[str]) -> list[Path]:
         if is_report_notebook(path):
             keep.append(path)
         else:
-            print(f'  skip {path.name}: source-only example, not a rendered report — open it with `./go open`')
+            print(f"  skip {path.name}: source-only example, not a rendered report — open it with `./go open`")
     return keep
 
 
 def export_one(nb: Path) -> Path:
     """Export *nb* to ``.mini/exports/<key>/index.html`` (assets land beside it). Returns the dir."""
-    out = export_dir(nb) / 'index.html'
+    out = export_dir(nb) / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)
-    print(f'  export {nb.relative_to(ROOT)} -> {out.relative_to(ROOT)}')
-    subprocess.run(['marimo', 'export', 'html', '-f', str(nb), '-o', str(out)], check=True, cwd=ROOT)
+    print(f"  export {nb.relative_to(ROOT)} -> {out.relative_to(ROOT)}")
+    subprocess.run(["marimo", "export", "html", "-f", str(nb), "-o", str(out)], check=True, cwd=ROOT)
     clean_html(out)  # scrub terminal control seqs + redact modal URLs from the published HTML
     return out.parent
 
@@ -57,40 +57,40 @@ def publish_one(nb: Path, store) -> None:
     """Export *nb* and mirror its bundle to the bucket at ``exports/<key>/``."""
     bundle = export_one(nb)
     key = export_key(nb)
-    print(f'  sync   {bundle.relative_to(ROOT)} -> exports/{key}/')
+    print(f"  sync   {bundle.relative_to(ROOT)} -> exports/{key}/")
     store.sync_export(bundle, key)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--publish', action='store_true', help='mirror each bundle to the HF bucket after exporting')
-    ap.add_argument('notebooks', nargs='*', help='report notebooks (default: all under docs/)')
+    ap.add_argument("--publish", action="store_true", help="mirror each bundle to the HF bucket after exporting")
+    ap.add_argument("notebooks", nargs="*", help="report notebooks (default: all under docs/)")
     args = ap.parse_args()
 
     nbs = notebooks_to_export(args.notebooks)
     if not nbs:
-        sys.exit('No report notebooks found under docs/.')
+        sys.exit("No report notebooks found under docs/.")
 
     if not args.publish:
         for nb in nbs:
             export_one(nb)
-        print('\nExported locally to .mini/exports/. Preview with `./go build` (localize) or `./go serve`.')
+        print("\nExported locally to .mini/exports/. Preview with `./go build` (localize) or `./go serve`.")
         return
 
     from mini.hf_store import HFStore
     from mini.store import store_for
 
-    store = store_for(ROOT / '.mini' / 'store')
+    store = store_for(ROOT / ".mini" / "store")
     if not isinstance(store, HFStore):
-        sys.exit('No HF bucket configured — set [tool.mini] store-bucket and run `./go auth`, then retry --publish.')
+        sys.exit("No HF bucket configured — set [tool.mini] store-bucket and run `./go auth`, then retry --publish.")
     for nb in nbs:
         publish_one(nb, store)
     target = store.publish_repo or store.bucket  # exports route to the repo when a publish tier is set (#38)
     print(
-        f'\nPublished {len(nbs)} report(s) to {target}. '
+        f"\nPublished {len(nbs)} report(s) to {target}. "
         'Trigger the Pages build to update the site (push to main, or run the "Deploy Docs" workflow).'
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

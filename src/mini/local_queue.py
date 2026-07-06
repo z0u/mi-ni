@@ -3,7 +3,7 @@ from typing import TypeVar
 
 from mini._queues import EndOfQueue, QueueLike
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class LocalQueue(QueueLike[T]):

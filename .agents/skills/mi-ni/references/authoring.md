@@ -12,10 +12,10 @@ from mini import Ctx, Experiment
 
 def main(ctx: Ctx) -> dict:
     meta = ctx.run(prepare_data)                        # one step; suspends until done
-    vocab = meta['vocab_size']                          # plain Python between steps
+    vocab = meta["vocab_size"]                          # plain Python between steps
     return ctx.map(train, LRS, [vocab] * len(LRS))      # fan-out that depends on prep
 
-experiment = Experiment(name='my-exp', main=main)
+experiment = Experiment(name="my-exp", main=main)
 ```
 
 The module exposes a top-level `experiment = Experiment(...)`. It carries **no
@@ -52,7 +52,7 @@ and honest:
 - **Fold RNG seeds into the inputs**, so the memo is honest (same inputs ⇒ same
   result). A task seeded from wall-clock can never be a cache hit.
 - **Force a re-run** by editing the function (its evidence goes stale) or passing
-  `version='v2'` — either way a new attempt on the same record. Editing a project
+  `version="v2"` — either way a new attempt on the same record. Editing a project
   helper a task calls also invalidates it; library/framework churn does not.
 
 ## Returning large outputs
@@ -66,8 +66,8 @@ store and return the `Artifact` handle instead:
 from mini.store import put
 
 def extract(cfg) -> dict:
-    art = put(get_data_dir() / 'acts', name='activations')  # handle, not a path
-    return {'cfg': cfg.id, 'activations': art}
+    art = put(get_data_dir() / "acts", name="activations")  # handle, not a path
+    return {"cfg": cfg.id, "activations": art}
 ```
 
 The store is **project-scoped**, so one experiment can hand an artifact to
@@ -84,8 +84,8 @@ stays backend-agnostic by tagging steps with a **role** that the CLI/driver maps
 to a concrete apparatus:
 
 ```python
-meta = ctx.run(prepare_data, role='cpu')          # prep on CPU
-return ctx.map(train, configs, role='gpu')        # training on GPU (fn(config) per item)
+meta = ctx.run(prepare_data, role="cpu")          # prep on CPU
+return ctx.map(train, configs, role="gpu")        # training on GPU (fn(config) per item)
 ```
 
 Each step also picks up that apparatus's `before_each` hooks. The default role

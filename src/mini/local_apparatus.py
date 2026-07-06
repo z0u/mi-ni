@@ -34,10 +34,10 @@ from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
 
-T = TypeVar('T')
-R = TypeVar('R')
+T = TypeVar("T")
+R = TypeVar("R")
 
-__all__ = ['LocalApparatus']
+__all__ = ["LocalApparatus"]
 
 
 class LocalApparatus(Apparatus[LocalVolume]):
@@ -84,14 +84,14 @@ class LocalApparatus(Apparatus[LocalVolume]):
     @override
     def _stop_task(self, rec: dict[str, Any]) -> None:
         """SIGTERM the worker's process group (it's a session leader: pgid == pid)."""
-        if pid := rec.get('pid'):
+        if pid := rec.get("pid"):
             with suppress(ProcessLookupError, PermissionError):
                 os.killpg(pid, signal.SIGTERM)
 
     @override
     def _is_task_alive(self, rec: dict[str, Any]) -> bool:
         """Is the recorded worker pid still a live process? (for ``reap_dead``)."""
-        pid = rec.get('pid')
+        pid = rec.get("pid")
         return _pid_alive(pid) if pid else True  # no pid yet — can't probe; assume alive
 
     @override
@@ -111,7 +111,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
         # visible in the logs rather than only inferable from the *absence* of
         # Modal's image-build output. ('locally', not 'on CPU': a local box may
         # well have a GPU that JAX/torch will use.)
-        log.info('Running %d jobs locally (%d workers)', n, self.max_workers)
+        log.info("Running %d jobs locally (%d workers)", n, self.max_workers)
         run_id = secrets.token_hex(4)
 
         if self._volume is not None:
@@ -157,14 +157,14 @@ def _pid_alive(pid: int) -> bool:
     of the watcher. On Linux we read ``/proc/<pid>/stat`` and treat state ``Z`` as
     dead; elsewhere we fall back to a signal-0 probe (no zombie distinction).
     """
-    proc = Path('/proc') / str(pid)
-    if Path('/proc').is_dir():
+    proc = Path("/proc") / str(pid)
+    if Path("/proc").is_dir():
         if not proc.exists():
             return False
         try:
             # stat is "pid (comm) state ..."; comm may hold spaces/parens, so the
             # state field is the first token after the final ')'.
-            return (proc / 'stat').read_text().rsplit(')', 1)[1].split()[0] != 'Z'
+            return (proc / "stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
         except OSError:
             return False  # vanished between the exists() check and the read
     try:

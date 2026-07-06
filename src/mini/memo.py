@@ -42,7 +42,7 @@ import cloudpickle
 
 from mini.runs import SETTLED, RunState, _atomic_write, _merge_json
 
-__all__ = ['task_key', 'task_key_parts', 'RecordStore', 'LocalRecordStore', 'MemoStore', 'PollCache', 'META_KEY']
+__all__ = ["task_key", "task_key_parts", "RecordStore", "LocalRecordStore", "MemoStore", "PollCache", "META_KEY"]
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ _MINI_DIR = str(Path(__file__).parent.resolve())
 # detached run carries its budget with no new infra — but is excluded from
 # ``records()`` so it never reads as a task or skews the aggregate state. A task
 # fingerprint is ``{name}-{hex12}``, so ``__run__`` can never collide with one.
-META_KEY = '__run__'
+META_KEY = "__run__"
 
 
 def _is_project_source(obj: Any) -> bool:
@@ -67,7 +67,7 @@ def _is_project_source(obj: Any) -> bool:
     if not f:
         return False
     rf = str(Path(f).resolve())
-    return 'site-packages' not in rf and '/lib/python3' not in rf and not rf.startswith(_MINI_DIR)
+    return "site-packages" not in rf and "/lib/python3" not in rf and not rf.startswith(_MINI_DIR)
 
 
 def _nested_codes(code: types.CodeType) -> Iterator[types.CodeType]:
@@ -93,17 +93,17 @@ def _attr_chain_refs(fn: Callable) -> list[Any]:
     ``getattr``, collecting any function/class the chain lands on (``pkg.mod.fn``
     resolves through the intermediate modules).
     """
-    code = getattr(fn, '__code__', None)
-    g = getattr(fn, '__globals__', {})
+    code = getattr(fn, "__code__", None)
+    g = getattr(fn, "__globals__", {})
     if code is None:
         return []
     refs: list[Any] = []
     for c in _nested_codes(code):
         chain: Any = None
         for ins in dis.get_instructions(c):
-            if ins.opname == 'LOAD_GLOBAL' and ins.argval in g:
+            if ins.opname == "LOAD_GLOBAL" and ins.argval in g:
                 chain = g[ins.argval]
-            elif ins.opname == 'LOAD_ATTR' and chain is not None:
+            elif ins.opname == "LOAD_ATTR" and chain is not None:
                 chain = getattr(chain, ins.argval, None)
                 if callable(chain) or isinstance(chain, type):
                     refs.append(chain)
@@ -155,12 +155,12 @@ def _named_refs(fn: Callable) -> list[tuple[str | None, Any]]:
     ``co_freevars``), and attribute-chain targets (unnamed — they're never
     treated as values, only as code).
     """
-    code = getattr(fn, '__code__', None)
-    g = getattr(fn, '__globals__', {})
+    code = getattr(fn, "__code__", None)
+    g = getattr(fn, "__globals__", {})
     names = [n for c in _nested_codes(code) for n in c.co_names] if code is not None else []
     refs: list[tuple[str | None, Any]] = [(n, g[n]) for n in names if n in g]
     freevars = code.co_freevars if code is not None else ()
-    for name, cell in zip(freevars, getattr(fn, '__closure__', None) or (), strict=False):
+    for name, cell in zip(freevars, getattr(fn, "__closure__", None) or (), strict=False):
         try:
             refs.append((name, cell.cell_contents))
         except ValueError:
@@ -169,7 +169,7 @@ def _named_refs(fn: Callable) -> list[tuple[str | None, Any]]:
 
 
 def _collect_sources(fn: Callable, seen: dict[str, str]) -> None:
-    qualname = getattr(fn, '__qualname__', repr(fn))
+    qualname = getattr(fn, "__qualname__", repr(fn))
     if qualname in seen:
         return
     try:
@@ -188,7 +188,7 @@ def _collect_sources(fn: Callable, seen: dict[str, str]) -> None:
             # fold its canonical JSON in, so editing the *value* invalidates like
             # editing code. Skipped when it has no stable encoding (see _value_json).
             if (js := _value_json(obj)) is not None:
-                seen[f'{qualname}::{name}'] = js
+                seen[f"{qualname}::{name}"] = js
 
 
 @functools.lru_cache(maxsize=256)
@@ -205,7 +205,7 @@ def _sources_for(fn: Callable) -> tuple[tuple[str, str], ...]:
 
 
 def _code_fingerprint(fn: Callable) -> str:
-    blob = '\n--\n'.join(f'{k}:{v}' for k, v in _manifest(fn))
+    blob = "\n--\n".join(f"{k}:{v}" for k, v in _manifest(fn))
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
@@ -220,10 +220,10 @@ def _canonical(o: Any) -> Any:
     dataclasses to their field dicts, sets to sorted lists, then JSON with sorted
     keys downstream.
     """
-    dump = getattr(o, 'model_dump', None)  # pydantic v2, duck-typed (no hard dep on pydantic)
+    dump = getattr(o, "model_dump", None)  # pydantic v2, duck-typed (no hard dep on pydantic)
     if callable(dump):
         try:
-            return _canonical(dump(mode='json'))
+            return _canonical(dump(mode="json"))
         except TypeError:
             return _canonical(dump())
     if dataclasses.is_dataclass(o) and not isinstance(o, type):
@@ -251,13 +251,13 @@ def _canonical_code(o: Any) -> list | None:
     Returns ``None`` for non-code values (handled by :func:`_canonical`).
     """
     if isinstance(o, types.MethodType):
-        return ['method', o.__func__.__qualname__, _code_fingerprint(o.__func__)[:12], _canonical(o.__self__)]
+        return ["method", o.__func__.__qualname__, _code_fingerprint(o.__func__)[:12], _canonical(o.__self__)]
     if isinstance(o, types.FunctionType):
-        return ['fn', o.__qualname__, _code_fingerprint(o)[:12]]
+        return ["fn", o.__qualname__, _code_fingerprint(o)[:12]]
     if isinstance(o, type):
-        return ['class', o.__qualname__, hashlib.sha256(_class_source(o).encode()).hexdigest()[:12]]
+        return ["class", o.__qualname__, hashlib.sha256(_class_source(o).encode()).hexdigest()[:12]]
     if isinstance(o, functools.partial):
-        return ['partial', _canonical(o.func), _canonical(o.args), _canonical(o.keywords)]
+        return ["partial", _canonical(o.func), _canonical(o.args), _canonical(o.keywords)]
     return None
 
 
@@ -273,11 +273,11 @@ def _input_fingerprint(args: tuple) -> str:
         blob = json.dumps(_canonical(args), sort_keys=True, default=repr).encode()
     except Exception:
         blob = repr(args).encode()
-    if b' at 0x' in blob:  # an object address leaked into the key
+    if b" at 0x" in blob:  # an object address leaked into the key
         log.warning(
-            'task inputs have no stable encoding (repr contains an object address), so the memo '
-            'key will differ every process and the task can never be a cache hit — it will relaunch '
-            'on every wake. Pass plain data, dataclasses, or Artifact handles instead: %.200r',
+            "task inputs have no stable encoding (repr contains an object address), so the memo "
+            "key will differ every process and the task can never be a cache hit — it will relaunch "
+            "on every wake. Pass plain data, dataclasses, or Artifact handles instead: %.200r",
             args,
         )
     return hashlib.sha256(blob).hexdigest()
@@ -292,7 +292,7 @@ _collecting: set[int] = set()
 
 def _manifest(fn: Callable) -> tuple[tuple[str, str], ...]:
     if id(fn) in _collecting:
-        return ((f'<recursive:{getattr(fn, "__qualname__", "?")}>', ''),)
+        return ((f"<recursive:{getattr(fn, '__qualname__', '?')}>", ""),)
     _collecting.add(id(fn))
     try:
         try:
@@ -328,23 +328,23 @@ def task_key_parts(fn: Callable, args: tuple, version: str | None = None) -> tup
     dependency moved.
     """
     manifest = _manifest(fn)
-    blob = '\n--\n'.join(f'{k}:{v}' for k, v in manifest)
+    blob = "\n--\n".join(f"{k}:{v}" for k, v in manifest)
     code_fp = hashlib.sha256(blob.encode()).hexdigest()
     input_fp = _input_fingerprint(args)
-    ident = f'{getattr(fn, "__module__", "?")}.{getattr(fn, "__qualname__", "task")}'
-    h = hashlib.sha256(f'{ident}\n{input_fp}'.encode())
-    key = f'{getattr(fn, "__name__", "task")}-{h.hexdigest()[:12]}'
+    ident = f"{getattr(fn, '__module__', '?')}.{getattr(fn, '__qualname__', 'task')}"
+    h = hashlib.sha256(f"{ident}\n{input_fp}".encode())
+    key = f"{getattr(fn, '__name__', 'task')}-{h.hexdigest()[:12]}"
     deps = {k: hashlib.sha256(v.encode()).hexdigest()[:8] for k, v in manifest}
-    parts = {'code_fp': code_fp[:12], 'input_fp': input_fp[:12], 'deps': deps}
+    parts = {"code_fp": code_fp[:12], "input_fp": input_fp[:12], "deps": deps}
     if version:
-        parts['version'] = version
+        parts["version"] = version
     return key, parts
 
 
 # What a finished attempt is worth keeping once a new one replaces it: the
 # evidence and the outcome. Live/bulky fields (metrics, env, heartbeats, pids)
 # describe a worker, not the attempt's identity in the run's story.
-_ATTEMPT_KEEP = ('state', 'gen', 'code_fp', 'input_fp', 'version', 'deps', 'created_at', 'error', 'exc_type')
+_ATTEMPT_KEEP = ("state", "gen", "code_fp", "input_fp", "version", "deps", "created_at", "error", "exc_type")
 
 
 def _compact_attempt(rec: dict[str, Any]) -> dict[str, Any]:
@@ -387,14 +387,14 @@ class RecordStore(ABC):
 
     def write_if(self, key: str, record: dict[str, Any], gen: str | None) -> bool:
         """Replace the record iff its current ``gen`` equals *gen* (``None`` = unclaimed)."""
-        if (self.read(key) or {}).get('gen') != gen:
+        if (self.read(key) or {}).get("gen") != gen:
             return False
         self.write(key, record)
         return True
 
     def merge_if(self, key: str, fields: dict[str, Any], gen: str | None) -> bool:
         """Merge *fields* iff the record's current ``gen`` equals *gen*."""
-        if (self.read(key) or {}).get('gen') != gen:
+        if (self.read(key) or {}).get("gen") != gen:
             return False
         self.merge(key, fields)
         return True
@@ -418,42 +418,42 @@ class LocalRecordStore(RecordStore):
     @contextmanager
     def _locked(self) -> Iterator[None]:
         self.root.mkdir(parents=True, exist_ok=True)
-        with open(self.root / '.lock', 'w') as f:
+        with open(self.root / ".lock", "w") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             yield  # released when the file closes
 
     def read(self, key: str) -> dict[str, Any] | None:
-        p = self.root / f'{key}.json'
+        p = self.root / f"{key}.json"
         return json.loads(p.read_text()) if p.exists() else None
 
     def write(self, key: str, record: dict[str, Any]) -> None:
         with self._locked():
-            _atomic_write(self.root / f'{key}.json', json.dumps(record))
+            _atomic_write(self.root / f"{key}.json", json.dumps(record))
 
     def merge(self, key: str, fields: dict[str, Any]) -> None:
         with self._locked():
-            _merge_json(self.root / f'{key}.json', fields)
+            _merge_json(self.root / f"{key}.json", fields)
 
     def write_if(self, key: str, record: dict[str, Any], gen: str | None) -> bool:
         with self._locked():
-            if (self.read(key) or {}).get('gen') != gen:
+            if (self.read(key) or {}).get("gen") != gen:
                 return False
-            _atomic_write(self.root / f'{key}.json', json.dumps(record))
+            _atomic_write(self.root / f"{key}.json", json.dumps(record))
             return True
 
     def merge_if(self, key: str, fields: dict[str, Any], gen: str | None) -> bool:
         with self._locked():
-            if (self.read(key) or {}).get('gen') != gen:
+            if (self.read(key) or {}).get("gen") != gen:
                 return False
-            _merge_json(self.root / f'{key}.json', fields)
+            _merge_json(self.root / f"{key}.json", fields)
             return True
 
     def keys(self) -> list[str]:
-        return sorted(p.stem for p in self.root.glob('*.json')) if self.root.exists() else []
+        return sorted(p.stem for p in self.root.glob("*.json")) if self.root.exists() else []
 
     def delete(self, key: str) -> None:
         with self._locked():
-            (self.root / f'{key}.json').unlink(missing_ok=True)
+            (self.root / f"{key}.json").unlink(missing_ok=True)
 
 
 class MemoStore:
@@ -472,21 +472,21 @@ class MemoStore:
 
     def __init__(self, data_dir: Path, records: RecordStore | None = None):
         self.data_dir = Path(data_dir)
-        self.root = self.data_dir / '.control' / 'memo'
+        self.root = self.data_dir / ".control" / "memo"
         self.records_backend: RecordStore = records or LocalRecordStore(self.root)
 
     def _call(self, key: str) -> Path:
-        return self.root / f'{key}.pkl'
+        return self.root / f"{key}.pkl"
 
     def result_dir(self, key: str) -> Path:
-        return self.data_dir / '_memo' / key
+        return self.data_dir / "_memo" / key
 
     def state(self, key: str) -> RunState | None:
         rec = self.records_backend.read(key)
-        return RunState(rec['state']) if rec and rec.get('state') else None
+        return RunState(rec["state"]) if rec and rec.get("state") else None
 
     def record(self, key: str) -> dict[str, Any]:
-        return self.records_backend.read(key) or {'key': key, 'state': None}
+        return self.records_backend.read(key) or {"key": key, "state": None}
 
     def result_path(self, key: str, gen: str | None) -> Path:
         """Where attempt *gen* of *key* writes its result.
@@ -496,10 +496,10 @@ class MemoStore:
         its own file, and readers resolve through the record's current ``gen``.
         (``None`` — a record from before generations — reads the legacy name.)
         """
-        return self.result_dir(key) / (f'result-{gen}.pkl' if gen else 'result.pkl')
+        return self.result_dir(key) / (f"result-{gen}.pkl" if gen else "result.pkl")
 
     def error_path(self, key: str, gen: str | None) -> Path:
-        return self.result_dir(key) / (f'error-{gen}.txt' if gen else 'error.txt')
+        return self.result_dir(key) / (f"error-{gen}.txt" if gen else "error.txt")
 
     def artifacts_path(self, key: str, gen: str | None) -> Path:
         """Where attempt *gen* records the blob shas its result references.
@@ -509,7 +509,7 @@ class MemoStore:
         result's references without unpickling it — no project imports, no
         arbitrary code, one small read per record however large the result.
         """
-        return self.result_dir(key) / (f'result-{gen}.artifacts.json' if gen else 'result.artifacts.json')
+        return self.result_dir(key) / (f"result-{gen}.artifacts.json" if gen else "result.artifacts.json")
 
     def result_artifacts(self, key: str) -> list[str] | None:
         """Blob shas the current result references, or ``None`` for a record
@@ -519,7 +519,7 @@ class MemoStore:
         return json.loads(p.read_text()) if p.exists() else None
 
     def _gen(self, key: str) -> str | None:
-        return (self.records_backend.read(key) or {}).get('gen')
+        return (self.records_backend.read(key) or {}).get("gen")
 
     def result(self, key: str) -> Any:
         return cloudpickle.loads(self.result_path(key, self._gen(key)).read_bytes())
@@ -528,7 +528,7 @@ class MemoStore:
         for p in (self.error_path(key, self._gen(key)), self.error_path(key, None)):
             if p.exists():
                 return p.read_text()
-        return '(no logs)'
+        return "(no logs)"
 
     def update(self, key: str, **fields: Any) -> None:
         self.records_backend.merge(key, fields)
@@ -570,7 +570,7 @@ class MemoStore:
         (reads must never tick). ``None`` (a store written before the manifest, or a
         run never ticked) means "unknown": treat every record as current.
         """
-        return self.meta().get('requested')
+        return self.meta().get("requested")
 
     def split_current(self, records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Split *records* into ``(current, superseded)`` against the requested set.
@@ -581,12 +581,12 @@ class MemoStore:
         if requested is None:
             return records, []
         wanted = set(requested)
-        current = [r for r in records if r['key'] in wanted]
-        return current, [r for r in records if r['key'] not in wanted]
+        current = [r for r in records if r["key"] in wanted]
+        return current, [r for r in records if r["key"] not in wanted]
 
     def deadline(self) -> float | None:
         """The run's wall-clock deadline (epoch seconds), or ``None`` if unbudgeted."""
-        return self.meta().get('deadline_at')
+        return self.meta().get("deadline_at")
 
     def budget_expired(self) -> bool:
         """Whether a budget is set *and* its deadline has passed.
@@ -605,11 +605,11 @@ class MemoStore:
         its evidence, its outcome — on the one record (``mini explain``).
         """
         prior = self.records_backend.read(key) or {}
-        history: list[dict[str, Any]] = list(prior.get('history') or ())
-        if prior.get('state'):  # a reset placeholder (state None) is not an attempt
+        history: list[dict[str, Any]] = list(prior.get("history") or ())
+        if prior.get("state"):  # a reset placeholder (state None) is not an attempt
             history.append(_compact_attempt(prior))
         if history:
-            rec['history'] = history
+            rec["history"] = history
         return rec
 
     def reset(self, key: str) -> None:
@@ -619,7 +619,7 @@ class MemoStore:
         takes intent. The cleared attempt is kept in the record's history; stale
         result/error artifacts are overwritten on the rerun.
         """
-        self.records_backend.write(key, self._with_history(key, {'key': key, 'state': None}))
+        self.records_backend.write(key, self._with_history(key, {"key": key, "state": None}))
 
     def mark_running(
         self, fn: Callable, key: str, parts: dict[str, Any] | None = None, expect_gen: str | None = None
@@ -644,11 +644,11 @@ class MemoStore:
         rec = self._with_history(
             key,
             {
-                'key': key,
-                'fn': getattr(fn, '__name__', 'task'),
-                'state': RunState.RUNNING,
-                'gen': gen,
-                'created_at': time.time(),
+                "key": key,
+                "fn": getattr(fn, "__name__", "task"),
+                "state": RunState.RUNNING,
+                "gen": gen,
+                "created_at": time.time(),
                 **(parts or {}),
             },
         )
@@ -700,7 +700,7 @@ class PollCache:
                 continue
             if (rec := backend.read(key)) is None:
                 continue
-            if rec.get('state') in SETTLED:  # StrEnum members hash as their str value
+            if rec.get("state") in SETTLED:  # StrEnum members hash as their str value
                 self._settled[key] = rec
             out.append(rec)
         return out

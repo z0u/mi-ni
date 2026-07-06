@@ -24,17 +24,17 @@ from __future__ import annotations
 from mini import Ctx, Experiment, get_data_dir
 
 # Axes of the sweep.
-LRS = [('3e-3', 3e-3), ('1e-2', 1e-2), ('4e-2', 4e-2)]
+LRS = [("3e-3", 3e-3), ("1e-2", 1e-2), ("4e-2", 4e-2)]
 ARCH_CFGS = [
-    ('baseline', dict(architecture='gpt')),
-    ('nGPT', dict(architecture='ngpt', ngpt_variant='full')),
-    ('nGPT (scalar)', dict(architecture='ngpt', ngpt_variant='crude')),
+    ("baseline", dict(architecture="gpt")),
+    ("nGPT", dict(architecture="ngpt", ngpt_variant="full")),
+    ("nGPT (scalar)", dict(architecture="ngpt", ngpt_variant="crude")),
 ]
 
 # Named view of the gathered val-loss curves in the project-scoped store. The
 # report resolves this ref at export time, so the data lives in the durable store
 # (the HF bucket when configured), not committed to Git.
-CURVES_REF = 'reports/gpt-sweep/curves'
+CURVES_REF = "reports/gpt-sweep/curves"
 
 
 def download_pride_and_prejudice():
@@ -44,13 +44,13 @@ def download_pride_and_prejudice():
 
     from experiment.config import DatasetMetadata
 
-    url = 'https://huggingface.co/api/datasets/larenwell/book-gutenberg-train/parquet/default/train/0.parquet'
-    df = pd.read_parquet(url, columns=['text'])
-    text = df.iloc[0]['text']
+    url = "https://huggingface.co/api/datasets/larenwell/book-gutenberg-train/parquet/default/train/0.parquet"
+    df = pd.read_parquet(url, columns=["text"])
+    text = df.iloc[0]["text"]
     text, explanation = ftfy.fix_and_explain(text)
     return text, DatasetMetadata(
-        title='Pride and Prejudice',
-        author='Jane Austen',
+        title="Pride and Prejudice",
+        author="Jane Austen",
         url=url,
         fixes=explanation or [],
         total_chars=len(text),
@@ -79,7 +79,7 @@ def _make_config(lr_float: float, arch_kwargs: dict):
         TrainingConfig,
     )
 
-    is_ngpt = arch_kwargs.get('architecture') == 'ngpt'
+    is_ngpt = arch_kwargs.get("architecture") == "ngpt"
     return TrainingConfig(
         model=ModelConfig(
             vocab_size=64,  # updated after data prep
@@ -143,24 +143,24 @@ def publish_curves(results: list[tuple]) -> str:
 
     from mini.store import put, set_ref
 
-    curves = {f'{arch}|{lr}': losses for arch, lr, losses in results}
-    set_ref(CURVES_REF, put(json.dumps(curves, indent=2).encode(), name='gpt-sweep-curves.json'))
+    curves = {f"{arch}|{lr}": losses for arch, lr, losses in results}
+    set_ref(CURVES_REF, put(json.dumps(curves, indent=2).encode(), name="gpt-sweep-curves.json"))
     return CURVES_REF
 
 
 def main(ctx: Ctx) -> list[tuple]:
-    meta = ctx.run(prepare_data, role='prep')  # CPU prep; suspends until done
+    meta = ctx.run(prepare_data, role="prep")  # CPU prep; suspends until done
     configs, archs, lrs = zip(*build_sweep(meta), strict=True)
-    results = ctx.map(train_one, configs, archs, lrs, role='train')  # GPU sweep that depends on prep
-    ctx.run(publish_curves, results, role='prep')  # share the curves by name for the report
+    results = ctx.map(train_one, configs, archs, lrs, role="train")  # GPU sweep that depends on prep
+    ctx.run(publish_curves, results, role="prep")  # share the curves by name for the report
     return results
 
 
 experiment = Experiment(
-    name='gpt-sweep',
+    name="gpt-sweep",
     main=main,
     roles={
-        'prep': {},  # CPU-only: data download + tokenize
-        'train': dict(gpu='L4', timeout=720),  # GPU sweep cells
+        "prep": {},  # CPU-only: data download + tokenize
+        "train": dict(gpu="L4", timeout=720),  # GPU sweep cells
     },
 )

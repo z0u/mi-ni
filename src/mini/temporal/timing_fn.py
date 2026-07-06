@@ -122,7 +122,7 @@ class MinimumJerkTimingFunction:
         try:
             x = np.linalg.solve(A, b)
         except np.linalg.LinAlgError:
-            print(f'Warning: Linear algebra solver failed for T={T}. Using fallback coefficients.')  # noqa: T201
+            print(f"Warning: Linear algebra solver failed for T={T}. Using fallback coefficients.")  # noqa: T201
             c3 = y1 - c0 - c1 - c2
             c4 = 0.0
             c5 = 0.0

@@ -45,7 +45,7 @@ from typing import Any, Iterable, Iterator
 
 from mini.store import Artifact, BlobStat, LocalStore, Store, _cas_key, _hash_file, _tree_sha
 
-__all__ = ['HFStore']
+__all__ = ["HFStore"]
 
 # Buckets need ``*.xethub.hf.co`` (byte transfer) and, for serving, ``*.cdn.hf.co``
 # on the network egress allow-list; metadata-only calls to ``huggingface.co`` work
@@ -74,7 +74,7 @@ class HFStore(Store):
         # is also what makes the split opt-in and this class backend-swappable (#38).
         self.publish_repo = publish_repo
         self._cache = cache  # local warm checkout, keyed by sha (a LocalStore)
-        self._token = token or os.environ.get('HF_TOKEN')
+        self._token = token or os.environ.get("HF_TOKEN")
         self._api: Any = None
 
     @property
@@ -94,9 +94,9 @@ class HFStore(Store):
         """
         if self.bucket is None:
             raise RuntimeError(
-                'this store has no CAS bucket — it was built from a publish-repo alone '
-                '(read-only export serving). Set store-bucket (or MINI_STORE_BUCKET) to '
-                'put/get/ref against the content-addressed store.'
+                "this store has no CAS bucket — it was built from a publish-repo alone "
+                "(read-only export serving). Set store-bucket (or MINI_STORE_BUCKET) to "
+                "put/get/ref against the content-addressed store."
             )
         return self.bucket
 
@@ -153,7 +153,7 @@ class HFStore(Store):
         """
         children: list[Artifact] = []
         add: list[tuple[str, str]] = []
-        for p in sorted(q for q in src.rglob('*') if q.is_file()):
+        for p in sorted(q for q in src.rglob("*") if q.is_file()):
             sha, size = _hash_file(p)
             children.append(Artifact(sha256=sha, size=size, name=p.relative_to(src).as_posix()))
             if not self._cache.has(sha):
@@ -162,27 +162,27 @@ class HFStore(Store):
         if add:
             self.api.batch_bucket_files(self._cas, add=add)  # one round trip for the set
         kids = tuple(children)
-        return Artifact(sha256=_tree_sha(kids), size=sum(c.size for c in kids), name=name, kind='tree', children=kids)
+        return Artifact(sha256=_tree_sha(kids), size=sum(c.size for c in kids), name=name, kind="tree", children=kids)
 
     # -- refs -----------------------------------------------------------------
 
     def _write_ref(self, name: str, payload: str) -> None:
-        self.api.batch_bucket_files(self._cas, add=[(payload.encode(), f'refs/{name}.json')])
+        self.api.batch_bucket_files(self._cas, add=[(payload.encode(), f"refs/{name}.json")])
 
     def _read_ref(self, name: str) -> str | None:
-        path = f'refs/{name}.json'
+        path = f"refs/{name}.json"
         if not self._remote_has(path):
             return None
         with tempfile.TemporaryDirectory() as d:  # cleaned up, unlike a bare mkdtemp
-            tmp = Path(d) / 'ref.json'
+            tmp = Path(d) / "ref.json"
             self.api.download_bucket_files(self._cas, files=[(path, str(tmp))])
             return tmp.read_text()
 
     # -- publish --------------------------------------------------------------
 
     def publish(self, art: Artifact, path: str) -> str:
-        if art.kind == 'tree':
-            raise ValueError('publish a single file (resolve a tree first, or publish its children)')
+        if art.kind == "tree":
+            raise ValueError("publish a single file (resolve a tree first, or publish its children)")
         if self.publish_repo is not None:
             return self._publish_to_repo(art, path)
         return self._publish_to_bucket(art, path)
@@ -192,13 +192,13 @@ class HFStore(Store):
         bucket = self._cas
         info = list(self.api.get_bucket_paths_info(bucket, [_cas_key(art.sha256)]))
         if not info:
-            raise FileNotFoundError(f'{art.sha256[:12]}… is not in the store — put() it before publish()')
+            raise FileNotFoundError(f"{art.sha256[:12]}… is not in the store — put() it before publish()")
         # Server-side copy *by xet hash*: a metadata op, no bytes moved. The
         # extensioned destination is what makes the resolve URL serve a real
         # Content-Type (a bare cas/<sha> has none).
-        dest = f'published/{path}'
-        self.api.batch_bucket_files(bucket, copy=[('bucket', bucket, info[0].xet_hash, dest)])
-        return f'https://huggingface.co/buckets/{bucket}/resolve/{dest}'
+        dest = f"published/{path}"
+        self.api.batch_bucket_files(bucket, copy=[("bucket", bucket, info[0].xet_hash, dest)])
+        return f"https://huggingface.co/buckets/{bucket}/resolve/{dest}"
 
     def _publish_to_repo(self, art: Artifact, path: str) -> str:
         """Expose a CAS blob on the public, versioned dataset repo (see :func:`publish_repo`).
@@ -211,16 +211,16 @@ class HFStore(Store):
         URL tracks the branch, and a citation can pin the same path to a commit sha.
         """
         if not self.has(art.sha256):
-            raise FileNotFoundError(f'{art.sha256[:12]}… is not in the store — put() it before publish()')
-        dest = f'published/{path}'
+            raise FileNotFoundError(f"{art.sha256[:12]}… is not in the store — put() it before publish()")
+        dest = f"published/{path}"
         self.api.upload_file(
             path_or_fileobj=str(self._local_blob(art.sha256)),
             path_in_repo=dest,
             repo_id=self.publish_repo,
-            repo_type='dataset',
-            commit_message=f'publish {path}',
+            repo_type="dataset",
+            commit_message=f"publish {path}",
         )
-        return f'https://huggingface.co/datasets/{self.publish_repo}/resolve/main/{dest}'
+        return f"https://huggingface.co/datasets/{self.publish_repo}/resolve/main/{dest}"
 
     # -- gc --------------------------------------------------------------------
 
@@ -235,11 +235,11 @@ class HFStore(Store):
             return
 
     def list_blobs(self) -> Iterator[BlobStat]:
-        for entry in self._list_tree('cas'):
-            if getattr(entry, 'type', None) != 'file':
+        for entry in self._list_tree("cas"):
+            if getattr(entry, "type", None) != "file":
                 continue
-            sha = entry.path.rsplit('/', 1)[-1]
-            if len(sha) != 64 or not set(sha) <= set('0123456789abcdef'):
+            sha = entry.path.rsplit("/", 1)[-1]
+            if len(sha) != 64 or not set(sha) <= set("0123456789abcdef"):
                 continue
             ts = entry.uploaded_at or entry.mtime
             yield BlobStat(sha, entry.size, ts.timestamp() if ts is not None else None)
@@ -256,9 +256,9 @@ class HFStore(Store):
 
     def list_refs(self) -> list[str]:
         return sorted(
-            e.path[len('refs/') : -len('.json')]
-            for e in self._list_tree('refs')
-            if getattr(e, 'type', None) == 'file' and e.path.endswith('.json')
+            e.path[len("refs/") : -len(".json")]
+            for e in self._list_tree("refs")
+            if getattr(e, "type", None) == "file" and e.path.endswith(".json")
         )
 
     # -- report bundles (the publish-a-report handoff) ------------------------
@@ -273,8 +273,8 @@ class HFStore(Store):
     def export_base(self, key: str) -> str:
         """The ``<base href>`` a published report's relative ``_assets/`` resolve against."""
         if self.publish_repo is not None:
-            return f'https://huggingface.co/datasets/{self.publish_repo}/resolve/main/exports/{key}/'
-        return f'https://huggingface.co/buckets/{self.bucket}/resolve/exports/{key}/'
+            return f"https://huggingface.co/datasets/{self.publish_repo}/resolve/main/exports/{key}/"
+        return f"https://huggingface.co/buckets/{self.bucket}/resolve/exports/{key}/"
 
     def sync_export(self, local_dir: Path, key: str) -> None:
         """Mirror a report's local export dir to ``exports/<key>/`` (delete stale).
@@ -287,14 +287,14 @@ class HFStore(Store):
         if self.publish_repo is not None:
             self.api.upload_folder(
                 folder_path=str(local_dir),
-                path_in_repo=f'exports/{key}',
+                path_in_repo=f"exports/{key}",
                 repo_id=self.publish_repo,
-                repo_type='dataset',
-                delete_patterns='*',
-                commit_message=f'export {key}',
+                repo_type="dataset",
+                delete_patterns="*",
+                commit_message=f"export {key}",
             )
             return
-        self.api.sync_bucket(source=str(local_dir), dest=f'hf://buckets/{self.bucket}/exports/{key}', delete=True)
+        self.api.sync_bucket(source=str(local_dir), dest=f"hf://buckets/{self.bucket}/exports/{key}", delete=True)
 
     def fetch_export(self, key: str, dest: Path) -> bool:
         """Download ``exports/<key>/`` into *dest*; ``False`` if nothing is synced.
@@ -304,10 +304,10 @@ class HFStore(Store):
         """
         if self.publish_repo is not None:
             return self._fetch_export_from_repo(key, dest)
-        if not self._remote_has(f'exports/{key}/index.html'):
+        if not self._remote_has(f"exports/{key}/index.html"):
             return False
         dest.mkdir(parents=True, exist_ok=True)
-        self.api.sync_bucket(source=f'hf://buckets/{self.bucket}/exports/{key}', dest=str(dest))
+        self.api.sync_bucket(source=f"hf://buckets/{self.bucket}/exports/{key}", dest=str(dest))
         return True
 
     def _fetch_export_from_repo(self, key: str, dest: Path) -> bool:
@@ -315,20 +315,20 @@ class HFStore(Store):
 
         repo = self.publish_repo
         assert repo is not None  # only reached from fetch_export when the publish tier is a repo
-        prefix = f'exports/{key}'
-        if not self.api.file_exists(repo_id=repo, filename=f'{prefix}/index.html', repo_type='dataset'):
+        prefix = f"exports/{key}"
+        if not self.api.file_exists(repo_id=repo, filename=f"{prefix}/index.html", repo_type="dataset"):
             return False
         dest.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory() as d:
             snap = snapshot_download(
                 repo_id=repo,
-                repo_type='dataset',
-                allow_patterns=f'{prefix}/*',
+                repo_type="dataset",
+                allow_patterns=f"{prefix}/*",
                 local_dir=d,
                 token=self._token,
             )
             src = Path(snap) / prefix
-            for p in src.rglob('*'):  # lift the bundle out of its exports/<key>/ prefix into dest
+            for p in src.rglob("*"):  # lift the bundle out of its exports/<key>/ prefix into dest
                 if p.is_file():
                     out = dest / p.relative_to(src)
                     out.parent.mkdir(parents=True, exist_ok=True)

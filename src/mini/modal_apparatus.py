@@ -55,10 +55,10 @@ from mini.volume import data_dir_context
 
 log = logging.getLogger(__name__)
 
-T = TypeVar('T')
-R = TypeVar('R')
+T = TypeVar("T")
+R = TypeVar("R")
 
-__all__ = ['ModalApparatus', 'ModalRecordStore', 'ModalMemoStore', 'control_dict_name']
+__all__ = ["ModalApparatus", "ModalRecordStore", "ModalMemoStore", "control_dict_name"]
 
 STARTUP_TIMEOUT_SECONDS = 120
 
@@ -69,12 +69,12 @@ def control_dict_name(name: str) -> str:
     Module-level so a client can address the control plane without constructing
     a ``ModalApparatus`` (e.g. the CLI's other-backend peek on an empty read).
     """
-    return f'mini-cp-{name}'
+    return f"mini-cp-{name}"
 
 
 def _modal_auth_error_message() -> str:
     """Build a user-facing message for Modal authentication failures."""
-    return 'Modal authentication failed. Run ./go auth, then try again.'
+    return "Modal authentication failed. Run ./go auth, then try again."
 
 
 def _app_page_url(app: modal.App) -> str | None:
@@ -89,7 +89,7 @@ def _app_page_url(app: modal.App) -> str | None:
     if not inner_values:
         return None
     inner_app = inner_values[0]
-    running = getattr(inner_app, '_running_app', None)
+    running = getattr(inner_app, "_running_app", None)
     if running is None:
         return None
     return running.app_page_url
@@ -102,9 +102,9 @@ def make_image() -> modal.Image:
     from local installs: locally we run CPU-only, while the remote image gets
     the CUDA plugin and picks up the GPU when one is attached.
     """
-    deps = uv_freeze(all_groups=True, not_groups=['local', 'dev'])
+    deps = uv_freeze(all_groups=True, not_groups=["local", "dev"])
     project_deps = project_packages()
-    print(f'Creating Modal image with dependencies: Project: {project_deps}')
+    print(f"Creating Modal image with dependencies: Project: {project_deps}")
     return (
         modal.Image.debian_slim()
         .pip_install(*deps)
@@ -123,14 +123,14 @@ def make_image() -> modal.Image:
 # re-download), concurrent writers at worst pull the same model twice, and
 # deleting the Volume is always safe. Locally this tier doesn't exist —
 # ~/.cache/huggingface already persists.
-HF_CACHE_VOLUME = 'mini-hf-cache'
-HF_CACHE_MOUNT = '/hf-cache'
+HF_CACHE_VOLUME = "mini-hf-cache"
+HF_CACHE_MOUNT = "/hf-cache"
 
 # Container-local root for the worker's HFStore warm cache: deliberately NOT under
 # the mounted Volume, where it would be committed alongside results and shadow
 # every bucket artifact on paid storage. Ephemeral is correct — the bucket is the
 # durable copy, and the cache only needs to outlive the container's own re-reads.
-WORKER_STORE_CACHE = Path('/tmp/mini-store-cache')
+WORKER_STORE_CACHE = Path("/tmp/mini-store-cache")
 
 
 def _attach_hf_cache(fn_kwargs: dict[str, Any]) -> None:
@@ -140,8 +140,8 @@ def _attach_hf_cache(fn_kwargs: dict[str, Any]) -> None:
     ``.w(image=...)`` still gets it.
     """
     cache = modal.Volume.from_name(HF_CACHE_VOLUME, create_if_missing=True)
-    fn_kwargs['volumes'] = {**fn_kwargs.get('volumes', {}), HF_CACHE_MOUNT: cache}
-    fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), modal.Secret.from_dict({'HF_HOME': HF_CACHE_MOUNT})]
+    fn_kwargs["volumes"] = {**fn_kwargs.get("volumes", {}), HF_CACHE_MOUNT: cache}
+    fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), modal.Secret.from_dict({"HF_HOME": HF_CACHE_MOUNT})]
 
 
 # ---------------------------------------------------------------------------
@@ -199,11 +199,11 @@ class ModalRecordStore(RecordStore):
         (present but unclaimed) or superseding gen *x* — have no matching
         primitive, so they stay read-check-write with a tiny window.
         """
-        if gen is None and (put := getattr(self._d, 'put', None)) is not None:
+        if gen is None and (put := getattr(self._d, "put", None)) is not None:
             if put(key, record, skip_if_exists=True):
                 return True
             cur = self.read(key)
-            if cur is None or cur.get('gen') is not None:
+            if cur is None or cur.get("gen") is not None:
                 return False  # claimed (or deleted and re-claimed) in between — lose
             # Present but unclaimed (a reset record awaiting re-run): the insert
             # can't take it, so fall through to the read-check-write path below.
@@ -224,27 +224,27 @@ class ModalMemoStore(MemoStore):
     def _read_volume_bytes(self, rel: str) -> bytes:
         # Client-side reads already reflect the worker's committed writes;
         # ``reload()`` is only valid inside a running function, not here.
-        return b''.join(self._volume._modal_volume.read_file(rel))
+        return b"".join(self._volume._modal_volume.read_file(rel))
 
     def result(self, key: str) -> Any:
         gen = self._gen(key)
-        name = f'result-{gen}.pkl' if gen else 'result.pkl'
-        return cloudpickle.loads(self._read_volume_bytes(f'_memo/{key}/{name}'))
+        name = f"result-{gen}.pkl" if gen else "result.pkl"
+        return cloudpickle.loads(self._read_volume_bytes(f"_memo/{key}/{name}"))
 
     def error(self, key: str) -> str:
         gen = self._gen(key)
-        for name in dict.fromkeys((f'error-{gen}.txt' if gen else 'error.txt', 'error.txt')):
+        for name in dict.fromkeys((f"error-{gen}.txt" if gen else "error.txt", "error.txt")):
             try:
-                return self._read_volume_bytes(f'_memo/{key}/{name}').decode()
+                return self._read_volume_bytes(f"_memo/{key}/{name}").decode()
             except FileNotFoundError, modal.exception.NotFoundError:
                 continue
-        return '(no logs)'
+        return "(no logs)"
 
     def result_artifacts(self, key: str) -> list[str] | None:
         gen = self._gen(key)
-        name = f'result-{gen}.artifacts.json' if gen else 'result.artifacts.json'
+        name = f"result-{gen}.artifacts.json" if gen else "result.artifacts.json"
         try:
-            return json.loads(self._read_volume_bytes(f'_memo/{key}/{name}'))
+            return json.loads(self._read_volume_bytes(f"_memo/{key}/{name}"))
         except FileNotFoundError, modal.exception.NotFoundError:
             return None  # pre-sidecar record: only unpickling the result reveals its refs
 
@@ -266,13 +266,13 @@ class ModalVolumeStore(Store):
         self._cache = cache  # a LocalStore checkout cache (warm copies, keyed by sha)
 
     def _read_volume_bytes(self, rel: str) -> bytes:
-        return b''.join(self._volume._modal_volume.read_file(rel))
+        return b"".join(self._volume._modal_volume.read_file(rel))
 
     def has(self, sha256: str) -> bool:
         if self._cache.has(sha256):
             return True
         try:
-            self._read_volume_bytes(f'store/{_cas_key(sha256)}')
+            self._read_volume_bytes(f"store/{_cas_key(sha256)}")
             return True
         except FileNotFoundError, modal.exception.NotFoundError:
             return False
@@ -282,29 +282,29 @@ class ModalVolumeStore(Store):
 
         blob = self._cache._blob_path(sha256)
         if not blob.exists():  # pull once into the warm cache, then serve locally
-            data = self._read_volume_bytes(f'store/{_cas_key(sha256)}')
+            data = self._read_volume_bytes(f"store/{_cas_key(sha256)}")
             blob.parent.mkdir(parents=True, exist_ok=True)
-            tmp = blob.with_name(f'{sha256}.tmp')
+            tmp = blob.with_name(f"{sha256}.tmp")
             tmp.write_bytes(data)
             tmp.replace(blob)
         shutil.copyfile(blob, dest)
 
     def _read_ref(self, name: str) -> str | None:
         try:
-            return self._read_volume_bytes(f'store/refs/{name}.json').decode()
+            return self._read_volume_bytes(f"store/refs/{name}.json").decode()
         except FileNotFoundError, modal.exception.NotFoundError:
             return None
 
     def _write_blob(self, sha256: str, src: Path) -> None:
-        raise NotImplementedError('ModalVolumeStore is read-only on the client; put() runs inside a step')
+        raise NotImplementedError("ModalVolumeStore is read-only on the client; put() runs inside a step")
 
     def _write_ref(self, name: str, payload: str) -> None:
-        raise NotImplementedError('ModalVolumeStore is read-only on the client; set_ref() runs inside a step')
+        raise NotImplementedError("ModalVolumeStore is read-only on the client; set_ref() runs inside a step")
 
     def publish(self, art: Artifact, path: str) -> str:
         raise NotImplementedError(
-            'publish a Modal-produced asset by resolving it (get) into a local path, '
-            'then put()/publish() through the local project store'
+            "publish a Modal-produced asset by resolving it (get) into a local path, "
+            "then put()/publish() through the local project store"
         )
 
 
@@ -322,7 +322,7 @@ def _hf_store_secret() -> modal.Secret | None:
     token = _hf_token()  # env, or the cached `hf auth login`
     if not token:
         return None
-    env: dict[str, str | None] = {STORE_BUCKET_ENV: bucket, 'HF_TOKEN': token}
+    env: dict[str, str | None] = {STORE_BUCKET_ENV: bucket, "HF_TOKEN": token}
     if repo := publish_repo():  # so an in-step publish() targets the same tier as the driver
         env[PUBLISH_REPO_ENV] = repo
     return modal.Secret.from_dict(env)
@@ -352,7 +352,7 @@ def _modal_task_entry(blob: bytes, key: str, gen: str, dict_name: str, volume_na
     # the committed Volume (see WORKER_STORE_CACHE). Otherwise the CAS rides
     # *under* the mounted Volume (committed with the result), per-experiment until
     # #22's project Volume.
-    artifacts = store_for(Path(mount_point) / 'store', cache_root=WORKER_STORE_CACHE)
+    artifacts = store_for(Path(mount_point) / "store", cache_root=WORKER_STORE_CACHE)
     execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts, gen=gen)
 
 
@@ -375,12 +375,12 @@ class ModalApparatus(Apparatus[ModalVolume]):
             self.app = modal.App(name)
         else:
             if not app.name:
-                raise ValueError('ModalApparatus requires a named modal.App')
+                raise ValueError("ModalApparatus requires a named modal.App")
             name = app.name
             self.app = app
         self.modal_fn_kwargs: dict[str, Any] = {
             # Don't let Modal silently retry failures — surface them immediately.
-            'retries': 0,
+            "retries": 0,
         }
         # `max_containers` is deliberately *not* a global default: the detached memo
         # path wants to fan out (unbounded unless `--max-containers`/`.w()` caps it),
@@ -409,8 +409,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
         ``results`` / ``cancel``, which only touch the ``modal.Dict`` and Volume —
         never run ``make_image`` (no ``uv`` freeze, no "Creating Modal image" noise).
         """
-        if 'image' in self.modal_fn_kwargs:
-            return self.modal_fn_kwargs['image']
+        if "image" in self.modal_fn_kwargs:
+            return self.modal_fn_kwargs["image"]
         if self._image is None:
             self._image = make_image()
         return self._image
@@ -463,9 +463,9 @@ class ModalApparatus(Apparatus[ModalVolume]):
         to the Volume, so the client must read from there too (not an empty bucket).
         """
         if store_bucket() and _hf_token():
-            return store_for(data_root() / 'store')
+            return store_for(data_root() / "store")
         assert self.app.name  # guaranteed by __init__ (a named App is required)
-        cache = LocalStore(data_root() / 'store-cache' / self.app.name)
+        cache = LocalStore(data_root() / "store-cache" / self.app.name)
         return ModalVolumeStore(self.volume, cache)
 
     def _memo_worker(self) -> modal.Function:
@@ -482,16 +482,16 @@ class ModalApparatus(Apparatus[ModalVolume]):
         ``@function`` kwarg) is dropped.
         """
         if self._memo_fn is None:
-            drop = {'startup_timeout'}
+            drop = {"startup_timeout"}
             fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k not in drop}
-            fn_kwargs['image'] = self._ensure_image()
+            fn_kwargs["image"] = self._ensure_image()
             if isinstance(self._volume, ModalVolume):
-                fn_kwargs['volumes'] = {
-                    **fn_kwargs.get('volumes', {}),
+                fn_kwargs["volumes"] = {
+                    **fn_kwargs.get("volumes", {}),
                     str(self._volume.path): self._volume._modal_volume,
                 }
             if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
-                fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), secret]
+                fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), secret]
             _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
             self._memo_fn = self.app.function(serialized=True, **fn_kwargs)(_modal_task_entry)
         return self._memo_fn
@@ -522,7 +522,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         """Cancel the task's Modal ``FunctionCall`` by its recorded id."""
         from contextlib import suppress
 
-        if fc_id := rec.get('fc_id'):
+        if fc_id := rec.get("fc_id"):
             with suppress(Exception):  # already finished / unknown id
                 modal.FunctionCall.from_id(fc_id).cancel()
 
@@ -538,7 +538,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         infra failure, or a transient read-side network blip) as alive: a false
         "dead" would mark a live GPU task FAILED, and a retry would double-spawn it.
         """
-        fc_id = rec.get('fc_id')
+        fc_id = rec.get("fc_id")
         if not fc_id:
             return True  # not launched on Modal yet — nothing to probe
         from modal.exception import NotFoundError, OutputExpiredError
@@ -565,7 +565,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
             async for result in self._amap(fn, *iterables, kwargs=kwargs):
                 yield result
         except modal.exception.AuthError:
-            log.debug('Modal authentication failed', exc_info=True)
+            log.debug("Modal authentication failed", exc_info=True)
             raise RuntimeError(_modal_auth_error_message()) from None
 
     async def _amap(
@@ -580,7 +580,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         if n == 0:
             return
 
-        log.info('Running %d jobs on Modal', n)
+        log.info("Running %d jobs on Modal", n)
         run_id = secrets.token_hex(4)
 
         image: modal.Image = self._ensure_image()
@@ -599,7 +599,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
 
             async with display, self.app.run():
                 if url := _app_page_url(self.app):
-                    print(f'View app at {url}')
+                    print(f"View app at {url}")
                 async with _startup_watchdog(display, startup_timeout):
                     async for result in modal_fn.map.aio(count(), *iterables_lists):
                         yield result
@@ -617,7 +617,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         """
         # The blocking/interactive path defaults to one container (the memo path is
         # unbounded); set it here now that it's no longer a global default.
-        max_containers = self.modal_fn_kwargs.get('max_containers', 1)
+        max_containers = self.modal_fn_kwargs.get("max_containers", 1)
         emission_interval = max_containers / 10.0
         wrapped_fn = _wrap_for_modal(
             fn,
@@ -630,17 +630,17 @@ class ModalApparatus(Apparatus[ModalVolume]):
             commit_volume=(self._volume._modal_volume if isinstance(self._volume, ModalVolume) else None),
         )
         fn_kwargs: dict[str, Any] = {**self.modal_fn_kwargs}
-        fn_kwargs.setdefault('max_containers', 1)  # interactive default; memo path stays unbounded
-        fn_kwargs['image'] = self._ensure_image()
-        startup_timeout: float = fn_kwargs.pop('startup_timeout', STARTUP_TIMEOUT_SECONDS)
+        fn_kwargs.setdefault("max_containers", 1)  # interactive default; memo path stays unbounded
+        fn_kwargs["image"] = self._ensure_image()
+        startup_timeout: float = fn_kwargs.pop("startup_timeout", STARTUP_TIMEOUT_SECONDS)
         if isinstance(self._volume, ModalVolume):
-            volumes = fn_kwargs.get('volumes', {})
-            fn_kwargs['volumes'] = {
+            volumes = fn_kwargs.get("volumes", {})
+            fn_kwargs["volumes"] = {
                 **volumes,
                 str(self._volume.path): self._volume._modal_volume,
             }
         if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
-            fn_kwargs['secrets'] = [*fn_kwargs.get('secrets', []), secret]
+            fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), secret]
         _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
         modal_fn = self.app.function(serialized=True, **fn_kwargs)(wrapped_fn)
         return modal_fn, startup_timeout
@@ -673,9 +673,9 @@ async def _startup_watchdog(
                 watcher.cancel()
     except TimeoutError:
         raise RuntimeError(
-            f'No containers started within {timeout_seconds}s. '
-            'Containers may be crash-looping — '
-            'check the Modal dashboard for logs.'
+            f"No containers started within {timeout_seconds}s. "
+            "Containers may be crash-looping — "
+            "check the Modal dashboard for logs."
         ) from None
 
 
@@ -699,7 +699,7 @@ def _wrap_for_modal(
                 job_id=str(index),
                 step=0,
                 total=0,
-                message='started',
+                message="started",
             )
         )
         dir_ctx = data_dir_context(data_dir) if data_dir is not None else nullcontext()
@@ -707,7 +707,7 @@ def _wrap_for_modal(
         # mounted Volume, whose parent isn't shared remotely — so no store_root_for.
         # The bucket path's warm cache stays off the committed Volume (WORKER_STORE_CACHE).
         store_ctx = (
-            store_context(store_for(data_dir / 'store', cache_root=WORKER_STORE_CACHE))
+            store_context(store_for(data_dir / "store", cache_root=WORKER_STORE_CACHE))
             if data_dir is not None
             else nullcontext()
         )
@@ -725,7 +725,7 @@ def _wrap_for_modal(
 
     # Give the wrapper a unique name so that repeated submissions of the same
     # function on a single App don't trigger Modal's name-collision warning.
-    wrapped_fn.__name__ = f'{wrapped_fn.__name__}_{run_id}'
-    wrapped_fn.__qualname__ = f'{wrapped_fn.__qualname__}_{run_id}'
+    wrapped_fn.__name__ = f"{wrapped_fn.__name__}_{run_id}"
+    wrapped_fn.__qualname__ = f"{wrapped_fn.__qualname__}_{run_id}"
 
     return wrapped_fn

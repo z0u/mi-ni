@@ -19,7 +19,7 @@ class Subline:
         self.margin = 10
         self.legend_height = self.line_height
 
-        ET.register_namespace('', 'http://www.w3.org/2000/svg')
+        ET.register_namespace("", "http://www.w3.org/2000/svg")
 
     def _wrap_tokens(self, spans: list[TokenBB]) -> list[slice]:
         """Split tokens into lines based on total width, returning (start,end) indices."""
@@ -43,7 +43,7 @@ class Subline:
 
     def _add_legend(self, svg: ET.Element, x: float, y: float, series: list[Series]) -> float:
         """Add a horizontal legend at the bottom of the SVG."""
-        legend = Element(svg, 'g', transform=f'translate({x}, {y})')
+        legend = Element(svg, "g", transform=f"translate({x}, {y})")
 
         # Layout items horizontally with spacing
         item_spacing = 40
@@ -53,26 +53,26 @@ class Subline:
             # Add line sample
             Element(
                 legend,
-                'line',
+                "line",
                 x1=curr_x,
                 y1=0,
                 x2=curr_x + 20,
                 y2=0,
-                stroke=f'var(--col-series-{i + 1})',
+                stroke=f"var(--col-series-{i + 1})",
                 stroke_width=1,
                 stroke_dasharray=s.dasharray,
-                shape_rendering='crispEdges',
+                shape_rendering="crispEdges",
             )
             # Add label
             Element(
                 legend,
-                'text',
+                "text",
                 text=s.label,
                 x=curr_x + 25,
                 y=4,
-                font_family='system-ui',
+                font_family="system-ui",
                 font_size=10,
-                fill='var(--col-text)',
+                fill="var(--col-text)",
             )
 
             # Move to next item position
@@ -104,17 +104,17 @@ class Subline:
         line_tokens = tokens[window]
 
         if x != 0.0 or y != 0.0:
-            parent = Element(parent, 'g', transform=f'translate({x}, {y})')
+            parent = Element(parent, "g", transform=f"translate({x}, {y})")
 
         # Add main text element with centered alignment
         baseline = self.font_size * -0.2  # Still need this offset for text positioning
         text_elem = Element(
             parent,
-            'text',
+            "text",
             font_size=self.font_size,
             y=baseline,
-            text_anchor='middle',
-            fill='var(--col-text)',
+            text_anchor="middle",
+            fill="var(--col-text)",
         )
 
         # Track cumulative x position as we place tokens
@@ -122,7 +122,7 @@ class Subline:
         for token in line_tokens:
             width = len(token) * self.char_width
             mid = pos + width / 2
-            Element(text_elem, 'tspan', x=mid, text=token)
+            Element(text_elem, "tspan", x=mid, text=token)
             pos += width
 
     def plot(self, tokens: str | Sequence[str], series: list[Series]):
@@ -142,13 +142,13 @@ class Subline:
         # Create SVG root without viewBox initially
         svg = Element(
             None,
-            'svg',
-            xmlns='http://www.w3.org/2000/svg',
-            style='color-scheme: light dark; background-color: var(--bg-color); box-shadow: 0 0 0 10px var(--bg-color);',
+            "svg",
+            xmlns="http://www.w3.org/2000/svg",
+            style="color-scheme: light dark; background-color: var(--bg-color); box-shadow: 0 0 0 10px var(--bg-color);",
         )
         Element(
             svg,
-            'style',
+            "style",
             text=dedent("""
                 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@100..900&family=Source+Code+Pro&display=swap');
                 text {
@@ -182,7 +182,7 @@ class Subline:
         for i, s in enumerate(series):
             sparkline.add_series(
                 s.values,
-                color=f'var(--col-series-{i + 1})',
+                color=f"var(--col-series-{i + 1})",
                 dasharray=s.dasharray,
             )
 
@@ -205,6 +205,6 @@ class Subline:
         legend_width = self._add_legend(svg, self.margin, legend_y, series)
 
         total_width = max(text_width + 2 * self.margin, legend_width + 2 * self.margin)
-        svg.set('viewBox', f'0 0 {total_width} {total_height}')
+        svg.set("viewBox", f"0 0 {total_width} {total_height}")
 
-        return ET.tostring(svg, encoding='unicode')
+        return ET.tostring(svg, encoding="unicode")

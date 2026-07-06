@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = '0.23.3'
-app = marimo.App(width='medium', auto_download=['html'])
+__generated_with = "0.23.3"
+app = marimo.App(width="medium", auto_download=["html"])
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -59,27 +59,27 @@ def _():
 def prep() -> str:
     """Write shared configuration to the volume."""
     data_dir = get_data_dir()
-    config = {'learning_rate': 0.001, 'epochs': 10, 'batch_size': 32}
-    (data_dir / 'config.json').write_text(json.dumps(config, indent=2))
-    return f'Wrote config to {data_dir / "config.json"}'
+    config = {"learning_rate": 0.001, "epochs": 10, "batch_size": 32}
+    (data_dir / "config.json").write_text(json.dumps(config, indent=2))
+    return f"Wrote config to {data_dir / 'config.json'}"
 
 
 @app.function
 def train(x: int) -> int:
     """Read config, run a mock workload, and save results to the volume."""
     data_dir = get_data_dir()
-    config = json.loads((data_dir / 'config.json').read_text())
+    config = json.loads((data_dir / "config.json").read_text())
 
     k = 10
     for i in range(k):
         time.sleep(1 / k)
-        emit_progress(i + 1, 10, message=f'processing item {x}')
+        emit_progress(i + 1, 10, message=f"processing item {x}")
 
-    result = x * config['epochs']
+    result = x * config["epochs"]
 
-    output_dir = data_dir / 'outputs'
+    output_dir = data_dir / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / f'result_{x}.txt').write_text(f'input: {x}\nresult: {result}\nlr: {config["learning_rate"]}')
+    (output_dir / f"result_{x}.txt").write_text(f"input: {x}\nresult: {result}\nlr: {config['learning_rate']}")
     return result
 
 
@@ -97,26 +97,26 @@ async def main(app_type, is_headless, run_button):
     # in a headless session.
     mo.stop(not run_button.value and not is_headless)
 
-    if app_type.value == 'local':
-        app = LocalApparatus('mi-ni-getting-started', max_workers=3)
+    if app_type.value == "local":
+        app = LocalApparatus("mi-ni-getting-started", max_workers=3)
     else:
-        app = ModalApparatus('mi-ni-getting-started').w(max_containers=3)
+        app = ModalApparatus("mi-ni-getting-started").w(max_containers=3)
 
-    print(f'Using {app}')
+    print(f"Using {app}")
 
     # Step 1: write shared config to the volume
     print(await app.arun(prep))
 
     # Step 2: train (reads config, writes per-item results to volume)
     results = [x async for x in app.amap(train, [1, 2, 3, 4, 5])]
-    print('Results:', results)
+    print("Results:", results)
 
     # Step 3: pull outputs back from the volume
     with tempfile.TemporaryDirectory() as tmp:
-        await app.volume.download('outputs', f'{tmp}/outputs')
-        print('\nVolume outputs:')
-        for p in sorted(Path(tmp, 'outputs').iterdir()):
-            print(f'\n--- {p.name} ---')
+        await app.volume.download("outputs", f"{tmp}/outputs")
+        print("\nVolume outputs:")
+        for p in sorted(Path(tmp, "outputs").iterdir()):
+            print(f"\n--- {p.name} ---")
             print(p.read_text())
     return
 
@@ -132,17 +132,17 @@ def _():
 @app.cell(hide_code=True)
 def options():
     app_type = mo.ui.radio(
-        label='Apparatus',
-        options=['local', 'modal'],
-        value=str(mo.cli_args().get('app', 'local')),
+        label="Apparatus",
+        options=["local", "modal"],
+        value=str(mo.cli_args().get("app", "local")),
         inline=True,
     )
     run_button = mo.ui.run_button(
-        label='Run',
+        label="Run",
     )
     is_headless = mo.app_meta().request is None
     return app_type, is_headless, run_button
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()

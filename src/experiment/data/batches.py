@@ -18,9 +18,9 @@ from utils.param_types import validate_call
 
 @validate_call
 def split_data(
-    data: Int[np.ndarray, ' T'],
+    data: Int[np.ndarray, " T"],
     train_split: float,
-) -> tuple[Int[np.ndarray, ' Tt'], Int[np.ndarray, ' Tv']]:
+) -> tuple[Int[np.ndarray, " Tt"], Int[np.ndarray, " Tv"]]:
     """Split the corpus into contiguous train and validation portions."""
     n = int(train_split * len(data))
     return data[:n], data[n:]
@@ -48,17 +48,17 @@ def batches_per_epoch(
 
 @validate_call
 def sample_batches(
-    data: Int[np.ndarray, ' T'],
+    data: Int[np.ndarray, " T"],
     data_config: DataConfig,
     model_config: ModelConfig,
     n_batches: int,
     rng: np.random.Generator,
-) -> Iterator[tuple[Int[np.ndarray, 'B T'], Int[np.ndarray, 'B T']]]:
+) -> Iterator[tuple[Int[np.ndarray, "B T"], Int[np.ndarray, "B T"]]]:
     """Yield *n_batches* of (inputs, targets): random crops with targets shifted by one."""
     block_size = model_config.block_size
     n_starts = len(data) - block_size - 1
     if n_starts < 1:
-        raise ValueError(f'Corpus of {len(data)} tokens is too short for block size {block_size}')
+        raise ValueError(f"Corpus of {len(data)} tokens is too short for block size {block_size}")
 
     for _ in range(n_batches):
         starts = rng.integers(0, n_starts, size=data_config.batch_size)

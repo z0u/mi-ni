@@ -14,30 +14,30 @@ from mini.reports import (
 # Mimics a Marimo export: absolute CDN links + escaped data/asset URLs inside the JSON
 # session blob, an author markdown link, and a relative asset reference.
 SAMPLE = (
-    '<!DOCTYPE html><html><head>'
+    "<!DOCTYPE html><html><head>"
     '<link rel="icon" href="https://cdn.jsdelivr.net/npm/x/favicon.ico" />'
-    '</head><body>'
+    "</head><body>"
     '<script>{"cells":[{"outputs":[{"html":"<img src=\\"_assets/abc123.png\\" />'
     '<a href=\\"./experiment.py\\">src</a>'
     '<a href=\\"../acts/experiment.py\\">other</a>"}]}]}</script>'
     '<img src="data:image/png;base64,AAAA" />'
     '<a href="#section">jump</a>'
-    '</body></html>'
+    "</body></html>"
 )
 
 
 def test_relative_urls_finds_only_relative():
     urls = set(relative_urls(SAMPLE))
-    assert urls == {'_assets/abc123.png', './experiment.py', '../acts/experiment.py'}
+    assert urls == {"_assets/abc123.png", "./experiment.py", "../acts/experiment.py"}
     # absolute, data:, and fragment URLs are excluded
-    assert 'https://cdn.jsdelivr.net/npm/x/favicon.ico' not in urls
-    assert not any(u.startswith('data:') or u.startswith('#') for u in urls)
+    assert "https://cdn.jsdelivr.net/npm/x/favicon.ico" not in urls
+    assert not any(u.startswith("data:") or u.startswith("#") for u in urls)
 
 
 def test_stray_links_flags_author_links_not_assets():
     strays = stray_links(SAMPLE)
-    assert strays == ['../acts/experiment.py', './experiment.py']  # sorted, deduped
-    assert '_assets/abc123.png' not in strays  # the asset is allowed
+    assert strays == ["../acts/experiment.py", "./experiment.py"]  # sorted, deduped
+    assert "_assets/abc123.png" not in strays  # the asset is allowed
 
 
 def test_stray_links_empty_when_only_assets():
@@ -49,38 +49,38 @@ def test_rewrite_links_handles_plain_and_escaped():
     # The author links from SAMPLE, mapped to absolute targets, must be replaced in
     # both their plain and JSON-escaped (\") forms; the asset ref is left alone.
     mapping = {
-        './experiment.py': 'https://github.com/o/r/blob/main/docs/probe/experiment.py',
-        '../acts/experiment.py': 'https://github.com/o/r/blob/main/docs/acts/experiment.py',
+        "./experiment.py": "https://github.com/o/r/blob/main/docs/probe/experiment.py",
+        "../acts/experiment.py": "https://github.com/o/r/blob/main/docs/acts/experiment.py",
     }
     out = rewrite_links(SAMPLE, mapping)
     assert '\\"https://github.com/o/r/blob/main/docs/probe/experiment.py\\"' in out
     assert '\\"https://github.com/o/r/blob/main/docs/acts/experiment.py\\"' in out
-    assert 'experiment.py\\"' not in out.replace('docs/probe/experiment.py', '').replace(
-        'docs/acts/experiment.py', ''
+    assert 'experiment.py\\"' not in out.replace("docs/probe/experiment.py", "").replace(
+        "docs/acts/experiment.py", ""
     )  # no original relative token survives
-    assert '_assets/abc123.png' in out  # the asset reference is untouched
+    assert "_assets/abc123.png" in out  # the asset reference is untouched
 
 
 def test_rewrite_links_only_replaces_attribute_values():
     # A bare token sitting in text (not as a quoted attribute value) is left alone.
     html = 'see href="a/b.py" but the word a/b.py in prose stays'
-    out = rewrite_links(html, {'a/b.py': 'https://x/a/b.html'})
+    out = rewrite_links(html, {"a/b.py": "https://x/a/b.html"})
     assert 'href="https://x/a/b.html"' in out
-    assert 'the word a/b.py in prose stays' in out
+    assert "the word a/b.py in prose stays" in out
 
 
 def test_insert_base_adds_one_tag_in_head():
-    out = insert_base('<html><head><meta></head><body></body></html>', 'https://h/r/name/')
-    assert out.count('<base ') == 1
+    out = insert_base("<html><head><meta></head><body></body></html>", "https://h/r/name/")
+    assert out.count("<base ") == 1
     assert '<head>\n    <base href="https://h/r/name/" />' in out
     # base precedes the first resource so it governs it
-    assert out.index('<base') < out.index('<meta')
+    assert out.index("<base") < out.index("<meta")
 
 
 def test_insert_base_only_first_head():
     # A literal "<head>" appearing later (e.g. in escaped content) is not touched.
-    out = insert_base('<head></head><script>"\\u003chead\\u003e"</script>', 'https://h/')
-    assert out.count('<base ') == 1
+    out = insert_base('<head></head><script>"\\u003chead\\u003e"</script>', "https://h/")
+    assert out.count("<base ") == 1
 
 
 # Mimics a Marimo export: the flat display block in the frozen mount config, plus the
@@ -102,44 +102,44 @@ def test_set_theme_system_suppresses_flicker():
     out = set_theme(_MOUNT)
     # color-scheme meta (UA chrome) goes in <head>; the blocking guard (content) in <body>
     assert '<meta name="color-scheme" content="light dark" />' in out
-    assert 'prefers-color-scheme: dark' in out
-    assert out.index('color-scheme" content') < out.index('</head>')
-    assert out.index('<body>') < out.index('prefers-color-scheme')
+    assert "prefers-color-scheme: dark" in out
+    assert out.index('color-scheme" content') < out.index("</head>")
+    assert out.index("<body>") < out.index("prefers-color-scheme")
 
 
 def test_set_theme_fixed_target_skips_the_flash_guard():
-    out = set_theme(_MOUNT.replace('"light"', '"dark"'), theme='dark')
+    out = set_theme(_MOUNT.replace('"light"', '"dark"'), theme="dark")
     assert '"theme": "dark"' in out
     # a baked theme doesn't flash, so no blocking script — just declare the scheme
     assert '<meta name="color-scheme" content="dark" />' in out
-    assert 'prefers-color-scheme' not in out
+    assert "prefers-color-scheme" not in out
 
 
 def test_set_theme_is_noop_without_a_theme():
-    html = '<html><head></head><body></body></html>'
+    html = "<html><head></head><body></body></html>"
     assert set_theme(html) == html
 
 
 def test_export_key_uses_docs_relative_stem(tmp_path):
-    (tmp_path / 'pyproject.toml').write_text('')
-    docs = tmp_path / 'docs'
-    (docs / 'gpt-sweep').mkdir(parents=True)
-    (docs / 'gpt.py').write_text(_APP)
-    (docs / 'gpt-sweep' / 'aside.py').write_text(_APP)
-    assert export_key(docs / 'gpt.py') == 'gpt'
-    assert export_key(docs / 'gpt-sweep' / 'aside.py') == 'gpt-sweep/aside'
+    (tmp_path / "pyproject.toml").write_text("")
+    docs = tmp_path / "docs"
+    (docs / "gpt-sweep").mkdir(parents=True)
+    (docs / "gpt.py").write_text(_APP)
+    (docs / "gpt-sweep" / "aside.py").write_text(_APP)
+    assert export_key(docs / "gpt.py") == "gpt"
+    assert export_key(docs / "gpt-sweep" / "aside.py") == "gpt-sweep/aside"
 
 
 def test_export_key_drops_redundant_report_segment(tmp_path):
     # The canonical report of a directory publishes at the directory, not <dir>/report.
-    (tmp_path / 'pyproject.toml').write_text('')
-    docs = tmp_path / 'docs'
-    (docs / 'pipeline').mkdir(parents=True)
-    (docs / 'pipeline' / 'report.py').write_text(_APP)
-    assert export_key(docs / 'pipeline' / 'report.py') == 'pipeline'
+    (tmp_path / "pyproject.toml").write_text("")
+    docs = tmp_path / "docs"
+    (docs / "pipeline").mkdir(parents=True)
+    (docs / "pipeline" / "report.py").write_text(_APP)
+    assert export_key(docs / "pipeline" / "report.py") == "pipeline"
     # A top-level report.py has no directory to take, so it keeps its stem.
-    (docs / 'report.py').write_text(_APP)
-    assert export_key(docs / 'report.py') == 'report'
+    (docs / "report.py").write_text(_APP)
+    assert export_key(docs / "report.py") == "report"
 
 
 # Marimo renders its banner client-side, so the export only carries an empty shell; our
@@ -148,54 +148,54 @@ _EXPORT_HTML = '<html><head><meta charset="utf-8" /></head><body><div id="root">
 
 
 def test_set_banner_injects_nav_and_hides_marimo():
-    out = set_banner(_EXPORT_HTML, index_url='https://o.github.io/r/', source_url='https://github.com/o/r/x.py')
+    out = set_banner(_EXPORT_HTML, index_url="https://o.github.io/r/", source_url="https://github.com/o/r/x.py")
     # Our bar is the first thing in <body>, so it paints above the report.
-    assert out.index('<body>') < out.index('<nav data-mini-banner') < out.index('<div id="root">')
-    assert '<a href="https://o.github.io/r/" style=' in out and '&larr; Index' in out
-    assert '<a href="https://github.com/o/r/x.py" style=' in out and '>Source</a>' in out
+    assert out.index("<body>") < out.index("<nav data-mini-banner") < out.index('<div id="root">')
+    assert '<a href="https://o.github.io/r/" style=' in out and "&larr; Index" in out
+    assert '<a href="https://github.com/o/r/x.py" style=' in out and ">Source</a>" in out
     # Marimo's own (client-rendered) banner is hidden via a rule in <head>.
     assert '[data-testid="static-notebook-banner"]{display:none' in out
-    assert out.index('static-notebook-banner') < out.index('</head>')
+    assert out.index("static-notebook-banner") < out.index("</head>")
 
 
 def test_set_banner_omits_missing_links():
-    out = set_banner(_EXPORT_HTML, index_url='../index.html', source_url=None)
-    assert '&larr; Index' in out
-    assert '>Source<' not in out
+    out = set_banner(_EXPORT_HTML, index_url="../index.html", source_url=None)
+    assert "&larr; Index" in out
+    assert ">Source<" not in out
 
 
 def test_set_banner_is_noop_without_urls():
     assert set_banner(_EXPORT_HTML) == _EXPORT_HTML
 
 
-_APP = 'import marimo\napp = marimo.App()\n'
+_APP = "import marimo\napp = marimo.App()\n"
 
 
 def test_is_report_notebook_detects_marimo_app(tmp_path):
-    nb = tmp_path / 'report.py'
+    nb = tmp_path / "report.py"
     nb.write_text(_APP)
     assert is_report_notebook(nb)
 
 
 def test_is_report_notebook_excludes_non_app_and_non_py(tmp_path):
-    plain = tmp_path / 'mod.py'
-    plain.write_text('x = 1\n')
+    plain = tmp_path / "mod.py"
+    plain.write_text("x = 1\n")
     assert not is_report_notebook(plain)
-    assert not is_report_notebook(tmp_path / 'notes.md')  # non-.py
-    assert not is_report_notebook(tmp_path / 'missing.py')  # absent
+    assert not is_report_notebook(tmp_path / "notes.md")  # non-.py
+    assert not is_report_notebook(tmp_path / "missing.py")  # absent
 
 
 def test_source_only_marker_opts_out(tmp_path):
-    nb = tmp_path / 'example.py'
-    nb.write_text(f'import marimo\n# {SOURCE_ONLY_MARKER} — heavy inline compute\napp = marimo.App()\n')
+    nb = tmp_path / "example.py"
+    nb.write_text(f"import marimo\n# {SOURCE_ONLY_MARKER} — heavy inline compute\napp = marimo.App()\n")
     assert not is_report_notebook(nb)
 
 
 def test_report_notebooks_skips_source_only(tmp_path):
-    (tmp_path / 'report.py').write_text(_APP)
-    (tmp_path / 'sub').mkdir()
-    (tmp_path / 'sub' / 'nested.py').write_text(_APP)
-    (tmp_path / 'example.py').write_text(f'# {SOURCE_ONLY_MARKER}\n{_APP}')
-    (tmp_path / 'plain.py').write_text('x = 1\n')
+    (tmp_path / "report.py").write_text(_APP)
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "nested.py").write_text(_APP)
+    (tmp_path / "example.py").write_text(f"# {SOURCE_ONLY_MARKER}\n{_APP}")
+    (tmp_path / "plain.py").write_text("x = 1\n")
     found = {p.relative_to(tmp_path).as_posix() for p in report_notebooks(tmp_path)}
-    assert found == {'report.py', 'sub/nested.py'}
+    assert found == {"report.py", "sub/nested.py"}

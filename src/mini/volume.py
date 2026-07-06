@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Union
 
-__all__ = ['Volume', 'get_data_dir', 'data_dir_context']
+__all__ = ["Volume", "get_data_dir", "data_dir_context"]
 
 PathLike = Union[str, Path, PurePosixPath]
 
@@ -31,7 +31,7 @@ PathLike = Union[str, Path, PurePosixPath]
 # Context variable for data directory
 # ---------------------------------------------------------------------------
 
-_data_dir: contextvars.ContextVar[Path | None] = contextvars.ContextVar('mini_data_dir', default=None)
+_data_dir: contextvars.ContextVar[Path | None] = contextvars.ContextVar("mini_data_dir", default=None)
 
 
 @contextmanager
@@ -54,9 +54,9 @@ def get_data_dir() -> Path:
     d = _data_dir.get()
     if d is None:
         raise RuntimeError(
-            'No data directory configured. '
-            'get_data_dir() must be called inside a function run by an '
-            'Apparatus, and it must have a Volume configured.'
+            "No data directory configured. "
+            "get_data_dir() must be called inside a function run by an "
+            "Apparatus, and it must have a Volume configured."
         )
     return d
 

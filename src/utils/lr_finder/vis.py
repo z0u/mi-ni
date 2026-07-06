@@ -14,12 +14,12 @@ def plot_lr_finder(
     """Plot multi-scale LR finder search results."""
     fig, ax = plt.subplots(figsize=(10, 3))
 
-    fig.suptitle(f'Learning Rate Finder ({config.method.title()})', y=0.95)
-    ax.set_xlabel('Learning Rate')
-    ax.set_ylabel('Loss')
-    ax.set_xscale('log')
+    fig.suptitle(f"Learning Rate Finder ({config.method.title()})", y=0.95)
+    ax.set_xlabel("Learning Rate")
+    ax.set_ylabel("Loss")
+    ax.set_xscale("log")
 
-    cmap = plt.get_cmap('viridis')
+    cmap = plt.get_cmap("viridis")
     norm = Normalize(0, config.num_zooms)
 
     # Fill between consecutive zoom curves
@@ -36,9 +36,9 @@ def plot_lr_finder(
     ax.semilogx(series.lrs, series.losses, color=color, linewidth=1)
     ax.axvline(
         x=series.best_lr,
-        color=light_dark('#666', '#aaa'),
-        linestyle='--',
-        label='Suggested LR',
+        color=light_dark("#666", "#aaa"),
+        linestyle="--",
+        label="Suggested LR",
     )
 
     # Steepest-gradient progression across zooms
@@ -52,15 +52,15 @@ def plot_lr_finder(
     ax.semilogx(
         best_lrs,
         best_losses,
-        '-',
-        label='Steepest gradient (weighted av.)',
-        color=light_dark('#111', '#eee'),
+        "-",
+        label="Steepest gradient (weighted av.)",
+        color=light_dark("#111", "#eee"),
         linewidth=1,
-        markerfacecolor=light_dark('#fff', '#111'),
-        markeredgecolor=light_dark('#111', '#eee'),
+        markerfacecolor=light_dark("#fff", "#111"),
+        markeredgecolor=light_dark("#111", "#eee"),
         markeredgewidth=1,
         markersize=4,
     )
 
-    ax.legend(loc='upper left')
+    ax.legend(loc="upper left")
     return fig

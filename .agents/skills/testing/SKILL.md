@@ -23,16 +23,16 @@ Use structural assertions.
 ```diff
 + from unittest.mock import ANY
 
-- assert 'x' in props and approx(props['x']) == 1.0  # ❌
-- assert 'z' in props and approx(props['z']) == 0.8  # ❌
-+ assert approx(props) == {'x': 1.0, 'y': ANY, 'z': 0.8}  # ✅
+- assert "x" in props and approx(props["x"]) == 1.0  # ❌
+- assert "z" in props and approx(props["z"]) == 0.8  # ❌
++ assert approx(props) == {"x": 1.0, "y": ANY, "z": 0.8}  # ✅
 ```
 Reason: Structural assertions that fail will show you the entire structure and all the differences, not just the first failed assertion. This makes it much easier to understand what went wrong.
 
 Use reserved domains to avoid accidentally fetching from real domains: `.example`, `.test`, `.invalid`.
 ```diff
-- response = requests.get('test.com')  # ❌ this is a real domain!
-+ response = requests.get('service.test')  # ✅ guaranteed not to resolve
+- response = requests.get("test.com")  # ❌ this is a real domain!
++ response = requests.get("service.test")  # ✅ guaranteed not to resolve
 ```
 Reason: Using real resources in tests can lead to flaky tests and unintended side effects.
 

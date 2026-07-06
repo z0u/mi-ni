@@ -18,10 +18,10 @@ import sys
 from enum import StrEnum
 from pathlib import Path
 
-__all__ = ['RunState', 'SETTLED', 'compute_env', 'data_root', 'is_queued', 'spawn_taskworker']
+__all__ = ["RunState", "SETTLED", "compute_env", "data_root", "is_queued", "spawn_taskworker"]
 
 # Markers that identify a project root, in priority order.
-_ROOT_MARKERS = ('pyproject.toml', '.git')
+_ROOT_MARKERS = ("pyproject.toml", ".git")
 
 
 def data_root() -> Path:
@@ -37,19 +37,19 @@ def data_root() -> Path:
     cwd = Path.cwd().resolve()
     for d in (cwd, *cwd.parents):
         if any((d / m).exists() for m in _ROOT_MARKERS):
-            return d / '.mini'
-    return cwd / '.mini'
+            return d / ".mini"
+    return cwd / ".mini"
 
 
 def _gpu_name() -> str | None:
     """Best-effort GPU model, dependency-free. NVIDIA exposes a per-GPU info file
     on Linux; we don't import torch/jax just to name the card.
     """
-    for info in Path('/proc/driver/nvidia/gpus').glob('*/information'):
+    for info in Path("/proc/driver/nvidia/gpus").glob("*/information"):
         try:
             for line in info.read_text().splitlines():
-                if line.startswith('Model:'):
-                    return line.split(':', 1)[1].strip()
+                if line.startswith("Model:"):
+                    return line.split(":", 1)[1].strip()
         except OSError:
             continue
     return None
@@ -65,21 +65,21 @@ def compute_env() -> dict[str, str]:
     model if one is attached.
     """
     env = {
-        'host': platform.node(),
-        'platform': platform.platform(),
-        'python': platform.python_version(),
+        "host": platform.node(),
+        "platform": platform.platform(),
+        "python": platform.python_version(),
     }
     if gpu := _gpu_name():
-        env['gpu'] = gpu
+        env["gpu"] = gpu
     return env
 
 
 class RunState(StrEnum):
-    PENDING = 'pending'
-    RUNNING = 'running'
-    DONE = 'done'
-    FAILED = 'failed'
-    CANCELLED = 'cancelled'
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 SETTLED = {RunState.DONE, RunState.FAILED, RunState.CANCELLED}
@@ -95,12 +95,12 @@ def is_queued(rec: dict) -> bool:
     (only the wall-clock budget reaps it). Display-only — settling stays with
     ``reap_dead``/``enforce_budget``.
     """
-    return rec.get('state') == RunState.RUNNING and not rec.get('env')
+    return rec.get("state") == RunState.RUNNING and not rec.get("env")
 
 
 def _atomic_write(path: Path, text: str) -> None:
     """Write via tmp+rename so concurrent readers never see a half-written file."""
-    tmp = path.with_name(f'{path.name}.{os.getpid()}.tmp')
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(text)
     tmp.replace(path)
 
@@ -119,7 +119,7 @@ def spawn_taskworker(data_dir: Path, key: str) -> int:
     content key, outliving the orchestration tick that launched it.
     """
     proc = subprocess.Popen(
-        [sys.executable, '-m', 'mini._taskworker', str(data_dir), key],
+        [sys.executable, "-m", "mini._taskworker", str(data_dir), key],
         start_new_session=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

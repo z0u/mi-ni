@@ -34,9 +34,9 @@ from mini import Ctx, Experiment, emit_metrics, emit_progress, get_data_dir
 def prepare_data() -> dict:
     """Pretend to download + tokenize a corpus; write it to the volume."""
     time.sleep(1.0)
-    text = 'the quick brown fox jumps over the lazy dog ' * 200
-    (get_data_dir() / 'corpus.txt').write_text(text)
-    return {'vocab_size': len(set(text)), 'n_chars': len(text)}
+    text = "the quick brown fox jumps over the lazy dog " * 200
+    (get_data_dir() / "corpus.txt").write_text(text)
+    return {"vocab_size": len(set(text)), "n_chars": len(text)}
 
 
 def train(lr: float, vocab_size: int) -> dict:
@@ -50,9 +50,9 @@ def train(lr: float, vocab_size: int) -> dict:
     for step in range(8):
         time.sleep(0.2)
         loss *= 1 - 0.3 * quality
-        emit_progress(step + 1, 8, message=f'lr={lr:g}')
+        emit_progress(step + 1, 8, message=f"lr={lr:g}")
         emit_metrics(loss=round(loss, 4), lr=lr, vocab=vocab_size)
-    return {'lr': lr, 'val_loss': round(loss, 4)}
+    return {"lr": lr, "val_loss": round(loss, 4)}
 
 
 def main(ctx: Ctx) -> dict:
@@ -60,11 +60,11 @@ def main(ctx: Ctx) -> dict:
     # deterministic: derive configs here, do the heavy/non-deterministic work
     # inside tasks (with any seed folded into their inputs).
     meta = ctx.run(prepare_data)  # single prep step; suspends until done
-    vocab = meta['vocab_size']  # the dependency a single-map experiment can't express
+    vocab = meta["vocab_size"]  # the dependency a single-map experiment can't express
     lrs = [1e-3, 1e-2, 1e-1]
     results = ctx.map(train, lrs, [vocab] * len(lrs))  # zipped, Executor-style: train(lr, vocab)
-    best = min(results, key=lambda r: r['val_loss'])
-    return {'meta': meta, 'best': best, 'results': results}
+    best = min(results, key=lambda r: r["val_loss"])
+    return {"meta": meta, "best": best, "results": results}
 
 
-experiment = Experiment(name='pipeline', main=main)
+experiment = Experiment(name="pipeline", main=main)

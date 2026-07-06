@@ -59,36 +59,36 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Literal
 
 __all__ = [
-    'Artifact',
-    'BlobStat',
-    'artifact_shas',
-    'StaleWriteError',
-    'Store',
-    'LocalStore',
-    'get_store',
-    'store_context',
-    'put',
-    'get',
-    'publish',
-    'set_ref',
-    'get_ref',
-    'store_root_for',
-    'store_for',
-    'project_store',
-    'store_bucket',
-    'publish_repo',
-    'STORE_BUCKET_ENV',
-    'PUBLISH_REPO_ENV',
+    "Artifact",
+    "BlobStat",
+    "artifact_shas",
+    "StaleWriteError",
+    "Store",
+    "LocalStore",
+    "get_store",
+    "store_context",
+    "put",
+    "get",
+    "publish",
+    "set_ref",
+    "get_ref",
+    "store_root_for",
+    "store_for",
+    "project_store",
+    "store_bucket",
+    "publish_repo",
+    "STORE_BUCKET_ENV",
+    "PUBLISH_REPO_ENV",
 ]
 
 # Env var naming the project's Hugging Face bucket — an *override* for the
 # `[tool.mini] store-bucket` committed in pyproject.toml (see `store_bucket`).
-STORE_BUCKET_ENV = 'MINI_STORE_BUCKET'
+STORE_BUCKET_ENV = "MINI_STORE_BUCKET"
 
 # Env var naming the project's Hugging Face *dataset repo* for the public,
 # versioned publish tier — an override for `[tool.mini] publish-repo`. Unset →
 # publish/exports stay in the (durable) bucket, as before (see `publish_repo`).
-PUBLISH_REPO_ENV = 'MINI_PUBLISH_REPO'
+PUBLISH_REPO_ENV = "MINI_PUBLISH_REPO"
 
 _CHUNK = 1 << 20  # 1 MiB streaming-hash chunk
 
@@ -130,7 +130,7 @@ class Artifact:
     size: int
     name: str
     media_type: str | None = None
-    kind: Literal['file', 'tree'] = 'file'
+    kind: Literal["file", "tree"] = "file"
     children: tuple[Artifact, ...] = field(default_factory=tuple)
 
     @property
@@ -139,26 +139,26 @@ class Artifact:
         if self.media_type:
             return self.media_type
         guessed, _ = mimetypes.guess_type(self.name)
-        return guessed or 'application/octet-stream'
+        return guessed or "application/octet-stream"
 
     def to_dict(self) -> dict:
         """A JSON-canonical dict (recurses into ``children``) for ref storage."""
-        d: dict = {'sha256': self.sha256, 'size': self.size, 'name': self.name, 'kind': self.kind}
+        d: dict = {"sha256": self.sha256, "size": self.size, "name": self.name, "kind": self.kind}
         if self.media_type:
-            d['media_type'] = self.media_type
+            d["media_type"] = self.media_type
         if self.children:
-            d['children'] = [c.to_dict() for c in self.children]
+            d["children"] = [c.to_dict() for c in self.children]
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> Artifact:
         return cls(
-            sha256=d['sha256'],
-            size=d['size'],
-            name=d['name'],
-            media_type=d.get('media_type'),
-            kind=d.get('kind', 'file'),
-            children=tuple(cls.from_dict(c) for c in d.get('children', ())),
+            sha256=d["sha256"],
+            size=d["size"],
+            name=d["name"],
+            media_type=d.get("media_type"),
+            kind=d.get("kind", "file"),
+            children=tuple(cls.from_dict(c) for c in d.get("children", ())),
         )
 
 
@@ -170,7 +170,7 @@ def _cas_key(sha256: str) -> str:
     unwieldy in a bucket's web UI. One level of two hex chars (256 buckets) is
     plenty at our scale; the full sha still names the file, so it stays the id.
     """
-    return f'cas/{sha256[:2]}/{sha256}'
+    return f"cas/{sha256[:2]}/{sha256}"
 
 
 def _hash_bytes(data: bytes) -> str:
@@ -180,7 +180,7 @@ def _hash_bytes(data: bytes) -> str:
 def _hash_file(path: Path) -> tuple[str, int]:
     h = hashlib.sha256()
     size = 0
-    with path.open('rb') as f:
+    with path.open("rb") as f:
         while chunk := f.read(_CHUNK):
             h.update(chunk)
             size += len(chunk)
@@ -189,7 +189,7 @@ def _hash_file(path: Path) -> tuple[str, int]:
 
 def _tree_sha(children: tuple[Artifact, ...]) -> str:
     """A stable content id for a manifest: hash the sorted ``(name, sha)`` pairs."""
-    manifest = '\n'.join(f'{c.name}\t{c.sha256}' for c in sorted(children, key=lambda c: c.name))
+    manifest = "\n".join(f"{c.name}\t{c.sha256}" for c in sorted(children, key=lambda c: c.name))
     return _hash_bytes(manifest.encode())
 
 
@@ -216,7 +216,7 @@ def artifact_shas(obj: Any) -> set[str]:
             continue
         seen.add(id(o))
         if isinstance(o, Artifact):
-            if o.kind == 'file':
+            if o.kind == "file":
                 shas.add(o.sha256)
             stack.extend(o.children)
         elif not isinstance(o, _OPAQUE):
@@ -310,11 +310,11 @@ class Store(ABC):
 
     def _put_tree(self, src: Path, *, name: str) -> Artifact:
         children = tuple(
-            self._put_file(p, name=str(p.relative_to(src).as_posix())) for p in sorted(src.rglob('*')) if p.is_file()
+            self._put_file(p, name=str(p.relative_to(src).as_posix())) for p in sorted(src.rglob("*")) if p.is_file()
         )
         sha = _tree_sha(children)
         size = sum(c.size for c in children)
-        return Artifact(sha256=sha, size=size, name=name, kind='tree', children=children)
+        return Artifact(sha256=sha, size=size, name=name, kind="tree", children=children)
 
     def get(self, art: Artifact, dest: Path) -> Path:
         """Materialize *art* at *dest* and return it.
@@ -324,7 +324,7 @@ class Store(ABC):
         per-op latency of a remote backend overlaps rather than serializes).
         """
         dest = Path(dest)
-        if art.kind == 'tree':
+        if art.kind == "tree":
             dest.mkdir(parents=True, exist_ok=True)
             with ThreadPoolExecutor(max_workers=min(8, len(art.children) or 1)) as ex:
                 list(ex.map(lambda c: self.get(c, dest / c.name), art.children))
@@ -350,15 +350,15 @@ class Store(ABC):
 
     def list_blobs(self) -> Iterator[BlobStat]:
         """Every blob in the CAS, with size and last-modified (the sweep candidates)."""
-        raise NotImplementedError(f'{type(self).__name__} does not support gc')
+        raise NotImplementedError(f"{type(self).__name__} does not support gc")
 
     def delete_blobs(self, sha256s: Iterable[str]) -> None:
         """Remove blobs from the CAS (and any warm cache, so ``has`` cannot lie)."""
-        raise NotImplementedError(f'{type(self).__name__} does not support gc')
+        raise NotImplementedError(f"{type(self).__name__} does not support gc")
 
     def list_refs(self) -> list[str]:
         """Every ref name currently set (each is a GC root)."""
-        raise NotImplementedError(f'{type(self).__name__} does not support gc')
+        raise NotImplementedError(f"{type(self).__name__} does not support gc")
 
 
 @contextmanager
@@ -384,7 +384,7 @@ def store_root_for(data_dir: Path | str) -> Path:
     resolves in another. Derived from the path (not the cwd), so a detached worker
     under its own cwd lands on the same store.
     """
-    return Path(data_dir).parent / 'store'
+    return Path(data_dir).parent / "store"
 
 
 def _project_config() -> dict:
@@ -396,10 +396,10 @@ def _project_config() -> dict:
     """
     cwd = Path.cwd().resolve()
     for d in (cwd, *cwd.parents):
-        pp = d / 'pyproject.toml'
+        pp = d / "pyproject.toml"
         if pp.exists():
             try:
-                return tomllib.loads(pp.read_text()).get('tool', {}).get('mini', {})
+                return tomllib.loads(pp.read_text()).get("tool", {}).get("mini", {})
             except OSError, tomllib.TOMLDecodeError:
                 return {}
     return {}
@@ -414,7 +414,7 @@ def store_bucket() -> str | None:
     checkout, Modal worker, and CI run rather than re-set in three places. The
     bucket name isn't a secret; the token still lives in the env / ``hf`` cache.
     """
-    return os.environ.get(STORE_BUCKET_ENV) or _project_config().get('store-bucket')
+    return os.environ.get(STORE_BUCKET_ENV) or _project_config().get("store-bucket")
 
 
 def publish_repo() -> str | None:
@@ -428,12 +428,12 @@ def publish_repo() -> str | None:
     default. Resolution mirrors :func:`store_bucket` (``MINI_PUBLISH_REPO`` env
     first, else ``[tool.mini] publish-repo``); the repo id isn't a secret.
     """
-    return os.environ.get(PUBLISH_REPO_ENV) or _project_config().get('publish-repo')
+    return os.environ.get(PUBLISH_REPO_ENV) or _project_config().get("publish-repo")
 
 
 def _hf_token() -> str | None:
     """The Hugging Face token from the env or the ``hf auth login`` cache, or ``None``."""
-    if tok := os.environ.get('HF_TOKEN'):
+    if tok := os.environ.get("HF_TOKEN"):
         return tok
     try:
         from huggingface_hub import get_token
@@ -477,15 +477,15 @@ def store_for(root: Path | str, *, cache_root: Path | str | None = None) -> Stor
     # store, and CI can point at the repo without also naming the private bucket (#38).
     if bucket and not token:
         log.warning(
-            'store-bucket %r is configured but no Hugging Face token was found — using the local '
-            'store instead. Run `./go auth` (or set HF_TOKEN) to read/write the shared bucket.',
+            "store-bucket %r is configured but no Hugging Face token was found — using the local "
+            "store instead. Run `./go auth` (or set HF_TOKEN) to read/write the shared bucket.",
             bucket,
         )
         return LocalStore(root)
     if bucket or repo:
         from mini.hf_store import HFStore
 
-        cache = LocalStore(cache_root if cache_root is not None else root.parent / 'store-cache' / 'hf')
+        cache = LocalStore(cache_root if cache_root is not None else root.parent / "store-cache" / "hf")
         return HFStore(bucket, cache=cache, token=token, publish_repo=repo)
     return LocalStore(root)
 
@@ -501,7 +501,7 @@ def project_store() -> Store:
     """
     from mini.runs import data_root
 
-    return store_for(data_root() / 'store')
+    return store_for(data_root() / "store")
 
 
 class LocalStore(Store):
@@ -515,8 +515,8 @@ class LocalStore(Store):
 
     def __init__(self, root: Path | str):
         self.root = Path(root)
-        self.refs = self.root / 'refs'
-        self.published = self.root / 'published'
+        self.refs = self.root / "refs"
+        self.published = self.root / "published"
 
     def _blob_path(self, sha256: str) -> Path:
         return self.root / _cas_key(sha256)
@@ -529,7 +529,7 @@ class LocalStore(Store):
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():  # immutable: another writer won the race; bytes are identical by hash
             return
-        tmp = dest.with_name(f'{sha256}.tmp.{src.stat().st_ino}')
+        tmp = dest.with_name(f"{sha256}.tmp.{src.stat().st_ino}")
         shutil.copyfile(src, tmp)  # copy (never hardlink): a caller mutating dest must not corrupt the CAS
         tmp.replace(dest)  # atomic publish into the CAS
 
@@ -537,12 +537,12 @@ class LocalStore(Store):
         shutil.copyfile(self._blob_path(sha256), dest)
 
     def _ref_path(self, name: str) -> Path:
-        return self.refs / f'{name}.json'
+        return self.refs / f"{name}.json"
 
     def _write_ref(self, name: str, payload: str) -> None:
         p = self._ref_path(name)
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix('.json.tmp')
+        tmp = p.with_suffix(".json.tmp")
         tmp.write_text(payload)
         tmp.replace(p)
 
@@ -551,8 +551,8 @@ class LocalStore(Store):
         return p.read_text() if p.exists() else None
 
     def publish(self, art: Artifact, path: str) -> str:
-        if art.kind == 'tree':
-            raise ValueError('publish a single file (resolve a tree first, or publish its children)')
+        if art.kind == "tree":
+            raise ValueError("publish a single file (resolve a tree first, or publish its children)")
         dest = self.published / path
         dest.parent.mkdir(parents=True, exist_ok=True)
         self._read_blob(art.sha256, dest)
@@ -561,13 +561,13 @@ class LocalStore(Store):
     # -- gc --------------------------------------------------------------------
 
     def list_blobs(self) -> Iterator[BlobStat]:
-        cas = self.root / 'cas'
+        cas = self.root / "cas"
         if not cas.is_dir():
             return
-        for p in sorted(cas.glob('*/*')):
+        for p in sorted(cas.glob("*/*")):
             # Only true blob names count: a .tmp from a crashed _write_blob is
             # not part of the CAS (and never will be — the rename lost).
-            if p.is_file() and len(p.name) == 64 and set(p.name) <= set('0123456789abcdef'):
+            if p.is_file() and len(p.name) == 64 and set(p.name) <= set("0123456789abcdef"):
                 st = p.stat()
                 yield BlobStat(p.name, st.st_size, st.st_mtime)
 
@@ -578,14 +578,14 @@ class LocalStore(Store):
     def list_refs(self) -> list[str]:
         if not self.refs.is_dir():
             return []
-        return sorted(p.relative_to(self.refs).as_posix()[: -len('.json')] for p in self.refs.rglob('*.json'))
+        return sorted(p.relative_to(self.refs).as_posix()[: -len(".json")] for p in self.refs.rglob("*.json"))
 
 
 # ---------------------------------------------------------------------------
 # Ambient store (the get_data_dir pattern)
 # ---------------------------------------------------------------------------
 
-_store: contextvars.ContextVar[Store | None] = contextvars.ContextVar('mini_store', default=None)
+_store: contextvars.ContextVar[Store | None] = contextvars.ContextVar("mini_store", default=None)
 
 
 @contextmanager
@@ -607,8 +607,8 @@ def get_store() -> Store:
     s = _store.get()
     if s is None:
         raise RuntimeError(
-            'No store configured. put()/get() must run inside a step launched by an '
-            'Apparatus, or under an explicit store_context(...).'
+            "No store configured. put()/get() must run inside a step launched by an "
+            "Apparatus, or under an explicit store_context(...)."
         )
     return s
 

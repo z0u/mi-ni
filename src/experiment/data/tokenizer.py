@@ -8,7 +8,7 @@ class CharTokenizer:
     @validate_call
     def __init__(self, config: TokenizerConfig):
         # Use the empty string as a padding token
-        vocabulary = {''} | set(config.vocabulary)
+        vocabulary = {""} | set(config.vocabulary)
         self.vocabulary = sorted(vocabulary)
         self.vocab_size = len(self.vocabulary)
         self.stoi = {ch: i for i, ch in enumerate(self.vocabulary)}
@@ -41,10 +41,10 @@ class CharTokenizer:
         """Decode a batch of tokens, returning a batch of individual decoded tokens (string fragments)."""
         decoded = []
         for ts in tokens:
-            decoded.append([self.itos.get(i, '') for i in ts])
+            decoded.append([self.itos.get(i, "") for i in ts])
         return decoded
 
     @validate_call
     def decode(self, tokens: list[list[int]]) -> list[str]:
         """Decode a batch of tokens, returning a batch of fully-decoded strings."""
-        return [''.join(t) for t in self.decode_each(tokens)]
+        return ["".join(t) for t in self.decode_each(tokens)]

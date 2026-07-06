@@ -9,19 +9,19 @@ class Range:
     low: float
     high: float
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_bounds(self):
-        assert self.high >= self.low, 'high >= low'
+        assert self.high >= self.low, "high >= low"
         return self
 
 
-SearchMethod: TypeAlias = Literal['steepest', 'lowest', 'balanced']
+SearchMethod: TypeAlias = Literal["steepest", "lowest", "balanced"]
 
 
 @dataclass
 class LRFinderConfig:
     num_zooms: PositiveInt = 5
-    method: SearchMethod = 'steepest'
+    method: SearchMethod = "steepest"
     zoom_factor: PositiveFloat = 0.5
     steps_per_zoom: PositiveInt = 10
     start_lr: NonNegativeFloat = 1e-10

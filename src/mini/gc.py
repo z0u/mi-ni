@@ -56,28 +56,28 @@ from mini.runs import SETTLED, RunState, data_root
 from mini.store import BlobStat, Store, artifact_shas
 
 __all__ = [
-    'GcIO',
-    'LocalGcIO',
-    'ModalGcIO',
-    'GcItem',
-    'GcPlan',
-    'plan_gc',
-    'apply_gc',
-    'StoreGcError',
-    'StoreGcPlan',
-    'collect_store_roots',
-    'plan_store_gc',
-    'apply_store_gc',
+    "GcIO",
+    "LocalGcIO",
+    "ModalGcIO",
+    "GcItem",
+    "GcPlan",
+    "plan_gc",
+    "apply_gc",
+    "StoreGcError",
+    "StoreGcPlan",
+    "collect_store_roots",
+    "plan_store_gc",
+    "apply_store_gc",
 ]
 
 # The worker-written files an attempt owns; anything else in a result dir is
 # unknown, and unknown is not garbage.
-_ATTEMPT_FILE = re.compile(r'result(-\w+)?\.pkl|result(-\w+)?\.artifacts\.json|error(-\w+)?\.txt')
+_ATTEMPT_FILE = re.compile(r"result(-\w+)?\.pkl|result(-\w+)?\.artifacts\.json|error(-\w+)?\.txt")
 
 # Keep unreferenced blobs younger than this by default (overridable via
 # ``--grace``). Two weeks is git's prune horizon, and comfortably longer than
 # any window in which an unseen writer could have referenced an old blob.
-GRACE_DEFAULT = '14d'
+GRACE_DEFAULT = "14d"
 
 
 # ---------------------------------------------------------------------------
@@ -126,11 +126,11 @@ class LocalGcIO(GcIO):
         self._store = store
 
     def memo_tree(self) -> dict[str, dict[str, int]]:
-        root = self._store.data_dir / '_memo'
+        root = self._store.data_dir / "_memo"
         if not root.is_dir():
             return {}
         return {
-            d.name: {p.relative_to(d).as_posix(): p.stat().st_size for p in sorted(d.rglob('*')) if p.is_file()}
+            d.name: {p.relative_to(d).as_posix(): p.stat().st_size for p in sorted(d.rglob("*")) if p.is_file()}
             for d in sorted(root.iterdir())
             if d.is_dir()
         }
@@ -139,7 +139,7 @@ class LocalGcIO(GcIO):
         root = self._store.root
         if not root.is_dir():
             return {}
-        return {p.stem: p.stat().st_size for p in sorted(root.glob('*.pkl'))}
+        return {p.stem: p.stat().st_size for p in sorted(root.glob("*.pkl"))}
 
     def delete_dir(self, key: str) -> None:
         shutil.rmtree(self._store.result_dir(key), ignore_errors=True)
@@ -168,28 +168,28 @@ class ModalGcIO(GcIO):
 
         tree: dict[str, dict[str, int]] = {}
         try:
-            entries = list(self._vol.listdir('_memo', recursive=True))
+            entries = list(self._vol.listdir("_memo", recursive=True))
         except FileNotFoundError, modal.exception.NotFoundError:
             return {}
         for e in entries:
             parts = Path(e.path).parts  # '_memo/<key>/<file...>'
-            if parts[:1] != ('_memo',) or len(parts) < 2:
+            if parts[:1] != ("_memo",) or len(parts) < 2:
                 continue
             key = parts[1]
             entry = tree.setdefault(key, {})
-            if len(parts) > 2 and getattr(e.type, 'name', '') == 'FILE':
-                entry['/'.join(parts[2:])] = getattr(e, 'size', 0) or 0
+            if len(parts) > 2 and getattr(e.type, "name", "") == "FILE":
+                entry["/".join(parts[2:])] = getattr(e, "size", 0) or 0
         return tree
 
     def staged_calls(self) -> dict[str, int]:
         return {}  # Modal passes the call straight to spawn — nothing staged
 
     def delete_dir(self, key: str) -> None:
-        self._remove(f'_memo/{key}', recursive=True)
+        self._remove(f"_memo/{key}", recursive=True)
 
     def delete_files(self, key: str, names: list[str]) -> None:
         for name in names:
-            self._remove(f'_memo/{key}/{name}')
+            self._remove(f"_memo/{key}/{name}")
 
     def delete_call(self, key: str) -> None:
         pass
@@ -255,24 +255,24 @@ def _plan_superseded(
     current, superseded = store.split_current(records)
     if not superseded:
         return set()
-    unsettled = [r for r in current if r.get('state') not in SETTLED]
-    if not store.meta().get('complete'):
+    unsettled = [r for r in current if r.get("state") not in SETTLED]
+    if not store.meta().get("complete"):
         plan.kept.append(
-            f'{len(superseded)} superseded record(s): the last tick did not run the DAG to '
-            'completion, so the manifest may be missing keys a later stage still wants'
+            f"{len(superseded)} superseded record(s): the last tick did not run the DAG to "
+            "completion, so the manifest may be missing keys a later stage still wants"
         )
         return set()
     if unsettled:
-        plan.kept.append(f'{len(superseded)} superseded record(s): {len(unsettled)} task(s) still unsettled')
+        plan.kept.append(f"{len(superseded)} superseded record(s): {len(unsettled)} task(s) still unsettled")
         return set()
     collected: set[str] = set()
     for rec in superseded:
-        key = rec['key']
-        if rec.get('state') == RunState.RUNNING:  # reap_dead left it: the worker is provably alive
-            plan.kept.append(f'{key}: superseded, but its worker is still alive — cancel it first')
+        key = rec["key"]
+        if rec.get("state") == RunState.RUNNING:  # reap_dead left it: the worker is provably alive
+            plan.kept.append(f"{key}: superseded, but its worker is still alive — cancel it first")
             continue
         size = sum(tree.get(key, {}).values()) + calls.get(key, 0)
-        plan.items.append(GcItem('superseded', key, sorted(tree.get(key, {})), size))
+        plan.items.append(GcItem("superseded", key, sorted(tree.get(key, {})), size))
         collected.add(key)
     return collected
 
@@ -282,11 +282,11 @@ def _plan_attempt_files(
 ) -> None:
     """Attempt files no read through the record's current gen can reach."""
     for rec in records:
-        key = rec['key']
+        key = rec["key"]
         files = tree.get(key)
         if key in collected or not files:
             continue
-        gen = rec.get('gen')
+        gen = rec.get("gen")
         live = {
             store.result_path(key, gen).name,
             store.error_path(key, gen).name,
@@ -296,25 +296,25 @@ def _plan_attempt_files(
             live.add(store.error_path(key, None).name)  # error() falls back to the legacy name
         stale = [n for n in sorted(files) if _ATTEMPT_FILE.fullmatch(n) and n not in live]
         if stale:
-            plan.items.append(GcItem('attempt-files', key, stale, sum(files[n] for n in stale)))
+            plan.items.append(GcItem("attempt-files", key, stale, sum(files[n] for n in stale)))
 
 
 def _plan_orphan_dirs(records: list[dict], tree: dict[str, dict[str, int]], plan: GcPlan) -> None:
     """Result dirs with no record at all (e.g. a control plane that expired out from under the volume)."""
-    known = {r['key'] for r in records}
+    known = {r["key"] for r in records}
     for key in sorted(tree):
         if key not in known:
-            plan.items.append(GcItem('orphan-dir', key, sorted(tree[key]), sum(tree[key].values())))
+            plan.items.append(GcItem("orphan-dir", key, sorted(tree[key]), sum(tree[key].values())))
 
 
 def _plan_staged_calls(records: list[dict], calls: dict[str, int], collected: set[str], plan: GcPlan) -> None:
     """Cloudpickled spawn inputs for tasks that are no longer running."""
-    recs = {r['key']: r for r in records}
+    recs = {r["key"]: r for r in records}
     for key, size in sorted(calls.items()):
         if key in collected:
             continue
-        if (recs.get(key) or {}).get('state') != RunState.RUNNING:
-            plan.items.append(GcItem('staged-call', key, [f'{key}.pkl'], size))
+        if (recs.get(key) or {}).get("state") != RunState.RUNNING:
+            plan.items.append(GcItem("staged-call", key, [f"{key}.pkl"], size))
 
 
 def apply_gc(store: MemoStore, plan: GcPlan, io: GcIO | None = None) -> None:
@@ -326,15 +326,15 @@ def apply_gc(store: MemoStore, plan: GcPlan, io: GcIO | None = None) -> None:
     """
     io = io or LocalGcIO(store)
     for item in plan.items:
-        if item.kind == 'superseded':
+        if item.kind == "superseded":
             store.records_backend.delete(item.key)
             io.delete_dir(item.key)
             io.delete_call(item.key)
-        elif item.kind == 'attempt-files':
+        elif item.kind == "attempt-files":
             io.delete_files(item.key, item.names)
-        elif item.kind == 'orphan-dir':
+        elif item.kind == "orphan-dir":
             io.delete_dir(item.key)
-        elif item.kind == 'staged-call':
+        elif item.kind == "staged-call":
             io.delete_call(item.key)
 
 
@@ -372,19 +372,19 @@ def _experiment_names(root: Path) -> list[str]:
     """
     if not root.is_dir():
         return []
-    return sorted(p.name for p in root.iterdir() if (p / '.control' / 'memo').is_dir() or (p / '.app').is_file())
+    return sorted(p.name for p in root.iterdir() if (p / ".control" / "memo").is_dir() or (p / ".app").is_file())
 
 
 def _memo_store_for(name: str, root: Path) -> MemoStore | None:
     """The memo store for *name* on its stamped backend — ``None`` if the Modal
     control plane no longer exists (expired Dict: no records, so no roots).
     """
-    marker = root / name / '.app'
-    backend = marker.read_text().strip() if marker.is_file() else 'local'
-    if backend in ('local', ''):
+    marker = root / name / ".app"
+    backend = marker.read_text().strip() if marker.is_file() else "local"
+    if backend in ("local", ""):
         return MemoStore(root / name)
-    if backend != 'modal':
-        raise StoreGcError(f'{name}: unknown backend {backend!r} stamped in {marker} — cannot mark its references')
+    if backend != "modal":
+        raise StoreGcError(f"{name}: unknown backend {backend!r} stamped in {marker} — cannot mark its references")
     import modal
 
     from mini.modal_apparatus import ModalMemoStore, ModalRecordStore, control_dict_name
@@ -427,25 +427,25 @@ def collect_store_roots(
     notes: list[str] = []
     for name, memo in stores:
         if memo is None:
-            notes.append(f'{name}: Modal control plane expired or absent — no records to mark')
+            notes.append(f"{name}: Modal control plane expired or absent — no records to mark")
             continue
         for rec in memo.records():
-            key = rec['key']
-            if rec.get('state') in (RunState.RUNNING, RunState.PENDING):
+            key = rec["key"]
+            if rec.get("state") in (RunState.RUNNING, RunState.PENDING):
                 raise StoreGcError(
-                    f'{name}/{key} is in flight — its worker may be about to reference blobs this sweep '
-                    f'would judge unreachable. Let it settle (or reap it: mini status {name}), then re-run.'
+                    f"{name}/{key} is in flight — its worker may be about to reference blobs this sweep "
+                    f"would judge unreachable. Let it settle (or reap it: mini status {name}), then re-run."
                 )
             listed = memo.result_artifacts(key)
             if listed is not None:
                 shas.update(listed)
-            elif rec.get('state') == RunState.DONE:  # pre-sidecar record: the result itself is the index
+            elif rec.get("state") == RunState.DONE:  # pre-sidecar record: the result itself is the index
                 try:
                     shas.update(artifact_shas(memo.result(key)))
                 except Exception as exc:
                     raise StoreGcError(
-                        f'cannot read the result of {name}/{key} to learn which blobs it references '
-                        f'({type(exc).__name__}: {exc}) — repair it or collect the record first (mini gc {name})'
+                        f"cannot read the result of {name}/{key} to learn which blobs it references "
+                        f"({type(exc).__name__}: {exc}) — repair it or collect the record first (mini gc {name})"
                     ) from exc
     return shas, notes
 
@@ -475,7 +475,7 @@ def plan_store_gc(store: Store, roots: set[str], *, grace: float, now: float | N
         else:
             plan.unreferenced.append(blob)
     if plan.in_grace:
-        plan.notes.append(f'{plan.in_grace} unreferenced blob(s) kept: younger than the grace window')
+        plan.notes.append(f"{plan.in_grace} unreferenced blob(s) kept: younger than the grace window")
     return plan
 
 

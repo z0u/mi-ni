@@ -19,7 +19,7 @@ SPA's data files):
 from mini.reports import use_publisher, report_bundle
 
 pub = use_publisher(report_bundle(__file__))   # assets → this report's bundle dir
-url = pub.asset_url(points_json, name='points.json')   # -> '_assets/points.json'
+url = pub.asset_url(points_json, name="points.json")   # -> '_assets/points.json'
 ```
 
 Each asset is written to `_assets/<name>`, **keyed by its readable name** — so the URL

@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = '0.23.3'
-app = marimo.App(width='medium', auto_download=['html'])
+__generated_with = "0.23.3"
+app = marimo.App(width="medium", auto_download=["html"])
 
 with app.setup(hide_code=True):
     import marimo as mo  # noqa: F401
@@ -12,7 +12,7 @@ with app.setup(hide_code=True):
     from mini.vis import themed
 
     # The report reads results by experiment *name*, the same key the CLI uses.
-    NAME = 'pipeline'
+    NAME = "pipeline"
 
     # Externalize every themed figure to a file beside the exported HTML, referenced
     # by a relative URL — keeps the report light, and `build_site` repoints those URLs
@@ -48,8 +48,8 @@ def _():
     store = LocalApparatus(NAME).memo_store()
     records = store.records()
     runs = sorted(
-        (store.result(r['key']) for r in records if r.get('fn') == 'train' and r.get('state') == RunState.DONE),
-        key=lambda d: d['lr'],
+        (store.result(r["key"]) for r in records if r.get("fn") == "train" and r.get("state") == RunState.DONE),
+        key=lambda d: d["lr"],
     )
     return records, runs
 
@@ -59,15 +59,15 @@ def _(records, runs):
     mo.stop(
         not records,
         mo.md(
-            'Nothing to report yet. Run the experiment first:\n\n'
-            '```bash\nbin/mini run docs/pipeline/experiment.py --watch --workers 3\n```'
+            "Nothing to report yet. Run the experiment first:\n\n"
+            "```bash\nbin/mini run docs/pipeline/experiment.py --watch --workers 3\n```"
         ),
     )
-    best = min(runs, key=lambda d: d['val_loss']) if runs else None
+    best = min(runs, key=lambda d: d["val_loss"]) if runs else None
     mo.md(
-        f'**Best config:** `lr={best["lr"]:g}` → val_loss **{best["val_loss"]}** (swept {len(runs)} learning rates).'
+        f"**Best config:** `lr={best['lr']:g}` → val_loss **{best['val_loss']}** (swept {len(runs)} learning rates)."
         if best
-        else '_The sweep has not finished — check `bin/mini status pipeline`._'
+        else "_The sweep has not finished — check `bin/mini status pipeline`._"
     )
     return
 
@@ -75,14 +75,14 @@ def _(records, runs):
 @app.cell(hide_code=True)
 def _(records):
     mo.stop(not records)
-    glyph = {RunState.DONE: '✓', RunState.RUNNING: '▸', RunState.FAILED: '✗', RunState.CANCELLED: '⊘'}
-    header = '| task | key | state | metrics |\n| --- | --- | --- | --- |'
+    glyph = {RunState.DONE: "✓", RunState.RUNNING: "▸", RunState.FAILED: "✗", RunState.CANCELLED: "⊘"}
+    header = "| task | key | state | metrics |\n| --- | --- | --- | --- |"
     rows = [
-        f'| {r.get("fn", "task")} | `{r["key"]}` | {glyph.get(r.get("state"), "·")} {r.get("state", "pending")} '
-        f'| {"  ".join(f"{k}={v:g}" for k, v in (r.get("metrics") or {}).items())} |'
+        f"| {r.get('fn', 'task')} | `{r['key']}` | {glyph.get(r.get('state'), '·')} {r.get('state', 'pending')} "
+        f"| {'  '.join(f'{k}={v:g}' for k, v in (r.get('metrics') or {}).items())} |"
         for r in records
     ]
-    mo.md('\n'.join([header, *rows]))
+    mo.md("\n".join([header, *rows]))
     return
 
 
@@ -92,19 +92,19 @@ def _(runs):
 
     @themed(
         alt_text=(
-            'Final validation loss against learning rate on a log x-axis. The curve is U-shaped: '
-            'the middle learning rate reaches the lowest loss, and the extremes do worse — so the '
-            'sweep has a clear best in the middle.'
+            "Final validation loss against learning rate on a log x-axis. The curve is U-shaped: "
+            "the middle learning rate reaches the lowest loss, and the extremes do worse — so the "
+            "sweep has a clear best in the middle."
         )
     )
     def _plot() -> plt.Figure:
         fig, ax = plt.subplots(figsize=(6, 3.5))
-        lrs = [d['lr'] for d in runs]
-        losses = [d['val_loss'] for d in runs]
-        ax.plot(lrs, losses, 'o-', color='tab:blue')
-        best = min(runs, key=lambda d: d['val_loss'])
-        ax.plot(best['lr'], best['val_loss'], 'o', color='tab:red', markersize=11, fillstyle='none', label='best')
-        ax.set(xscale='log', xlabel='learning rate', ylabel='validation loss', title='Learning-rate sweep')
+        lrs = [d["lr"] for d in runs]
+        losses = [d["val_loss"] for d in runs]
+        ax.plot(lrs, losses, "o-", color="tab:blue")
+        best = min(runs, key=lambda d: d["val_loss"])
+        ax.plot(best["lr"], best["val_loss"], "o", color="tab:red", markersize=11, fillstyle="none", label="best")
+        ax.set(xscale="log", xlabel="learning rate", ylabel="validation loss", title="Learning-rate sweep")
         ax.legend()
         fig.tight_layout()
         return fig
@@ -113,5 +113,5 @@ def _(runs):
     return
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()

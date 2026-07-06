@@ -13,7 +13,7 @@ from .model import Keyframe, PropConfig, Frame
 
 log = logging.getLogger(__name__)
 
-RESERVED_COLS = ('STEP', 'PHASE', 'ACTION')
+RESERVED_COLS = ("STEP", "PHASE", "ACTION")
 
 
 class Dopesheet:
@@ -53,7 +53,7 @@ class Dopesheet:
         parsed_df, prop_configs = self._parse_header(df.copy())
         self._prop_configs = prop_configs
         self._df = resolve(parsed_df)
-        self._phase_indices = self._df['PHASE'].dropna().index.to_numpy()
+        self._phase_indices = self._df["PHASE"].dropna().index.to_numpy()
 
     @staticmethod
     def _parse_header(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, PropConfig]]:
@@ -77,7 +77,7 @@ class Dopesheet:
 
     def __len__(self):
         """Get the number of steps in the dope sheet."""
-        return self._df['STEP'].max() + 1
+        return self._df["STEP"].max() + 1
 
     def __getitem__(self, step: int) -> Frame:
         """
@@ -86,19 +86,19 @@ class Dopesheet:
         The sheet may not contain a keyframe for the given step. In that case, the
         current phase details will be returned without any keyed properties.
         """
-        steps_col = self._df['STEP']
+        steps_col = self._df["STEP"]
 
-        insertion_point = steps_col.searchsorted(step, side='right')
+        insertion_point = steps_col.searchsorted(step, side="right")
         idx = max(0, int(insertion_point - 1))
 
-        phase_insertion_point = np.searchsorted(self._phase_indices, idx, side='right')
+        phase_insertion_point = np.searchsorted(self._phase_indices, idx, side="right")
 
         if phase_insertion_point == 0:
             phase_idx = 0
         else:
             phase_idx = self._phase_indices[phase_insertion_point - 1]
 
-        phase = str(self._df['PHASE'][phase_idx] or '')
+        phase = str(self._df["PHASE"][phase_idx] or "")
         phase_start = bool(steps_col[phase_idx] == step)
 
         if phase_insertion_point < len(self._phase_indices):
@@ -121,11 +121,11 @@ class Dopesheet:
                 keyed_props=[],
             )
 
-        action_value = self._df['ACTION'][idx]
-        if pd.isna(action_value) or action_value == '':
+        action_value = self._df["ACTION"][idx]
+        if pd.isna(action_value) or action_value == "":
             actions = []
         else:
-            actions = str(action_value).split(',')
+            actions = str(action_value).split(",")
 
         keyed_props = []
         for prop in self.props:
@@ -138,7 +138,7 @@ class Dopesheet:
                 prop=prop,
                 t=step,
                 value=value,
-                next_t=self._df['STEP'][next_idx] if next_idx is not None else None,
+                next_t=self._df["STEP"][next_idx] if next_idx is not None else None,
                 next_value=series[next_idx] if next_idx is not None else None,
             )
             keyed_props.append(k)
@@ -164,7 +164,7 @@ class Dopesheet:
     @property
     def phases(self) -> set[str]:
         """Return a set of unique phase names defined in the dopesheet."""
-        return set(self._df['PHASE'].dropna().unique())
+        return set(self._df["PHASE"].dropna().unique())
 
     def get_initial_values(self) -> dict[str, float]:
         """
@@ -185,7 +185,7 @@ class Dopesheet:
         return initial_values
 
     @classmethod
-    def from_csv(cls, path: Path | str | BytesIO | StringIO) -> 'Dopesheet':
+    def from_csv(cls, path: Path | str | BytesIO | StringIO) -> "Dopesheet":
         """
         Load a dopesheet from a CSV file.
 
@@ -208,7 +208,7 @@ class Dopesheet:
             +0.5,,snapshot,0.005,,2
             1000,,,0.001,0.99,3
         """
-        df = pd.read_csv(path, dtype={'STEP': str, 'PHASE': str, 'ACTION': str}, header=0)
+        df = pd.read_csv(path, dtype={"STEP": str, "PHASE": str, "ACTION": str}, header=0)
         return cls(df)
 
     @overload
@@ -224,9 +224,9 @@ class Dopesheet:
         return df
 
     def to_markdown(self) -> str:
-        mdtable = self._df.to_markdown(index=False, tablefmt='pipe')
-        mdtable = re.sub(r'(\|\s*)nan(\s*\|)', r'\1   \2', mdtable, flags=re.IGNORECASE)
-        mdtable = re.sub(r'(\|\s*)nan(\s*\|)', r'\1   \2', mdtable, flags=re.IGNORECASE)
+        mdtable = self._df.to_markdown(index=False, tablefmt="pipe")
+        mdtable = re.sub(r"(\|\s*)nan(\s*\|)", r"\1   \2", mdtable, flags=re.IGNORECASE)
+        mdtable = re.sub(r"(\|\s*)nan(\s*\|)", r"\1   \2", mdtable, flags=re.IGNORECASE)
         return mdtable
 
     def to_dict(self):
@@ -242,9 +242,9 @@ class Dopesheet:
             elif pd.api.types.is_float_dtype(df[col]):
                 df[col] = df[col].astype(float)
             else:
-                df[col] = df[col].astype(str).replace({'nan': None, 'NaN': None})  # ty:ignore[invalid-argument-type]
+                df[col] = df[col].astype(str).replace({"nan": None, "NaN": None})  # ty:ignore[invalid-argument-type]
 
-        df = df.set_index('STEP', drop=False)
+        df = df.set_index("STEP", drop=False)
         df = df.rename(columns=lambda x: str(self.get_prop_config(cast(str, x))))
         return {
             col: series.dropna().to_dict()  #
@@ -269,45 +269,45 @@ def style_dopesheet(df: pd.DataFrame) -> Styler:
                 if is_integer:
                     precision = 0
                 else:
-                    precision = col_no_na.astype(str).str.split('.', expand=True)[1].str.len().max()
+                    precision = col_no_na.astype(str).str.split(".", expand=True)[1].str.len().max()
                     precision = int(precision) if pd.notna(precision) else 0
             decimal_places[col] = min(precision, 6)
-        elif col == 'STEP':
+        elif col == "STEP":
             pass
         else:
             non_numeric_cols.append(i)
 
-    log.info(f'Calculated decimal places: {decimal_places}')
-    log.info(f'Non-numeric columns: {non_numeric_cols}')
+    log.info(f"Calculated decimal places: {decimal_places}")
+    log.info(f"Non-numeric columns: {non_numeric_cols}")
 
     style = df.style.set_table_styles(
         [
-            {'selector': 'td,th', 'props': 'white-space: nowrap'},
-            *[{'selector': f'.col{i}', 'props': 'text-align: left'} for i in non_numeric_cols],
+            {"selector": "td,th", "props": "white-space: nowrap"},
+            *[{"selector": f".col{i}", "props": "text-align: left"} for i in non_numeric_cols],
         ]  # ty:ignore[invalid-argument-type]
-    ).format(na_rep='')
+    ).format(na_rep="")
     for i, precision in decimal_places.items():
-        style = style.format(na_rep='', precision=precision, subset=[i])
+        style = style.format(na_rep="", precision=precision, subset=[i])
 
     return style
 
 
 def resolve(df: pd.DataFrame) -> pd.DataFrame:
-    df['STEP'] = resolve_timesteps(df['STEP'])
-    df = df.sort_values(by='STEP', ignore_index=True).reset_index(drop=True)
+    df["STEP"] = resolve_timesteps(df["STEP"])
+    df = df.sort_values(by="STEP", ignore_index=True).reset_index(drop=True)
     return df
 
 
 def _identify_anchors(steps: pd.Series) -> tuple[pd.Index, dict[int, int], pd.Series]:
     """Identify anchor steps (non-negative integers) and initialize resolved series."""
-    resolved_steps = pd.Series(pd.NA, index=steps.index, dtype='Int64')
+    resolved_steps = pd.Series(pd.NA, index=steps.index, dtype="Int64")
     anchor_indices_list = []
     anchor_steps_dict: dict[int, int] = {}
 
     for idx, step_str in steps.items():
-        if not step_str.startswith(('-', '+')):
+        if not step_str.startswith(("-", "+")):
             try:
-                if not re.fullmatch(r'\d+', step_str):
+                if not re.fullmatch(r"\d+", step_str):
                     log.warning(
                         f"Warning: Absolute step '{step_str}' at index {idx} is not a valid non-negative integer. Treating as invalid."
                     )
@@ -334,12 +334,12 @@ def _resolve_integer_offset(
 ) -> int | None:
     """Resolve +N or -N relative steps."""
     resolved_step: int | None = None
-    if prefix == '+':
+    if prefix == "+":
         if prev_step is not None:
             resolved_step = prev_step + offset_int
         else:
             log.warning(f"Warning: Cannot resolve relative step '{step_str}' at index {idx}: No preceding anchor.")
-    elif prefix == '-':
+    elif prefix == "-":
         if next_step is not None:
             resolved_step = next_step - offset_int
         else:
@@ -362,9 +362,9 @@ def _resolve_fractional_offset(
 
     interval = next_step - prev_step
     resolved_step: int | None = None
-    if prefix == '+':
+    if prefix == "+":
         resolved_step = round(prev_step + fraction * interval)
-    elif prefix == '-':
+    elif prefix == "-":
         resolved_step = round(next_step - fraction * interval)
     return resolved_step
 
@@ -382,7 +382,7 @@ def _resolve_single_relative(
     prev_step = anchor_steps.get(prev_anchor_idx)
     next_step = anchor_steps.get(next_anchor_idx)
 
-    if re.fullmatch(r'[1-9]\d*', value_str):
+    if re.fullmatch(r"[1-9]\d*", value_str):
         try:
             offset_int = int(value_str)
             return _resolve_integer_offset(prefix, offset_int, idx, step_str, prev_step, next_step)
@@ -390,8 +390,8 @@ def _resolve_single_relative(
             pass
 
     try:
-        if not re.fullmatch(r'\d*\.\d+', value_str) and not re.fullmatch(r'\.\d+', value_str):
-            raise ValueError('Not a float format for fractional step (missing decimal?).')
+        if not re.fullmatch(r"\d*\.\d+", value_str) and not re.fullmatch(r"\.\d+", value_str):
+            raise ValueError("Not a float format for fractional step (missing decimal?).")
 
         fraction = float(value_str)
         if not (0 < fraction < 1):
@@ -430,7 +430,7 @@ def resolve_timesteps(steps: pd.Series) -> pd.Series:
     for idx in relative_indices:
         step_str = steps.loc[idx]
 
-        if not step_str.startswith(('-', '+')):
+        if not step_str.startswith(("-", "+")):
             log.warning(
                 f"Warning: Step '{step_str}' at index {idx} is neither anchor nor relative. Treating as invalid."
             )
@@ -449,4 +449,4 @@ def resolve_timesteps(steps: pd.Series) -> pd.Series:
                 resolved_val = 0
             resolved_steps.loc[idx] = resolved_val
 
-    return resolved_steps.astype('Int64')
+    return resolved_steps.astype("Int64")

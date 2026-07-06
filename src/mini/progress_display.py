@@ -81,7 +81,7 @@ class JobState:
 
     step: int = 0
     total: int = 0
-    message: str = ''
+    message: str = ""
     task_id: TaskID | None = None
 
 
@@ -150,7 +150,7 @@ class RichProgressDisplay:
         """Main loop for the display thread."""
         with (
             Progress(
-                TextColumn('[progress.description]{task.description}'),
+                TextColumn("[progress.description]{task.description}"),
                 BarColumn(),
                 TaskProgressColumn(),
                 TimeRemainingColumn(),
@@ -162,7 +162,7 @@ class RichProgressDisplay:
             self.progress = progress
             self._completed = 0
             self._overall_task = progress.add_task(
-                '[cyan]Overall progress[/]',
+                "[cyan]Overall progress[/]",
                 total=self.total_jobs or None,
             )
 
@@ -185,7 +185,7 @@ class RichProgressDisplay:
 
         if job_id not in self.jobs:
             task_id = self.progress.add_task(
-                f'[cyan]Job {job_id}[/]',
+                f"[cyan]Job {job_id}[/]",
                 total=msg.total if msg.total > 0 else None,
             )
             self.jobs[job_id] = JobState(task_id=task_id, total=msg.total)
@@ -197,9 +197,9 @@ class RichProgressDisplay:
             state.total = msg.total
 
         if state.task_id is not None and state.total > 0:
-            desc = f'[cyan]Job {job_id}[/]'
+            desc = f"[cyan]Job {job_id}[/]"
             if state.message:
-                desc += f' — {state.message}'
+                desc += f" — {state.message}"
             self.progress.update(
                 state.task_id,
                 completed=state.step,

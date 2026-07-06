@@ -28,7 +28,7 @@ from mini.local_apparatus import LocalApparatus
 from mini.orchestration import tick
 
 REPO = Path(__file__).resolve().parents[2]
-DEMOS = sorted(REPO.glob('docs/*/experiment.py'))
+DEMOS = sorted(REPO.glob("docs/*/experiment.py"))
 
 
 @pytest.fixture(autouse=True)
@@ -39,7 +39,7 @@ def _local_store_only(monkeypatch: pytest.MonkeyPatch):
     (a configured HF bucket) would divert their put/get to the network and break the
     local-CAS assertions. The bucket backend has its own coverage in ``test_hf_store``.
     """
-    monkeypatch.delenv('MINI_STORE_BUCKET', raising=False)
+    monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
 
 
 def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 60.0):
@@ -50,10 +50,10 @@ def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 60.0):
         if done:
             return payload
         time.sleep(0.1)
-    raise AssertionError(f'{exp.name} did not complete within {timeout}s')
+    raise AssertionError(f"{exp.name} did not complete within {timeout}s")
 
 
-@pytest.mark.parametrize('path', DEMOS, ids=lambda p: p.parent.name)
+@pytest.mark.parametrize("path", DEMOS, ids=lambda p: p.parent.name)
 def test_every_demo_experiment_loads(path: Path):
     """Each docs/*/experiment.py defines a loadable, named, runnable experiment.
 
@@ -69,13 +69,13 @@ def test_pipeline_demo_runs_end_to_end(tmp_path: Path, monkeypatch: pytest.Monke
     DAG to completion on detached local workers, as ``mini run`` would."""
     monkeypatch.chdir(tmp_path)  # DATA_ROOT='.mini' + the volume resolve under here
 
-    exp = load_experiment(REPO / 'docs/pipeline/experiment.py')
-    payload = _drive(exp, LocalApparatus('pipeline', max_workers=3))
+    exp = load_experiment(REPO / "docs/pipeline/experiment.py")
+    payload = _drive(exp, LocalApparatus("pipeline", max_workers=3))
 
-    assert set(payload) == {'meta', 'best', 'results'}
-    assert len(payload['results']) == 3
-    assert payload['best']['lr'] == 1e-2  # the toy loss bowl's minimum
-    assert payload['meta']['vocab_size'] == payload['results'][0].get('vocab', payload['meta']['vocab_size'])
+    assert set(payload) == {"meta", "best", "results"}
+    assert len(payload["results"]) == 3
+    assert payload["best"]["lr"] == 1e-2  # the toy loss bowl's minimum
+    assert payload["meta"]["vocab_size"] == payload["results"][0].get("vocab", payload["meta"]["vocab_size"])
 
 
 def test_cross_experiment_artifact_reuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -84,35 +84,35 @@ def test_cross_experiment_artifact_reuse(tmp_path: Path, monkeypatch: pytest.Mon
     volume. The acceptance test for #13/#22's artifact-sharing half."""
     monkeypatch.chdir(tmp_path)  # both experiments anchor .mini (and .mini/store) here
 
-    acts = _drive(load_experiment(REPO / 'docs/acts/experiment.py'), LocalApparatus('acts'))
-    probe = _drive(load_experiment(REPO / 'docs/probe/experiment.py'), LocalApparatus('probe'))
+    acts = _drive(load_experiment(REPO / "docs/acts/experiment.py"), LocalApparatus("acts"))
+    probe = _drive(load_experiment(REPO / "docs/probe/experiment.py"), LocalApparatus("probe"))
 
     # B read A's exact bytes: its recorded source sha is A's artifact sha.
-    assert probe['source_sha'] == acts['artifact'].sha256
-    assert probe['n_layers'] == acts['shards']
+    assert probe["source_sha"] == acts["artifact"].sha256
+    assert probe["n_layers"] == acts["shards"]
 
     # The two experiments kept separate volumes but one shared store: B never ran
     # A's extraction (its only task is the probe), and the blobs live under .mini/store.
-    probe_fns = {r.get('fn') for r in LocalApparatus('probe').memo_store().records()}
-    assert probe_fns == {'probe_activations'}  # no extract_activations recompute
-    assert (tmp_path / '.mini' / 'store' / 'cas').is_dir()
+    probe_fns = {r.get("fn") for r in LocalApparatus("probe").memo_store().records()}
+    assert probe_fns == {"probe_activations"}  # no extract_activations recompute
+    assert (tmp_path / ".mini" / "store" / "cas").is_dir()
 
     # The handle resolves from a fresh client (a report would do exactly this).
-    store = LocalApparatus('probe').store()
-    cache = store.get(acts['artifact'], tmp_path / 'check')
-    assert len(list(cache.glob('*.npy'))) == acts['shards']
+    store = LocalApparatus("probe").store()
+    cache = store.get(acts["artifact"], tmp_path / "check")
+    assert len(list(cache.glob("*.npy"))) == acts["shards"]
 
 
 def test_interactive_apparatus_sweep_pattern():
     """The interactive pattern: drive an ``Apparatus`` directly (notebook-style) —
     fan a sweep out with ``.map`` and reduce to the best config. No memo store/CLI."""
-    app = LocalApparatus('interactive', max_workers=3)
+    app = LocalApparatus("interactive", max_workers=3)
 
     def train(lr: float) -> dict:
-        return {'lr': lr, 'loss': (lr - 1e-2) ** 2}  # bowl with its minimum at lr=1e-2
+        return {"lr": lr, "loss": (lr - 1e-2) ** 2}  # bowl with its minimum at lr=1e-2
 
     results = list(app.map(train, [1e-3, 1e-2, 1e-1]))
-    best = min(results, key=lambda r: r['loss'])
+    best = min(results, key=lambda r: r["loss"])
 
     assert len(results) == 3
-    assert best['lr'] == 1e-2
+    assert best["lr"] == 1e-2

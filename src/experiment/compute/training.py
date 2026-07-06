@@ -30,7 +30,7 @@ def train_model(
         checkpoint_every: Save a checkpoint every N epochs. None = only at the end.
     """
     data, metadata = load_data(data_dir)
-    assert metadata.tokenizer_config.vocab_size <= config.model.vocab_size, 'Vocab size mismatch'
+    assert metadata.tokenizer_config.vocab_size <= config.model.vocab_size, "Vocab size mismatch"
 
     model_key, dropout_key = jr.split(jr.key(config.seed))
     model = build_model(config.model, key=model_key)
@@ -58,7 +58,7 @@ def train_model(
             dropout_key, step_key = jr.split(dropout_key)
             model, opt_state, loss = train_step(model, opt_state, x, y, step_key)
             step += 1
-            emit_progress(step, total_steps, message=f'loss={float(loss):.4f}')
+            emit_progress(step, total_steps, message=f"loss={float(loss):.4f}")
 
         val_losses = [
             float(eval_step(model, x, y))

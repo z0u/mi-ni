@@ -17,9 +17,9 @@ if TYPE_CHECKING:
     from mini.memo import MemoStore
     from mini.store import Store
 
-P = ParamSpec('P')
-R = TypeVar('R')
-V = TypeVar('V', bound=Volume)
+P = ParamSpec("P")
+R = TypeVar("R")
+V = TypeVar("V", bound=Volume)
 
 # Persistent background event loop shared across sync-from-async calls.
 # A single loop avoids the problem where frameworks like Modal track state
@@ -57,7 +57,7 @@ class Apparatus(ABC, Generic[V]):
     def volume(self) -> V:
         """Return the volume; raises ``RuntimeError`` if none is configured."""
         if self._volume is None:
-            raise RuntimeError('No volume configured for this apparatus. Set .volume before accessing it.')
+            raise RuntimeError("No volume configured for this apparatus. Set .volume before accessing it.")
         return self._volume
 
     @volume.setter
@@ -232,11 +232,11 @@ class Apparatus(ABC, Generic[V]):
 
         cancelled: list[str] = []
         for rec in store.records():
-            state = RunState(rec['state']) if rec.get('state') else RunState.PENDING
+            state = RunState(rec["state"]) if rec.get("state") else RunState.PENDING
             if state in (RunState.RUNNING, RunState.PENDING):
                 self._stop_task(rec)
-                store.update(rec['key'], state=RunState.CANCELLED, gen=None)
-                cancelled.append(rec['key'])
+                store.update(rec["key"], state=RunState.CANCELLED, gen=None)
+                cancelled.append(rec["key"])
         return cancelled
 
     def enforce_budget(self, store: MemoStore) -> list[str]:
@@ -273,19 +273,19 @@ class Apparatus(ABC, Generic[V]):
 
         reaped: list[str] = []
         for rec in store.records() if records is None else records:
-            if rec.get('state') != RunState.RUNNING or self._is_task_alive(rec):
+            if rec.get("state") != RunState.RUNNING or self._is_task_alive(rec):
                 continue
             # Re-read before settling: a worker writes its final state *then* exits,
             # so if it's gone yet the record still says RUNNING it died mid-run. The
             # re-read closes the gap between our records() snapshot and the probe.
-            if store.state(rec['key']) != RunState.RUNNING:
+            if store.state(rec["key"]) != RunState.RUNNING:
                 continue
-            error = 'worker vanished (killed/crashed, no result written)'
+            error = "worker vanished (killed/crashed, no result written)"
             # gen=None releases the attempt: if the liveness probe was wrong and the
             # worker still breathes somewhere, its fenced writes can't undo the reap.
-            store.update(rec['key'], state=RunState.FAILED, error=error, gen=None)
-            rec['state'], rec['error'] = RunState.FAILED, error  # keep the caller's snapshot current
-            reaped.append(rec['key'])
+            store.update(rec["key"], state=RunState.FAILED, error=error, gen=None)
+            rec["state"], rec["error"] = RunState.FAILED, error  # keep the caller's snapshot current
+            reaped.append(rec["key"])
         return reaped
 
     def _is_task_alive(self, rec: dict[str, Any]) -> bool:
@@ -312,20 +312,20 @@ def _map_in_thread(
     async def collect():
         try:
             async for result in app.amap(fn, *iterables, kwargs=kwargs):
-                results_queue.put(('result', result))
-            results_queue.put(('done', None))
+                results_queue.put(("result", result))
+            results_queue.put(("done", None))
         except Exception as e:
-            results_queue.put(('error', e))
+            results_queue.put(("error", e))
 
     future = asyncio.run_coroutine_threadsafe(collect(), _get_background_loop())
 
     while True:
         msg_type, value = results_queue.get()
-        if msg_type == 'result':
+        if msg_type == "result":
             yield value
-        elif msg_type == 'done':
+        elif msg_type == "done":
             break
-        elif msg_type == 'error':
+        elif msg_type == "error":
             raise value
 
     # Ensure the coroutine finished cleanly.
