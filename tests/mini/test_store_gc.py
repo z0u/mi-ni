@@ -140,6 +140,7 @@ def test_artifact_shas_prunes_at_callables():
 def test_sidecar_indexes_result_blobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
     app = LocalApparatus("sidecar")
     _drive(_sweep("sidecar", _put_step(), [1]), app)
 
@@ -157,6 +158,7 @@ def test_stale_sidecar_swept_as_attempt_file(tmp_path: Path, monkeypatch: pytest
     """A sidecar under a replaced generation is unreachable, so the memo sweep collects it."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
     app = LocalApparatus("stale-side")
     _drive(_sweep("stale-side", _put_step(), [1]), app)
     store = app.memo_store()
@@ -241,6 +243,7 @@ def test_roots_note_expired_modal_plane():
 def test_sweep_keeps_referenced_and_ref_pinned_collects_orphan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
     app = LocalApparatus("cas")
     _drive(_sweep("cas", _put_step(), [1]), app)
     store = store_for(data_root() / "store")
@@ -263,6 +266,7 @@ def test_sweep_keeps_referenced_and_ref_pinned_collects_orphan(tmp_path: Path, m
 def test_grace_window_keeps_young_blobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
     store = store_for(data_root() / "store")
     fresh = store.put(b"just written", name="fresh.bin")
 
@@ -281,6 +285,7 @@ def test_superseded_record_pins_its_blob_until_memo_gc(tmp_path: Path, monkeypat
     ``mini gc <name>`` removes the record."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
     app = LocalApparatus("pin")
     _drive(_sweep("pin", _put_step(), [1, 2]), app)
     _drive(_sweep("pin", _put_step(), [1]), app)  # input 2 removed → its record superseded
@@ -448,6 +453,7 @@ def _store_ns(**kw) -> argparse.Namespace:
 def test_cmd_gc_store_dry_run_then_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
     from mini.__main__ import cmd_gc
 
     app = LocalApparatus("clistore")

@@ -255,6 +255,7 @@ def test_memo_worker_mounts_hf_cache(monkeypatch):
     from mini.modal_apparatus import HF_CACHE_MOUNT
 
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
     secrets_made: list[dict] = []
     monkeypatch.setattr("modal.Secret.from_dict", lambda d: secrets_made.append(d) or ("secret", d))
     app = _make_modal(monkeypatch)
@@ -379,6 +380,7 @@ def test_interactive_local_map_resolves_ambient_store(tmp_path: Path, monkeypatc
     from mini.store import get, put
 
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)  # force a LocalStore
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
     app = LocalApparatus("exp", data_dir=tmp_path / "exp")
 
     def fn(x):
@@ -398,6 +400,7 @@ def test_wrap_for_modal_binds_store_under_data_dir(tmp_path: Path, monkeypatch):
     from mini.store import LocalStore, get_store
 
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)  # force a LocalStore
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
 
     def fn():
         store = get_store()
