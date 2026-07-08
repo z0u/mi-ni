@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "mi-ni: a template and library for AI research"
+abstract: >-
+  A template repository and library for doing AI research: local Marimo
+  notebooks published to GitHub Pages, remote GPU compute with Modal, and
+  detached, memoized experiments driven from a stateless CLI.
+type: software
+authors:
+  - family-names: Fraser
+    given-names: Sandy
+    orcid: "https://orcid.org/0009-0001-1026-1162"
+repository-code: "https://github.com/z0u/mi-ni"
+url: "https://z0u.github.io/mi-ni/"
+license: Unlicense
+version: "3.0"
+date-released: 2026-07-08
+# doi: "10.5281/zenodo.XXXXXXX"  # add the Zenodo concept DOI once archived
