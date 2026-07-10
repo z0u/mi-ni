@@ -1,15 +1,19 @@
 """nGPT: every activation and weight matrix lives on the unit hypersphere.
 
-Two flavours, selected by `config.ngpt_variant`:
+The residual is the nGPT LERP toward the sub-module's *normalized* output,
+`h ← Norm(h + α·(Norm(ĥ*) − h))` — α is then the true interpolation fraction, so
+the per-layer rotation is independent of the raw output's norm. Normalizing ĥ* is
+load-bearing: `‖MLP(h)‖ ∝ √n_embd`, so the earlier additive step (`h + α·ĥ*`, kept
+behind `config.normalize_sublayer=False`) over-rotates and fails wide-and-deep.
 
-- `'crude'` (default, first-class): scalar gains everywhere, and a gated additive
-  retraction for the residual (`h + α·ĥ*`, then re-normalize). A handful of
-  learnable numbers per layer — the minimal thing that recovers nGPT.
-- `'full'` (notebook ablation): per-channel eigen learning rates and a true
-  normalized LERP residual (`h + α·(ĥ* − h)`), i.e. nGPT as published.
+The residual *gate* is a separate, orthogonal choice (`config.ngpt_variant`):
 
-The empirical finding is that `'crude'` matches `'full'`, so the per-channel
-machinery is carried only for the ablation, not shipped as the default.
+- `'crude'` (default): a single scalar step size α per sub-module — a handful of
+  learnable numbers per layer, the minimal thing that recovers nGPT.
+- `'full'` (ablation): per-channel eigen learning rates, i.e. nGPT as published.
+
+The scalar gate matches the per-channel one at the sizes we can afford, so the
+per-channel machinery is carried only for the ablation, not shipped as the default.
 """
 
 import logging
@@ -122,36 +126,48 @@ class MLP(eqx.Module):
 
 class Block(eqx.Module):
     full: bool = eqx.field(static=True)
+    normalize_sublayer: bool = eqx.field(static=True)
+    alpha: float = eqx.field(static=True)
 
     attn: CausalSelfAttention
     mlp: MLP
-    alpha_a: Scale
-    alpha_m: Scale
+    alpha_a: Scale | None
+    alpha_m: Scale | None
 
     def __init__(self, config: ModelConfig, *, key: PRNGKeyArray):
         attn_key, mlp_key = jr.split(key)
         self.attn = CausalSelfAttention(config, key=attn_key)
         self.mlp = MLP(config, key=mlp_key)
         self.full = _is_full(config)
-        # Residual gates: 'full' uses per-channel eigen learning rates, 'crude' a
-        # single scalar step size per sub-module (ReZero/LayerScale-style).
-        n = config.n_embd if self.full else 1
-        scale = config.n_embd**-0.5
-        self.alpha_a = Scale(n, init=0.05, scale=scale)
-        self.alpha_m = Scale(n, init=0.05, scale=scale)
+        self.normalize_sublayer = config.normalize_sublayer
+        # Residual step size. Fixed at 1/n_layer, or a learnable gain: 'full' uses
+        # per-channel eigen learning rates, 'crude' a single scalar per sub-module
+        # (ReZero/LayerScale-style). The learnable gain reparametrizes by √n_embd,
+        # so it adapts with width — enough to launder the additive step's geometry.
+        self.alpha = config.n_layer**-1.0
+        if config.learnable_alpha:
+            n = config.n_embd if self.full else 1
+            scale = config.n_embd**-0.5
+            self.alpha_a = Scale(n, init=0.05, scale=scale)
+            self.alpha_m = Scale(n, init=0.05, scale=scale)
+        else:
+            self.alpha_a = None
+            self.alpha_m = None
+
+    def _step(self, h, sublayer_out, gate: Scale | None):
+        """One residual update: a small step toward the sub-module output, re-projected."""
+        alpha = self.alpha if gate is None else gate()
+        if self.normalize_sublayer:
+            # nGPT LERP toward the *normalized* output: α is then the true
+            # interpolation fraction, independent of ‖sublayer_out‖.
+            return normalize(h + alpha * (normalize(sublayer_out) - h))
+        # Earlier (incorrect) additive step: effective rotation rides on ‖sublayer_out‖.
+        return normalize(h + alpha * sublayer_out)
 
     def __call__(self, h, enc: RotaryEncoding):
         # h is on the unit hypersphere; each sub-module consumes it directly.
-        if self.full:
-            # Normalized LERP toward the sub-module's output: h + α(ĥ* − h).
-            h_a = normalize(self.attn(h, enc))
-            h = normalize(h + self.alpha_a() * (h_a - h))
-            h_m = normalize(self.mlp(h))
-            h = normalize(h + self.alpha_m() * (h_m - h))
-        else:
-            # Gated additive retraction: small step toward the output, re-project.
-            h = normalize(h + self.alpha_a() * self.attn(h, enc))
-            h = normalize(h + self.alpha_m() * self.mlp(h))
+        h = self._step(h, self.attn(h, enc), self.alpha_a)
+        h = self._step(h, self.mlp(h), self.alpha_m)
         return h
 
 
@@ -246,10 +262,13 @@ class NGPT(LanguageModel):
         land near 1/n_layer. (With 'full' these are per-channel means.)
         """
         blocks = self.transformer.blocks
-        return {
-            "alpha_a": [float(jnp.mean(b.alpha_a())) for b in blocks],
-            "alpha_m": [float(jnp.mean(b.alpha_m())) for b in blocks],
+        report: dict[str, list[float] | float] = {
             "s_qk": [float(jnp.mean(b.attn.s_qk())) for b in blocks],
             "s_u": [float(jnp.mean(b.mlp.s_u())) for b in blocks],
             "s_z": float(jnp.mean(self.s_z())),
         }
+        # Residual gates, present only when alpha is learnable (else fixed 1/n_layer).
+        if blocks and blocks[0].alpha_a is not None:
+            report["alpha_a"] = [float(jnp.mean(a())) for b in blocks if (a := b.alpha_a) is not None]
+            report["alpha_m"] = [float(jnp.mean(m())) for b in blocks if (m := b.alpha_m) is not None]
+        return report
