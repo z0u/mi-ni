@@ -9,6 +9,7 @@ that reads durable results.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,7 +67,15 @@ def load_experiment(path: str | Path) -> Experiment:
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load experiment from {path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Registered only during exec: class creation (e.g. dataclasses on 3.14) needs the
+    # module resolvable by name, but leaving it registered would make cloudpickle treat
+    # the module as importable and serialize task fns by reference — which a remote
+    # worker can't resolve.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        del sys.modules[spec.name]
     experiment = getattr(module, "experiment", None)
     if not isinstance(experiment, Experiment):
         raise AttributeError(f"{path} must define a module-level `experiment = Experiment(...)`")

@@ -3,11 +3,14 @@ import re
 from dataclasses import field
 from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 import numpy as np
 import pandas as pd
-from pandas.io.formats.style import Styler
+
+if TYPE_CHECKING:
+    # Styler needs jinja2 (an optional dependency); only the styled=True path uses it.
+    from pandas.io.formats.style import Styler
 
 from .model import Keyframe, PropConfig, Frame
 
@@ -212,11 +215,11 @@ class Dopesheet:
         return cls(df)
 
     @overload
-    def as_df(self, *, styled: Literal[True]) -> Styler: ...
+    def as_df(self, *, styled: Literal[True]) -> "Styler": ...
     @overload
     def as_df(self, *, styled: Literal[False] = False) -> pd.DataFrame: ...
 
-    def as_df(self, *, styled=False) -> pd.DataFrame | Styler:
+    def as_df(self, *, styled=False) -> "pd.DataFrame | Styler":
         """Convert the dopesheet to a pandas DataFrame."""
         df = self._df.copy()
         if styled:
@@ -252,7 +255,7 @@ class Dopesheet:
         }
 
 
-def style_dopesheet(df: pd.DataFrame) -> Styler:
+def style_dopesheet(df: pd.DataFrame) -> "Styler":
     import pandas as pd
 
     decimal_places: dict[str, int] = {}

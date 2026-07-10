@@ -11,8 +11,25 @@ class ModelConfig(BaseModel, validate_assignment=True):
     """Which model family to build: baseline 'gpt' or normalized 'ngpt'."""
 
     ngpt_variant: Literal["crude", "full"] = "crude"
-    """nGPT flavour (ignored unless architecture == 'ngpt'): scalar gains +
-    additive retraction ('crude') or per-channel eigen-LRs + LERP ('full')."""
+    """nGPT residual gate (ignored unless architecture == 'ngpt'): a single scalar
+    step size per sub-module ('crude') or per-channel eigen learning rates ('full').
+    Orthogonal to `normalize_sublayer`, which sets the residual *form*."""
+
+    normalize_sublayer: bool = True
+    """nGPT residual form (ignored unless architecture == 'ngpt'). True combines the
+    residual as the LERP toward the *normalized* sub-module output
+    (h + alpha*(norm(sublayer) - h)) — the correct nGPT step, where alpha is the true
+    interpolation fraction, so the per-layer rotation is independent of the output's
+    norm (which scales like sqrt(n_embd) for the MLP). Set False for the earlier,
+    incorrect additive step (h + alpha*sublayer) — kept only to reproduce that
+    wide-and-deep failure."""
+
+    learnable_alpha: bool = True
+    """Residual step size alpha (ignored unless architecture == 'ngpt'). True learns it
+    as a gain (scalar or per-channel, per ngpt_variant, init 0.05) reparametrized by
+    sqrt(n_embd) so it adapts with width. False fixes it at 1/n_layer. The learnable,
+    width-scaled gate can absorb the additive step's width-growth (see
+    normalize_sublayer), masking the bug; fixing alpha is what exposes it."""
 
     vocab_size: IntX64
     """Vocabulary size"""

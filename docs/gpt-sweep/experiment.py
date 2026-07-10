@@ -1,34 +1,60 @@
 """
-Architecture sweep: GPT versus nGPT, as a memoized experiment.
+Architecture sweep: GPT versus nGPT, plus the nGPT residual-bug ablation.
 
-A controlled comparison of the baseline LayerNorm GPT against nGPT, swept across
-three peak learning rates (3 architectures × 3 LRs = 9 training runs). One CPU-ish
-data-prep step, then a GPU sweep whose configs depend on prep's tokenizer.
+Two coordinated sweeps over one data-prep step, run on Modal L4s:
+
+1. **Architecture × learning rate** (9 cells) at the base size — baseline
+   LayerNorm GPT against nGPT (per-channel and scalar gates), swept across three
+   peak LRs. The "does normalization help?" comparison.
+2. **Residual form × width** (9 cells) — the scalar-gate nGPT across widths {32,
+   64, 128} with ``n_ff = 4·n_embd``, in three residual recipes: the correct
+   normalized-LERP step (``norm``, the fix and default); the raw additive step
+   with mi-ni's learnable, width-scaled gate (``add``); and the additive step
+   with a *fixed* gate ``α = 1/n_layer`` (``fixed``). The additive step's
+   effective rotation rides on ``‖sublayer‖ ∝ √n_embd``, so ``fixed`` diverges
+   wide; the learnable gate adapts with width and masks it, and the normalized
+   LERP is width-flat by construction.
 
 This is the *definition* — an importable ``main(ctx)`` DAG with no compute baked
 in. Drive it on Modal L4s from the CLI; the companion ``report.py`` reads the
 durable results and renders them.
 
-    # one data-prep run, then nine training runs, fanned out across L4s:
-    bin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 9
+    # one data-prep run, then eighteen training runs fanned out across L4s:
+    bin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 18
     bin/mini status gpt-sweep    # no --app needed — the launch backend sticks
 
 The hardware is bound by role (see ``roles`` below): ``prep`` runs CPU-only, ``train``
 on L4s — so ``main`` names labels, not GPUs. Re-run to advance/resume — done cells are memo hits, so a crash heals by re-running
-and a failed cell is recovered with ``bin/mini retry gpt-sweep``. Adding an LR or
-architecture below and re-running launches only the new cells.
+and a failed cell is recovered with ``bin/mini retry gpt-sweep``. Adding an LR,
+architecture, or width below and re-running launches only the new cells.
 """
 
 from __future__ import annotations
 
 from mini import Ctx, Experiment, get_data_dir
 
-# Axes of the sweep.
+# Sweep 1 axes: architecture × peak learning rate, at the base size.
 LRS = [("3e-3", 3e-3), ("1e-2", 1e-2), ("4e-2", 4e-2)]
 ARCH_CFGS = [
     ("baseline", dict(architecture="gpt")),
     ("nGPT", dict(architecture="ngpt", ngpt_variant="full")),
     ("nGPT (scalar)", dict(architecture="ngpt", ngpt_variant="crude")),
+]
+
+# Sweep 2 axes: the residual-bug ablation. The scalar-gate nGPT, normalized-LERP
+# residual (the fix) vs the raw additive step (the bug), across widths — held at
+# the LR where nGPT is happiest (1e-2) and the base depth (12). n_ff scales with
+# width so the MLP output norm (∝ √n_embd) actually grows, which is what the
+# additive step fails to control.
+WIDTH_LR = 1e-2
+WIDTHS = [32, 64, 128]
+# (label, model-config knobs): the normalized-LERP fix (default), the additive
+# step with mi-ni's learnable width-scaled gate, and the additive step with a
+# fixed gate — the last is what exposes the width-gated failure.
+RESID_FORMS = [
+    ("norm", dict(normalize_sublayer=True)),
+    ("add", dict(normalize_sublayer=False)),
+    ("fixed", dict(normalize_sublayer=False, learnable_alpha=False)),
 ]
 
 # Named view of the gathered val-loss curves in the project-scoped store. The
@@ -68,7 +94,7 @@ def prepare_data():
     return metadata
 
 
-def _make_config(lr_float: float, arch_kwargs: dict):
+def _make_config(lr_float: float, arch_kwargs: dict, *, n_embd: int = 32, n_ff: int = 128, n_layer: int = 12):
     """Build one training config (vocab/tokenizer filled in after prep)."""
     from experiment.config import (
         DataConfig,
@@ -84,11 +110,11 @@ def _make_config(lr_float: float, arch_kwargs: dict):
         model=ModelConfig(
             vocab_size=64,  # updated after data prep
             block_size=512,
-            n_embd=32,
+            n_embd=n_embd,
             n_head=8,
             n_head_dim=8,
-            n_ff=128,
-            n_layer=12,
+            n_ff=n_ff,
+            n_layer=n_layer,
             dropout=0 if is_ngpt else 0.1,
             **arch_kwargs,
         ),
@@ -104,29 +130,37 @@ def _make_config(lr_float: float, arch_kwargs: dict):
 
 
 def build_sweep(meta) -> list[tuple]:
-    """Derive the (config, arch_label, lr_str) cells from prep's tokenizer.
+    """Derive the (config, label) cells for both sweeps from prep's tokenizer.
 
     Runs every wake (cheap + deterministic), so the memo keys are stable: each
     cell re-runs only if its own config changes.
     """
     from experiment.utils import align
 
-    cells = []
+    cells: list[tuple] = []
+    # Sweep 1: architecture × LR at the base size.
     for lr_str, lr_float in LRS:
         for arch_label, arch_kwargs in ARCH_CFGS:
-            config = _make_config(lr_float, arch_kwargs)
-            config.tokenizer = meta.tokenizer_config.model_copy()
-            config.model.vocab_size = align(meta.tokenizer_config.vocab_size, 64)
-            cells.append((config, arch_label, lr_str))
+            cells.append((_make_config(lr_float, arch_kwargs), f"{arch_label}|{lr_str}"))
+    # Sweep 2: residual form × width (scalar-gate nGPT), n_ff = 4·n_embd.
+    for n_embd in WIDTHS:
+        for form_label, resid_kwargs in RESID_FORMS:
+            arch_kwargs = dict(architecture="ngpt", ngpt_variant="crude", **resid_kwargs)
+            config = _make_config(WIDTH_LR, arch_kwargs, n_embd=n_embd, n_ff=4 * n_embd)
+            cells.append((config, f"width|{form_label}|{n_embd}"))
+
+    for config, _label in cells:
+        config.tokenizer = meta.tokenizer_config.model_copy()
+        config.model.vocab_size = align(meta.tokenizer_config.vocab_size, 64)
     return cells
 
 
-def train_one(config, arch_label: str, lr_str: str) -> tuple:
-    """Train one sweep cell; return its arch label, LR string, and per-epoch val losses."""
+def train_one(config, label: str) -> tuple:
+    """Train one sweep cell; return its label and per-epoch val losses."""
     from experiment.compute.training import train_model
 
     _, metrics = train_model(config, get_data_dir())
-    return arch_label, lr_str, [m.val_loss for m in metrics]
+    return label, [m.val_loss for m in metrics]
 
 
 def publish_curves(results: list[tuple]) -> str:
@@ -143,15 +177,15 @@ def publish_curves(results: list[tuple]) -> str:
 
     from mini.store import put, set_ref
 
-    curves = {f"{arch}|{lr}": losses for arch, lr, losses in results}
+    curves = dict(results)
     set_ref(CURVES_REF, put(json.dumps(curves, indent=2).encode(), name="gpt-sweep-curves.json"))
     return CURVES_REF
 
 
 def main(ctx: Ctx) -> list[tuple]:
     meta = ctx.run(prepare_data, role="prep")  # CPU prep; suspends until done
-    configs, archs, lrs = zip(*build_sweep(meta), strict=True)
-    results = ctx.map(train_one, configs, archs, lrs, role="train")  # GPU sweep that depends on prep
+    configs, labels = zip(*build_sweep(meta), strict=True)
+    results = ctx.map(train_one, configs, labels, role="train")  # GPU sweep that depends on prep
     ctx.run(publish_curves, results, role="prep")  # share the curves by name for the report
     return results
 
@@ -161,6 +195,8 @@ experiment = Experiment(
     main=main,
     roles={
         "prep": {},  # CPU-only: data download + tokenize
-        "train": dict(gpu="L4", timeout=720),  # GPU sweep cells
+        # L4 is right-sized for these batch-16 cells; the largest (width 128,
+        # depth 12) takes ~13 min, so the per-task timeout allows generous slack.
+        "train": dict(gpu="L4", timeout=1500),  # GPU sweep cells
     },
 )
