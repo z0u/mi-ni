@@ -42,6 +42,11 @@ if [[ -d "$HOOKS_DST" ]]; then
         ln -sf "../../scripts/hooks/$name" "$HOOKS_DST/$name"
         echo "Installed git hook: $name"
     done
+
+    # Skip mechanical reformats in `git blame`. GitHub honours this file by
+    # default, but a local clone needs the config set (it can't be committed).
+    git config --local blame.ignoreRevsFile .git-blame-ignore-revs
+    echo "Configured blame.ignoreRevsFile"
 fi
 
 echo "✅ Installation complete"

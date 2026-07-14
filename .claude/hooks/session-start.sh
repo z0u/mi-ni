@@ -42,6 +42,15 @@ if [[ -n "${CLAUDE_ENV_FILE:-}" ]]; then
     fi
 fi
 
+# Skip mechanical reformats in `git blame` (see .git-blame-ignore-revs). The web
+# image never runs `./go install` (which sets this for local checkouts), and the
+# config is repo-local so it can't be committed. It's instant, so do it here,
+# synchronously, before the async handoff — blame is then correct immediately.
+if [[ -d .git ]]; then
+    git config --local blame.ignoreRevsFile .git-blame-ignore-revs \
+        && log 'configured blame.ignoreRevsFile' || true
+fi
+
 # Everything below is slow; run it in the background so the session starts now.
 # `uv run` syncs on demand anyway, so the worst case is the first command
 # re-doing work this hook is also doing.
