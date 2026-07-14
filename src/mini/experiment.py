@@ -44,6 +44,12 @@ class Experiment:
     name: str
     main: Callable[[Ctx], Any]
     roles: Mapping[str, dict[str, Any]] | Callable[[Apparatus], Mapping[str, Apparatus]] | None = None
+    # Names of upstream experiments whose durable outputs this one builds on. Purely
+    # for *lineage*: when a run is driven, each upstream's stored provenance (git sha,
+    # first-run time, Modal apps) is snapshotted into this run's ``lineage.upstreams``
+    # so a report can trace exactly which A produced the inputs to B. It does not
+    # affect scheduling or caching — the DAG is still expressed entirely in ``main``.
+    deps: list[str] | None = None
 
     def resolve_roles(self, base: Apparatus) -> dict[str, Apparatus]:
         """Bind role labels to concrete apparatus variants of *base*.

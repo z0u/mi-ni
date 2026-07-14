@@ -28,7 +28,7 @@ from mini.local_apparatus import LocalApparatus
 from mini.orchestration import tick
 
 REPO = Path(__file__).resolve().parents[2]
-DEMOS = sorted(REPO.glob("docs/*/experiment.py"))
+DEMOS = sorted(REPO.glob("docs/**/experiment.py"))
 
 
 @pytest.fixture(autouse=True)

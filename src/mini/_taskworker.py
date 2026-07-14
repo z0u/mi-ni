@@ -24,7 +24,17 @@ from mini._queues import EndOfQueue
 from mini.memo import MemoStore
 from mini.progress import progress_context
 from mini.runs import RunState, compute_env
-from mini.store import Artifact, StaleWriteError, Store, artifact_shas, store_context, store_for, store_root_for
+from mini.store import (
+    Artifact,
+    StaleWriteError,
+    Store,
+    artifact_shas,
+    producer_context,
+    resolved_refs_context,
+    store_context,
+    store_for,
+    store_root_for,
+)
 from mini.volume import data_dir_context
 
 
@@ -133,6 +143,38 @@ class _FencedStore(Store):
         return self._inner._read_ref(name)
 
 
+def _producer_stamp(experiment: str | None, store: MemoStore, key: str) -> dict[str, Any] | None:
+    """The identity ``set_ref`` stamps into refs this task writes, or ``None``.
+
+    A compact provenance record (the :func:`~mini.lineage.upstream_snapshot` shape
+    plus the task key): enough for a consumer — a downstream run, a report — to
+    attribute the bytes to this experiment and the code state that produced them,
+    without a lookup into this run's control plane. The code state comes from the
+    run's stored lineage (stamped by the driver at wake start); best-effort, since
+    provenance must never take a task down.
+    """
+    if experiment is None:
+        return None
+    from mini.lineage import upstream_snapshot
+
+    try:
+        meta = store.meta()
+    except Exception:
+        meta = {}
+    stamp = upstream_snapshot(experiment, meta)
+    stamp.pop("modal_app_ids", None)  # app ids accumulate run-wide; they don't identify this write
+    stamp["task"] = key
+    return stamp
+
+
+def _upstream_refs(resolved: dict[str, dict[str, Any] | None]) -> list[dict[str, str]]:
+    """Compact ``{ref, experiment?}`` entries for the record, from the resolved-ref set."""
+    return [
+        {"ref": name, **({"experiment": p["experiment"]} if p and p.get("experiment") else {})}
+        for name, p in sorted(resolved.items())
+    ]
+
+
 def execute_task(
     store: MemoStore,
     key: str,
@@ -142,6 +184,7 @@ def execute_task(
     commit: Callable[[], None] | None = None,
     artifacts: Store | None = None,
     gen: str | None = None,
+    experiment: str | None = None,
 ) -> None:
     """Run one memoized call and persist its result/state — backend-agnostic.
 
@@ -166,6 +209,12 @@ def execute_task(
     to "the referenced blobs are durable" for free. Its mutable-name verbs
     (``set_ref`` / ``publish``) are fenced on *gen* via :class:`_FencedStore`, so
     a stale worker fails loudly instead of clobbering a name its successor owns.
+
+    *experiment* is the experiment this task belongs to. It powers ref provenance
+    both ways: refs the step writes are stamped with it (:func:`_producer_stamp`),
+    and refs the step *resolves* land on the settled record as ``upstream_refs`` —
+    the evidence the driver aggregates into ``lineage.upstreams`` without the
+    experiment declaring its deps by hand.
     """
 
     def record(**fields: Any) -> bool:
@@ -179,13 +228,21 @@ def execute_task(
     sink = _MemoSink(store, key, gen)
     if artifacts is not None and gen is not None:
         artifacts = _FencedStore(artifacts, store, key, gen)
-    # Record what we actually ran on (host/GPU/…), captured here in the worker.
-    if not record(state=RunState.RUNNING, heartbeat_at=time.time(), env=compute_env()):
+    # Record what we actually ran on (host/GPU/…) and when the worker truly began,
+    # captured here in the worker. ``started_at`` (worker's first write) pairs with
+    # ``finished_at`` (below) for a real execution duration — distinct from the
+    # client-side ``created_at`` stamped before the worker was even scheduled.
+    started_at = time.time()
+    if not record(state=RunState.RUNNING, heartbeat_at=started_at, started_at=started_at, env=compute_env()):
         return  # superseded before we even started — nothing here is wanted anymore
+    producer = _producer_stamp(experiment, store, key)
+    resolved: dict[str, dict[str, Any] | None] = {}
     try:
         with (
             data_dir_context(store.data_dir),
             store_context(artifacts) if artifacts is not None else nullcontext(),
+            producer_context(producer) if producer is not None else nullcontext(),
+            resolved_refs_context(resolved),
             progress_context(key, key, queue=sink, emission_interval=0.2),
         ):
             for hook in reversed(hooks):
@@ -199,17 +256,25 @@ def execute_task(
         store.result_path(key, gen).write_bytes(cloudpickle.dumps(result))
         if commit is not None:
             commit()
-        record(state=RunState.DONE, heartbeat_at=time.time())
+        now = time.time()
+        # Which shared refs this step resolved (and whose experiment wrote each) —
+        # the per-task evidence the driver rolls up into ``lineage.upstreams``.
+        extra = {"upstream_refs": _upstream_refs(resolved)} if resolved else {}
+        record(state=RunState.DONE, heartbeat_at=now, finished_at=now, **extra)
     except Exception as exc:
         tb = traceback.format_exc()
         store.error_path(key, gen).write_text(tb)
         if commit is not None:
             commit()
+        now = time.time()
+        extra = {"upstream_refs": _upstream_refs(resolved)} if resolved else {}
         record(
             state=RunState.FAILED,
             error=tb.strip().splitlines()[-1],
             exc_type=f"{type(exc).__module__}.{type(exc).__qualname__}",
-            heartbeat_at=time.time(),
+            heartbeat_at=now,
+            finished_at=now,
+            **extra,
         )
 
 
@@ -221,7 +286,8 @@ def run_task(data_dir: Path, key: str) -> None:
     # shared HF bucket, if MINI_STORE_BUCKET is set), so a blob put here resolves
     # from any experiment in the project (and from reports).
     artifacts = store_for(store_root_for(data_dir))
-    execute_task(store, key, fn, args, hooks, artifacts=artifacts, gen=gen)
+    # The local data dir is <data_root>/<experiment>, so its leaf names the experiment.
+    execute_task(store, key, fn, args, hooks, artifacts=artifacts, gen=gen, experiment=data_dir.name)
 
 
 def main() -> None:

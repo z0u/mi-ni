@@ -1,5 +1,11 @@
+import json
+
+import pytest
+
 from mini.reports import (
+    PROVENANCE_ASSET,
     SOURCE_ONLY_MARKER,
+    Publisher,
     export_key,
     insert_base,
     is_report_notebook,
@@ -7,8 +13,10 @@ from mini.reports import (
     report_notebooks,
     rewrite_links,
     set_banner,
+    set_provenance,
     set_theme,
     stray_links,
+    use_publisher,
 )
 
 # Mimics a Marimo export: absolute CDN links + escaped data/asset URLs inside the JSON
@@ -166,6 +174,57 @@ def test_set_banner_omits_missing_links():
 
 def test_set_banner_is_noop_without_urls():
     assert set_banner(_EXPORT_HTML) == _EXPORT_HTML
+
+
+_PRODUCER = {"experiment": "prep", "git_describe": "v1-3-gabc1234", "git_dirty": True, "run_at": "2026-07-12T01:02:03"}
+
+
+def test_note_ref_maintains_the_provenance_sidecar(tmp_path):
+    pub = Publisher(asset_dir=tmp_path / "_assets")
+    pub.note_ref("shared/curves", _PRODUCER)
+    pub.note_ref("shared/anon", None)  # read, but unattributable — still evidence
+    sidecar = json.loads((tmp_path / "_assets" / PROVENANCE_ASSET).read_text())
+    assert sidecar["refs"]["shared/curves"]["experiment"] == "prep"
+    assert sidecar["refs"]["shared/anon"] is None
+    before = (tmp_path / "_assets" / PROVENANCE_ASSET).read_text()
+    pub.note_ref("shared/curves", _PRODUCER)  # re-resolving the same ref is a no-op rewrite
+    assert (tmp_path / "_assets" / PROVENANCE_ASSET).read_text() == before
+
+
+def test_get_ref_notes_into_the_active_publisher(tmp_path):
+    from mini.store import LocalStore, producer_context
+
+    store = LocalStore(tmp_path / "store")
+    with producer_context({"experiment": "prep"}):
+        store.set_ref("shared/a", store.put(b"a", name="a.bin"))
+    pub = use_publisher(Publisher(asset_dir=tmp_path / "_assets"))
+    try:
+        store.get_ref("shared/a")
+    finally:
+        use_publisher(None)
+    assert pub is not None
+    sidecar = json.loads((tmp_path / "_assets" / PROVENANCE_ASSET).read_text())
+    assert sidecar["refs"]["shared/a"]["experiment"] == "prep"
+
+
+def test_asset_url_reserves_the_sidecar_name(tmp_path):
+    pub = Publisher(asset_dir=tmp_path / "_assets")
+    with pytest.raises(ValueError, match="reserved"):
+        pub.asset_url(b"{}", name=PROVENANCE_ASSET)
+
+
+def test_set_provenance_injects_a_folded_footer():
+    out = set_provenance(_EXPORT_HTML, {"shared/curves": _PRODUCER, "shared/other": {"experiment": "prep"}})
+    assert out.index("<body>") < out.index("<details data-mini-provenance") < out.index('<div id="root">')
+    assert "<strong>prep</strong>" in out and "<code>v1-3-gabc1234</code> (dirty)" in out
+    assert "run 2026-07-12" in out
+    assert "via shared/curves, shared/other" in out  # both refs fold into one experiment entry
+    assert "@media print{[data-mini-provenance]{display:none}}" in out  # hidden in print, like the banner
+
+
+def test_set_provenance_is_noop_without_attributable_producers():
+    assert set_provenance(_EXPORT_HTML, {}) == _EXPORT_HTML
+    assert set_provenance(_EXPORT_HTML, {"shared/anon": None}) == _EXPORT_HTML
 
 
 _APP = "import marimo\napp = marimo.App()\n"

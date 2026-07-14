@@ -31,7 +31,7 @@ from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.memo import PollCache
 from mini.orchestration import BudgetExpired, tick
-from mini.runs import SETTLED, RunState, is_queued
+from mini.runs import SETTLED, RunState, is_queued, stale_heartbeat
 
 __all__ = ["drive_and_watch", "watch"]
 
@@ -63,6 +63,8 @@ def _refresh(progress: Progress, bars: dict[str, TaskID], records: list[dict[str
         desc = key
         if queued:
             desc += " — queued"
+        elif stale_heartbeat(rec):
+            desc += " — ♥ stale, worker may be dead"
         if rec.get("message"):
             desc += f" — {rec['message']}"
         if rec.get("metrics"):

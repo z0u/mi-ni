@@ -41,6 +41,17 @@ partial dedup matters; a single file is fine otherwise. (But see the
 [chunked-data non-goal](./decisions.md) — a tree is for a handful of shards, not
 thousands of tiny chunks.)
 
+**Refs carry their writer.** The store is project-shared and deliberately knows nothing
+about experiments, so producer identity is not threaded through its construction — the
+task worker binds an ambient `producer_context` (experiment, task key, and the run's
+code state read from its stored lineage) and `set_ref` stamps it into the ref payload.
+The stamp rides *inside* the ref's JSON rather than in a sidecar so it travels with the
+name atomically (one write, one read, last-writer-wins as a unit) and old readers are
+untouched (`Artifact.from_dict` ignores the extra key). The mirror image — `get_ref`
+noting each resolution — is what lets a consuming run detect its upstream experiments
+(`lineage.upstreams`, no `deps=` declared) and a rendering report cite its data
+sources; both listeners are ambient too, so the store stays dumb.
+
 ## Scoping: store project-wide, memo and volume per-experiment
 
 The artifact **store is one per project** — the sharing surface. The **memo store and

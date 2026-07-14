@@ -34,6 +34,15 @@ repo_publish = pytest.mark.skipif(
     reason="also set MINI_PUBLISH_REPO to run the publish-repo integration test",
 )
 
+# Once a project has adopted the #38 split (MINI_PUBLISH_REPO set), the CAS bucket is
+# expected to be private (see "Enabling it" in eng/publishing.md) — so a bucket-only
+# publish() can no longer serve anonymously, and this case doesn't apply.
+bucket_publish = pytest.mark.skipif(
+    PUBLISH_REPO is not None,
+    reason="MINI_PUBLISH_REPO is set — the CAS bucket is expected to be private (#38), "
+    "so bucket-only publish() isn't publicly readable here",
+)
+
 
 @pytest.fixture
 def hf(tmp_path: Path):
@@ -81,6 +90,7 @@ def test_ref_round_trips_over_the_bucket(hf):
     assert store.get_ref(f"_test/{tag}/missing") is None
 
 
+@bucket_publish
 def test_publish_serves_with_content_type_from_extension(hf):
     store, tag, created = hf
     png = b"\x89PNG\r\n\x1a\n" + tag.encode()  # not a real PNG, but a .png name

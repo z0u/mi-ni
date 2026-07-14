@@ -203,7 +203,6 @@ class Apparatus(ABC, Generic[V]):
         from mini.gc import LocalGcIO
 
         return LocalGcIO(store)
-        ...
 
     @abstractmethod
     def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, str, Callable, tuple, list]]) -> None:

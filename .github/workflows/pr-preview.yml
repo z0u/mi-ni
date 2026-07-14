@@ -1,0 +1,62 @@
+name: PR Preview
+
+# Deploys a preview of the site for each PR at <site>/pr-preview/pr-<n>/, so a
+# new report's figures are reviewable without downloading the build artifact.
+# The build is the same read-only assembly as production: it pulls whatever
+# bundles `./go publish` already synced to the publish tier (an agent publishes
+# from its branch before opening the PR) and writes HTML around them. The
+# preview is torn down when the PR closes; a sticky comment on the PR carries
+# the link. Caveat: exports are not branch-namespaced, so re-publishing an
+# *existing* report from a branch swaps the assets under the production site
+# too — see todo.md (staging via dataset-repo revisions) for the eventual fix.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+concurrency: preview-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    # Forked PRs get no secrets (the build needs HF_TOKEN to read the publish
+    # tier), and shouldn't deploy to the site anyway.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        if: github.event.action != 'closed'
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Dependencies (for docs build)
+        if: github.event.action != 'closed'
+        run: uv sync --group pages
+
+      - name: Build Site
+        if: github.event.action != 'closed'
+        # Same env contract as publish-docs.yml, plus MINI_SITE_URL so
+        # inter-report links and the "← Index" banner stay inside the preview
+        # instead of jumping to the production site.
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MINI_PUBLISH_REPO: ${{ vars.MINI_PUBLISH_REPO }}
+          MINI_STORE_BUCKET: ${{ vars.MINI_STORE_BUCKET }}
+          MINI_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-preview/pr-${{ github.event.number }}/
+        run: ./go build
+
+      - name: Deploy preview
+        # auto = deploy on open/reopen/synchronize, remove on close. Deploys
+        # into pr-preview/pr-<n>/ on gh-pages (the production deploy's
+        # clean-exclude spares that tree) and maintains the sticky PR comment.
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: _site
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          action: auto

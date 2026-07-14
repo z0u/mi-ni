@@ -2,27 +2,11 @@
 
 set -euo pipefail
 
-function prepare() {
-    (
-        set -x
-        mkdir -p .vulture-cache
-        rm -r .vulture-cache/* || true
-
-        uv run python scripts/ipynb_to_py.py docs/ .vulture-cache/ >&2
-    )
-}
-
-function run-vulture() {
-    (
-        set -x
-        uv run vulture "$@"
-    )
-}
-
-
-prepare
-
-if ! run-vulture "$@"; then
+# Paths and filters come from [tool.vulture] in pyproject.toml.
+if ! (
+    set -x
+    uv run vulture "$@"
+); then
     cat >&2 <<-'EOF'
 		❌ Dead code found! See the report above. To fix, you can:
 		 1. Remove the unused code,

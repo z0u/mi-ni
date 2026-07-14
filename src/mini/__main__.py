@@ -10,11 +10,13 @@ agent (or you) can drive, poll, and gather without holding a session open:
     python -m mini run    docs/pipeline/experiment.py --budget 2h  # auto-cancel the run past a wall-clock budget
     python -m mini retry  docs/pipeline/experiment.py          # reset FAILED/CANCELLED, then advance
     python -m mini ls                                          # experiments + task state
-    python -m mini watch  pipeline                             # live bars for a run, read-only (never ticks)
-    python -m mini status pipeline                             # per-task state + metrics, by NAME
+    python -m mini watch  pipeline                             # block until the run settles, read-only (exit 0 iff DONE)
+    python -m mini status pipeline                             # per-task state + metrics, by NAME (--json for scripts)
     python -m mini results pipeline                            # per-task results
     python -m mini logs   pipeline <key>                       # a failed task's traceback
     python -m mini explain pipeline <key>                      # why this re-ran: evidence + attempt timeline
+    python -m mini lineage pipeline                            # provenance: git, who/what ran it, environment, upstreams
+    python -m mini cost    pipeline                            # reconcile the run's Modal cost (post-run billing)
     python -m mini cancel pipeline                             # stop in-flight tasks
     python -m mini gc     pipeline                             # plan a memo-storage sweep (--apply to delete)
     python -m mini gc     --store                              # plan an artifact-CAS sweep (--apply to delete)
@@ -29,9 +31,11 @@ was launched on (stamped in ``.mini/<name>/.app``), then ``$MINI_APP`` /
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment, load_experiment
@@ -39,7 +43,7 @@ from mini.gc import GRACE_DEFAULT
 from mini.local_apparatus import LocalApparatus
 from mini.memo import META_KEY, MemoStore
 from mini.orchestration import BudgetExpired, TaskFailed, retry, tick
-from mini.runs import SETTLED, RunState, data_root, is_queued
+from mini.runs import SETTLED, RunState, data_root, is_queued, stale_heartbeat
 from mini.store import _project_config
 from utils.time import duration
 
@@ -255,6 +259,8 @@ def _memo_line(rec: dict) -> str:
         line += f"  {_fmt_metrics(rec['metrics'])}"
     if state == RunState.RUNNING and rec.get("heartbeat_at"):
         line += f"  ⧖ queued {_age(rec['heartbeat_at'])}" if queued else f"  ♥ {_age(rec['heartbeat_at'])}"
+        if stale_heartbeat(rec):
+            line += "  ⚠ stale — worker may be dead"
     if gpu := rec.get("env", {}).get("gpu"):
         line += f"  on {gpu}"  # what it actually ran on, when not the local CPU
     if rec.get("fc_id"):
@@ -293,13 +299,74 @@ def cmd_retry(args: argparse.Namespace) -> None:
     _run(exp, apparatus, args)
 
 
+def _detected_upstreams(exp: Experiment, store: MemoStore) -> dict[str, list[str]]:
+    """Upstream experiments detected from the refs this run's tasks resolved.
+
+    Each settled task records the shared refs it read and the experiment stamped
+    on each at ``set_ref`` time (``upstream_refs`` — see ``mini._taskworker``).
+    Rolled up here to producer → the resolved ref names (the evidence), with
+    self-reads dropped (an experiment reading its own refs is not a dependency).
+    """
+    found: dict[str, set[str]] = {}
+    for rec in store.records():
+        for item in rec.get("upstream_refs") or []:
+            if (producer := item.get("experiment")) and producer != exp.name:
+                found.setdefault(producer, set()).add(item["ref"])
+    return {name: sorted(refs) for name, refs in found.items()}
+
+
+def _stamp_lineage(exp: Experiment, store: MemoStore, args: argparse.Namespace) -> None:
+    """Capture run-level lineage into meta at each wake (never fails a run).
+
+    The latest capture wins (edits re-run tasks, so the final code state is what
+    produced the current results) while first-run breadcrumbs survive across wakes.
+    Upstream experiments are the declared ones (``Experiment.deps``) plus the ones
+    *detected* from the refs this run's tasks resolved; each is snapshotted from
+    its own stored lineage, so a run records exactly which A its inputs came from.
+    """
+    from mini.lineage import merge_run_lineage, run_lineage, upstream_snapshot
+
+    try:
+        fresh = run_lineage()
+    except Exception:  # lineage is diagnostic — never let it take a run down
+        return
+    detected = _detected_upstreams(exp, store)
+    upstreams = []
+    for dep in dict.fromkeys([*(exp.deps or []), *sorted(detected)]):
+        try:
+            dep_meta = _store_for(dep, args).meta()
+        except Exception:
+            dep_meta = {}  # an unreachable upstream still gets its minimal record below
+        snap: dict[str, Any]
+        if dep_meta.get("lineage"):
+            snap = upstream_snapshot(dep, dep_meta)
+        elif dep in detected:  # detected from a stamped ref, so the dependency is real
+            snap = {"experiment": dep}
+        else:  # declared but never run (or unreadable) — nothing to record
+            continue
+        if refs := detected.get(dep):
+            snap["refs"] = refs
+        upstreams.append(snap)
+    if upstreams:
+        fresh["upstreams"] = upstreams
+    try:
+        store.set_meta(lineage=merge_run_lineage(store.meta().get("lineage"), fresh))
+    except Exception:
+        pass
+
+
 def _run(exp, apparatus: Apparatus, args: argparse.Namespace) -> None:
     """Drive one wake (or to completion with ``--watch``) and report."""
     store = apparatus.memo_store()
     _arm_budget(store, args)
+    _stamp_lineage(exp, store, args)
     keep_stale = getattr(args, "keep_stale", False)
     if args.watch:
         _watch(exp, apparatus, poll=args.poll, keep_stale=keep_stale)
+        # Tasks settled *during* the watch, after the stamp above — re-stamp so
+        # the upstreams their records detected land in this same wake's lineage
+        # (a step-per-wake run picks them up at the next wake's stamp instead).
+        _stamp_lineage(exp, store, args)
         return
     if store.budget_expired():  # over budget — settle in-flight work, don't launch a new stage
         cancelled = apparatus.enforce_budget(store)
@@ -371,13 +438,67 @@ def cmd_status(args: argparse.Namespace) -> None:
     recs = store.records()
     if not recs:
         raise _no_tasks(args.name, args)
-    current, _ = store.split_current(recs)
+    current, stale = store.split_current(recs)
     state = _aggregate_state([_rec_state(r) for r in current])
+    if getattr(args, "json", False):
+        print(json.dumps(_status_json(args.name, args, state, store, current, stale)))
+        return
     header = f"{args.name}  —  {state}  ({len(current)} tasks)"
     if suffix := _budget_suffix(store):
         header += f"  ·  {suffix}"
     print(header)
     _print_records(store, recs)
+
+
+def _status_json(
+    name: str, args: argparse.Namespace, state: RunState, store: MemoStore, current: list[dict], stale: list[dict]
+) -> dict[str, Any]:
+    """The ``status --json`` payload — the agent-facing twin of the human lines.
+
+    One JSON object on stdout, keyed for scripts (``jq -r .state``), with the
+    same read-path semantics as plain ``status`` (reap + budget enforcement have
+    already run). Field names are a stable contract: change additively only.
+    ``state`` aggregates *current* tasks; superseded records ride along flagged,
+    since an orphaned old-code worker may still be burning money.
+    """
+    out: dict[str, Any] = {
+        "experiment": name,
+        "app": _resolve_app(name, args),
+        "state": str(state),
+        "settled": all(_rec_state(r) in SETTLED for r in current),
+        "tasks": [
+            {**_task_json(rec), "superseded": superseded}
+            for recs, superseded in ((current, False), (stale, True))
+            for rec in recs
+        ],
+    }
+    meta = store.meta()
+    if deadline := meta.get("deadline_at"):
+        out["budget"] = {
+            "budget": meta.get("budget"),
+            "deadline_at": deadline,
+            "remaining_s": round(max(0.0, deadline - time.time()), 1),
+        }
+    if kept := meta.get("kept_stale"):
+        out["kept_stale"] = sorted(kept)
+    return out
+
+
+def _task_json(rec: dict) -> dict[str, Any]:
+    """One task record, trimmed to the fields the human line surfaces (plus timestamps)."""
+    out: dict[str, Any] = {
+        "key": rec["key"],
+        "fn": rec.get("fn"),
+        "state": str(_rec_state(rec)),
+        "queued": is_queued(rec),
+    }
+    for f in ("step", "total", "metrics", "error", "exc_type", "fc_id", "env", "started_at", "finished_at"):
+        if (v := rec.get(f)) is not None:
+            out[f] = v
+    if _rec_state(rec) == RunState.RUNNING and (hb := rec.get("heartbeat_at")):
+        out["heartbeat_age_s"] = round(time.time() - hb, 1)
+        out["stale_heartbeat"] = stale_heartbeat(rec)
+    return out
 
 
 def cmd_watch(args: argparse.Namespace) -> None:
@@ -399,6 +520,8 @@ def cmd_watch(args: argparse.Namespace) -> None:
         return
     state = _aggregate_state([_rec_state(r) for r in records])
     print(f"{args.name}  —  {state}  ({len(records)} tasks)")
+    if state != RunState.DONE:  # exit code = settle outcome, so scripts can gate on it
+        raise SystemExit(1)
 
 
 def cmd_results(args: argparse.Namespace) -> None:
@@ -432,6 +555,155 @@ def _attempt_delta(prev: dict, cur: dict) -> str:
             continue
         bits.append(f"{name}: {'changed' if name in a and name in b else ('added' if name in b else 'removed')}")
     return ", ".join(bits) or "retried (evidence unchanged)"
+
+
+def _exec_env_summary(store: MemoStore) -> dict[str, Any]:
+    """Aggregate the per-task execution environments a run actually ran on.
+
+    Each settled task carries an ``env`` (see :func:`mini.runs.compute_env`); this
+    rolls the fan-out up into the distinct GPUs / regions / clouds / hosts and the
+    number of Modal containers, plus the summed execution wall time — the "what did
+    this run *on*" companion to the driver-side lineage.
+    """
+    # env field -> the distinct values seen across tasks (each rolled up below).
+    seen: dict[str, set[str]] = {k: set() for k in ("gpu", "region", "cloud", "host", "modal_task_id")}
+    wall = 0.0
+    for rec in store.records():
+        env = rec.get("env") or {}
+        if gpu := env.get("gpu"):
+            env = {**env, "gpu": f"{gpu}×{env['gpu_count']}" if env.get("gpu_count") else gpu}
+        for field, values in seen.items():
+            if val := env.get(field):
+                values.add(val)
+        if (s := rec.get("started_at")) and (f := rec.get("finished_at")):
+            wall += max(0.0, f - s)
+    out: dict[str, Any] = {
+        label: sorted(seen[field])
+        for field, label in (("gpu", "gpus"), ("region", "regions"), ("cloud", "clouds"), ("host", "hosts"))
+        if seen[field]
+    }
+    if seen["modal_task_id"]:
+        out["modal_containers"] = len(seen["modal_task_id"])
+    if wall:
+        out["task_wall_seconds"] = round(wall, 1)
+    return out
+
+
+def _print_git_lineage(git: dict[str, Any], name: str) -> None:
+    """Print the git block of a run's lineage (code state, remotes, dirty diff)."""
+    head = git.get("describe") or git.get("short_sha") or "?"
+    print(f"  code    {head}{'  · dirty' if git.get('dirty') else ''}")
+    if branch := git.get("branch"):
+        print(f"          branch {branch}" + (f" · tags {', '.join(git['tags'])}" if git.get("tags") else ""))
+    for remote, url in (git.get("remotes") or {}).items():
+        print(f"          remote {remote} {url}")
+    if subject := git.get("subject"):
+        print(f"          “{subject}” ({git.get('committed_at', '?')})")
+    if git.get("diff"):
+        trunc = " (truncated)" if git.get("diff_truncated") else ""
+        print(f"          working-tree diff recorded{trunc} — see: python -m mini lineage {name} --diff")
+    if untracked := git.get("untracked"):
+        print(f"          untracked: {', '.join(untracked[:8])}" + (" …" if len(untracked) > 8 else ""))
+
+
+def cmd_lineage(args: argparse.Namespace) -> None:
+    """Print a run's captured provenance — enough to reproduce or forensically trace it.
+
+    Shows the code state (git sha/branch/tags/remote, and whether the tree was
+    dirty), who and what drove it (operator handle + AI agents), the spawning environment,
+    the timeline, any upstream experiments it built on, and a rollup of what the
+    tasks actually executed on. ``--diff`` dumps the recorded working-tree diff.
+    """
+    store = _store_for(args.name, args)
+    lin = store.meta().get("lineage")
+    if not lin:
+        raise SystemExit(
+            f"no lineage recorded for {args.name!r} — re-run it so this build can capture it "
+            "(or it may have run on a backend this checkout can't read; try --app)"
+        )
+    git = lin.get("git") or {}
+    if args.diff:
+        print(git.get("diff") or "(tree was clean — no diff recorded)")
+        return
+    print(f"{args.name} — lineage")
+    if git:
+        _print_git_lineage(git, args.name)
+    when = f"  when    first {lin.get('first_captured_at', '?')} · last {lin.get('captured_at', '?')}"
+    print(when + (f" · {lin['wakes']} wake(s)" if lin.get("wakes") else ""))
+    if ops := lin.get("operators"):
+        print(f"  who     {', '.join(o.get('handle', '?') for o in ops)}")
+    if agents := lin.get("agents"):
+        print(f"  agents  {', '.join(_fmt_agent(a) for a in agents)}")
+    drv = lin.get("driver") or {}
+    dl = f"  driver  {drv.get('host', '?')} · {drv.get('platform', '?')} · py{drv.get('python', '?')}"
+    if runner := drv.get("runner"):
+        dl += f" · {runner.get('kind', '?')}"
+    print(dl)
+    _print_upstreams(lin)
+    if ids := store.meta().get("modal_app_ids"):
+        print(f"  modal   {len(ids)} app run(s) — cost: python -m mini cost {args.name}")
+    if ran_on := _ran_on_line(store):
+        print(f"  ran on  {ran_on}")
+
+
+def _print_upstreams(lin: dict[str, Any]) -> None:
+    """Print each upstream experiment this run built on, with its refs evidence."""
+    for up in lin.get("upstreams") or []:
+        code = up.get("git_describe") or (up.get("git_sha") or "?")[:12]
+        line = f"  ⇐ {up.get('experiment', '?')}  {code}{'  (dirty)' if up.get('git_dirty') else ''}  {up.get('run_at', '')}"
+        if refs := up.get("refs"):  # detected from these resolved refs (vs. declared in deps=)
+            line += f"\n      via {', '.join(refs)}"
+        print(line)
+
+
+def _ran_on_line(store: MemoStore) -> str:
+    """One-line rollup of what a run's tasks actually executed on (or empty)."""
+    s = _exec_env_summary(store)
+    bits = []
+    if s.get("gpus"):
+        bits.append("gpu " + ", ".join(s["gpus"]))
+    if s.get("regions"):
+        bits.append("region " + ", ".join(s["regions"]))
+    if s.get("modal_containers"):
+        bits.append(f"{s['modal_containers']} container(s)")
+    if s.get("task_wall_seconds"):
+        bits.append(f"{s['task_wall_seconds']:g}s task wall")
+    return " · ".join(bits)
+
+
+def _fmt_agent(a: dict[str, str]) -> str:
+    s = a.get("name", "?")
+    if v := a.get("version"):
+        s += f" {v}"
+    extra = [f"{k}={a[k]}" for k in ("entrypoint", "model") if a.get(k)]
+    return s + (f" ({', '.join(extra)})" if extra else "")
+
+
+def cmd_cost(args: argparse.Namespace) -> None:
+    """Reconcile a run's Modal cost from the billing API (post-run; billing lags).
+
+    Sums the cost of every Modal app instance this run launched (recorded in meta at
+    spawn), with a per-resource breakdown (CPU / Memory / each GPU type). Only Modal
+    runs have a cost; billing is at daily resolution and lags the run, so a
+    just-finished run may report nothing yet.
+    """
+    store = _store_for(args.name, args)
+    meta = store.meta()
+    ids = meta.get("modal_app_ids") or []
+    if not ids:
+        raise SystemExit(f"{args.name!r}: no Modal app runs recorded — cost is available for Modal runs only")
+    from mini.modal_apparatus import query_cost
+
+    since = (meta.get("lineage") or {}).get("first_captured_at_epoch")
+    try:
+        rep = query_cost(ids, since_epoch=since)
+    except Exception as e:  # billing API is a network call; a clean message beats a traceback
+        raise SystemExit(f"could not query Modal billing for {args.name!r}: {e}") from e
+    print(f"{args.name} — Modal cost  ${rep['total']:.4f}  ({len(ids)} app run(s), {rep['intervals']} interval(s))")
+    for res, cost in sorted(rep["by_resource"].items(), key=lambda kv: kv[1], reverse=True):
+        print(f"  {res:10} ${cost:.4f}")
+    if rep["intervals"] == 0:
+        print("  (no billing data yet — Modal bills daily and lags the run; check back later)")
 
 
 def cmd_explain(args: argparse.Namespace) -> None:
@@ -654,10 +926,19 @@ def main() -> None:
 
     p = sub.add_parser("status", help="show per-task state + metrics, by experiment NAME")
     p.add_argument("name")
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="machine-readable status: one JSON object (stable field names; for scripts/agents)",
+    )
     _add_app_flag(p)
     p.set_defaults(func=cmd_status)
 
-    p = sub.add_parser("watch", help="render live bars for a run by NAME, read-only (never ticks)")
+    p = sub.add_parser(
+        "watch",
+        help="block until a run settles, rendering live bars — read-only (never ticks); "
+        "exits 0 iff it settled DONE, so it doubles as a wake trigger for scripts",
+    )
     p.add_argument("name")
     p.add_argument("--poll", type=float, default=0.5, help="seconds between record polls while watching")
     _add_app_flag(p)
@@ -679,6 +960,17 @@ def main() -> None:
     p.add_argument("key")
     _add_app_flag(p)
     p.set_defaults(func=cmd_explain)
+
+    p = sub.add_parser("lineage", help="show a run's provenance (git, who/what ran it, environment, upstreams)")
+    p.add_argument("name")
+    p.add_argument("--diff", action="store_true", help="print the recorded working-tree diff instead of the summary")
+    _add_app_flag(p)
+    p.set_defaults(func=cmd_lineage)
+
+    p = sub.add_parser("cost", help="reconcile a run's Modal cost from the billing API (post-run)")
+    p.add_argument("name")
+    _add_app_flag(p)
+    p.set_defaults(func=cmd_cost)
 
     p = sub.add_parser("cancel", help="stop in-flight tasks and mark them cancelled")
     p.add_argument("name")

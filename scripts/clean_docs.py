@@ -1,5 +1,7 @@
 #!/usr/bin/env python
-"""Apply terminal control sequences in Marimo HTML and session JSON output."""
+"""Post-export tidy-ups for Marimo HTML and session JSON: collapse terminal control
+sequences, redact URLs that shouldn't ship, and hide report code by default.
+"""
 
 import json
 import re
@@ -101,6 +103,45 @@ def clean_html(path: Path) -> bool:
     return True
 
 
+# --- Default to hidden code ---
+#
+# Our reports are literate (narrated prose and figures), so they read better with the
+# code out of the way. marimo's read view already ships a "Show code" toggle in its
+# menu; it just starts *on*. The obvious lever — flipping the `showAppCode` app-config
+# to false — is wrong: `canShowCode` short-circuits on that same flag, so false removes
+# the whole menu (toggle included), leaving the source reachable only via the "download
+# code" link. Instead marimo seeds the toggle's initial state from a `?show-code` query
+# param (falling back to `showAppCode` when absent). So we keep the config's default and
+# inject a tiny head script that sets `?show-code=false` when no such param is present:
+# code starts collapsed, the toggle stays, and a deliberate `?show-code=true` link still
+# opens with code shown. The script runs during head parsing, before marimo's (module)
+# bundle reads the URL. try/catch means any failure degrades to marimo's default rather
+# than breaking the page.
+
+_HIDE_CODE_MARKER = "mini:default-hidden-code"
+_HIDE_CODE_SHIM = (
+    f"<script>/* {_HIDE_CODE_MARKER} */(function(){{try{{"
+    "var u=new URL(window.location.href);"
+    'if(!u.searchParams.has("show-code")){'
+    'u.searchParams.set("show-code","false");'
+    'window.history.replaceState(null,"",u.toString());'
+    "}}catch(e){}})();</script>"
+)
+_HEAD_OPEN = re.compile(r"<head\b[^>]*>", re.IGNORECASE)
+
+
+def default_hidden_code(path: Path) -> bool:
+    """Inject the code-collapsed-by-default shim into a report's <head> (idempotent)."""
+    content = path.read_text("utf-8")
+    if _HIDE_CODE_MARKER in content:
+        return False
+    new_content, n = _HEAD_OPEN.subn(lambda m: m.group(0) + _HIDE_CODE_SHIM, content, count=1)
+    if not n:
+        return False
+    path.write_text(new_content, "utf-8")
+    return True
+
+
 # --- Session JSON cleaning (proper JSON parse/dump) ---
 
 
@@ -139,7 +180,8 @@ def clean_session_json(path: Path) -> bool:
 
 def _clean(path: Path) -> bool:
     if path.suffix == ".html":
-        return clean_html(path)
+        # `|` not `or`: run both, don't short-circuit on the first that changes nothing.
+        return clean_html(path) | default_hidden_code(path)
     if path.name.endswith(".py.json"):
         return clean_session_json(path)
     return False

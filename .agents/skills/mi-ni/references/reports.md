@@ -29,10 +29,60 @@ the bucket sets no `Content-Disposition`). Two *different* blobs under one name 
 report raises (give each a distinct `name=`). With no publisher, figures inline as
 self-contained `data:` URIs, so a no-frills export still works.
 
+**Consume.** A report reads durable results *by name* and must open cleanly before
+they exist. Resolve refs in one setup-cell helper that returns `None` when
+unpublished, and gate the first data cell with `mo.stop` showing the command that
+produces the data — every cell after it can then assume results:
+
+```py
+def load_results() -> dict | None:
+    store = project_store()
+    art = store.get_ref(METRICS_REF)         # ref name published by experiment.py
+    if art is None:
+        return None
+    with tempfile.TemporaryDirectory() as d:
+        return json.loads(store.get(art, Path(d) / "metrics.json").read_text())
+
+mo.stop(loaded is None, mo.md("No results yet — run the experiment:\n```bash\nbin/mini run …\n```"))
+curves = loaded  # re-export under a new name; see below
+```
+
+`mo.stop` halts only cells *downstream of the guard cell*. Cells that read the
+loader's variable directly bypass the guard and crash on `None` in a data-less
+export — so consume the data only through names the guard cell defines (its
+re-export, or stats derived there), never the loader's own output.
+
+Ref names are stringly typed: the experiment `set_ref`s them and the report
+`get_ref`s them, so declare them once in `experiment.py` and import them from the
+report (`from experiment import METRICS_REF` — Marimo puts the notebook's directory
+on `sys.path`). Sweep constants the report reiterates (widths, seeds) can ride along
+in the same import. Namespace refs by project area (`reports/<group>/<experiment>/metrics`) so
+experiments with similar numbering can't collide across groups.
+
+**Provenance is automatic.** While the report renders, every `get_ref` it makes is
+recorded by the active publisher into the bundle's `_assets/provenance.json` (ref →
+the producer stamped at `set_ref` time: experiment, task, git state, run time — see
+[storage.md](./storage.md)), and the exporter injects a folded "Data provenance"
+chip (bottom-left, mirroring the nav banner) citing each producing experiment. No
+per-report code; a report whose refs are unstamped (written before provenance
+existed, or outside a task worker) simply gets no chip until the producing step
+re-runs. The chip's content derives only from the store's refs, so re-exporting
+unchanged data yields the same footer — publishing stays idempotent.
+
+Quote numbers in prose as computed values (`mo.md(f"…{best:.2f}…")`), derived in
+the guard cell or below it, so the text can't drift from the data. And compute the
+stats *before* writing any qualitative claim — including figure alt text: a
+placeholder like "the lines nearly coincide" written ahead of the data will
+survive into a published report saying the opposite of what happened.
+
 **Publish, then build.** Two halves, split by trigger. `./go publish` (authenticated)
 exports each report to `.mini/exports/<key>/` and mirrors that bundle to the bucket at
 `exports/<key>/` — the heavy half (it runs the notebook, which needs the data + a write
-token). `scripts/build_site.py` (read-only; CI) then *pulls* each synced bundle, resolves
+token). This is a deliberate step, *not* something experiment completion does for you:
+an experiment publishes its **results** to the store, but the **report** bundle ships
+only when you run `./go publish` — and the build **silently skips** a report that was
+never published (a warning, not an error), so the site just quietly lacks it. Publish
+once the report renders the results. `scripts/build_site.py` (read-only; CI) then *pulls* each synced bundle, resolves
 author links against the repo, and inserts one `<base href="…/exports/<key>/">` in the
 `<head>` so the relative `_assets/…` URLs resolve at the bucket — no per-URL rewriting,
 no bucket writes. The same HTML opened locally (after `./go export`, which exports the
@@ -47,3 +97,31 @@ rendered page, a link to a source file becomes its GitHub source, and anything i
 place is left alone with a warning. Write natural relative links
 (`[experiment](./experiment.py)`); the absolute targets are derived from the git remote
 (override with `MINI_SITE_URL` / `MINI_SOURCE_URL`). Design notes: `eng/publishing.md`.
+
+## Verifying a rendered report from a sandboxed agent session
+
+Don't try to screenshot the exported bundle with headless Chromium: the HTML
+hydrates client-side and pulls the Marimo frontend from a CDN, which the
+sandbox's browser can't reach (it doesn't inherit the agent proxy), so the page
+renders blank — `document.body.scrollHeight` of 0 over both `file://` and a
+localhost server. Verify without a browser instead:
+
+- **Structure:** grep `index.html` — `Traceback|marimo-error` should have zero
+  hits, and a string produced *below* the `mo.stop` guard (a computed number, a
+  section heading) proves the data cells ran. Beware that cell *source* is
+  embedded in the HTML too, so grep for rendered output, not code.
+- **Figures:** `Read` the exported `_assets/<name>-{light,dark}.png` directly —
+  faster and more faithful than a screenshot. Judge the dark variant composited
+  over a dark background (e.g. `#111`), the way readers will see it.
+- **Inline SVG output** (e.g. subline): extract the `<svg>…</svg>` and rasterize
+  with cairosvg (`uvx --with cairosvg`), first stripping any external
+  `@import url(...)` font rule. Glyph metrics are approximate without the
+  webfont (text drifts relative to per-character marks), but shape and story
+  read fine. Simpler still: regenerate the SVG standalone with the same code
+  and data the report uses — that also exercises the figure code path.
+
+If you must drive Chromium (e.g. for a self-contained page): the executable is
+`/opt/pw-browsers/chromium` (pass `executable_path=`), pages referencing
+external hosts hang `goto` (use `wait_until="domcontentloaded"`), and the
+browser can't read the session scratchpad under `/tmp` — serve from the repo
+tree over localhost.

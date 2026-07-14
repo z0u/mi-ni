@@ -9,8 +9,13 @@ from utils.dom import Element
 
 
 class Subline:
-    def __init__(self, chars_per_line: int = 80):
+    def __init__(self, chars_per_line: int = 80, css: str | None = None):
         self.chars_per_line = chars_per_line
+        # Extra CSS appended after the built-in styles, so callers can override the
+        # theme (e.g. the `--col-*` / `--bg-color` custom properties) without editing
+        # the library. Later rules win at equal specificity, so `svg { --bg-color: … }`
+        # here beats the defaults below.
+        self.css = css
         self.font_size = 14
         self.line_height = self.font_size
         self.line_gap = self.line_height
@@ -27,8 +32,16 @@ class Subline:
         line_start = 0
         current_width = 0.0
 
+        # Token widths are float multiples of char_width, so accumulating them drifts
+        # by rounding error (summing 8.4 ten times overshoots 10 * 8.4). Comparing that
+        # drifting sum straight against the budget used to wrap a line one character too
+        # early — the caller had to pad chars_per_line by one to compensate. A
+        # sub-character tolerance absorbs the drift so an exact-fit line stays on one line.
+        budget = self.chars_per_line * self.char_width
+        tolerance = self.char_width / 2
+
         for i, span in enumerate(spans):
-            if current_width + span.width > self.chars_per_line * self.char_width:
+            if current_width + span.width > budget + tolerance:
                 if line_start < i:  # Don't create empty lines
                     lines.append(slice(line_start, i))
                 line_start = i
@@ -146,36 +159,35 @@ class Subline:
             xmlns="http://www.w3.org/2000/svg",
             style="color-scheme: light dark; background-color: var(--bg-color); box-shadow: 0 0 0 10px var(--bg-color);",
         )
-        Element(
-            svg,
-            "style",
-            text=dedent("""
-                @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@100..900&family=Source+Code+Pro&display=swap');
-                text {
-                    font-family: "Source Code Pro", "Noto Sans Mono", monospace !important;
-                    font-optical-sizing: auto;
-                    font-weight: 400;
-                    white-space: pre;
-                }
-                svg {
-                    color-scheme: light dark;
-                    --col-series-1: light-dark(#ef4444, #ff7878);
-                    --col-series-2: light-dark(#3b82f6, #3b82f6);
-                    --col-series-3: light-dark(#22c55e, #45e881);
-                    --col-series-4: light-dark(#f97316, #ffa261);
-                    --col-series-5: light-dark(#a855f7, #d9b1ff);
-                    --col-text: light-dark(#666666, #dddddd);
-                    --col-baseline: light-dark(#cccccc, #666666);
-                    --bg-color: light-dark(#fff, #2a2a2a);
-                    --blend-mode: multiply;
-                }
-                @media (prefers-color-scheme: dark) {
-                    svg { --blend-mode: screen; }
-                }
-                rect, circle, line, path, text { transition: fill 0.3s, stroke 0.3s; }
-                svg { transition: background-color 0.3s; }
-            """),
-        )
+        style = dedent("""
+            @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@100..900&family=Source+Code+Pro&display=swap');
+            text {
+                font-family: "Source Code Pro", "Noto Sans Mono", monospace !important;
+                font-optical-sizing: auto;
+                font-weight: 400;
+                white-space: pre;
+            }
+            svg {
+                color-scheme: light dark;
+                --col-series-1: light-dark(#ef4444, #ff7878);
+                --col-series-2: light-dark(#3b82f6, #3b82f6);
+                --col-series-3: light-dark(#22c55e, #45e881);
+                --col-series-4: light-dark(#f97316, #ffa261);
+                --col-series-5: light-dark(#a855f7, #d9b1ff);
+                --col-text: light-dark(#666666, #dddddd);
+                --col-baseline: light-dark(#cccccc, #666666);
+                --bg-color: light-dark(#fff, #2a2a2a);
+                --blend-mode: multiply;
+            }
+            @media (prefers-color-scheme: dark) {
+                svg { --blend-mode: screen; }
+            }
+            rect, circle, line, path, text { transition: fill 0.3s, stroke 0.3s; }
+            svg { transition: background-color 0.3s; }
+        """)
+        if self.css:
+            style += dedent(self.css) + "\n"
+        Element(svg, "style", text=style)
 
         # Add text content and sparklines
         sparkline = Sparkline()
@@ -206,5 +218,6 @@ class Subline:
 
         total_width = max(text_width + 2 * self.margin, legend_width + 2 * self.margin)
         svg.set("viewBox", f"0 0 {total_width} {total_height}")
+        svg.set("style", svg.get("style", "") + f"width: {total_width:.1f}px; max-width: 100%; display: inline-block;")
 
         return ET.tostring(svg, encoding="unicode")

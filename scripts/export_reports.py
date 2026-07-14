@@ -11,14 +11,22 @@ authenticated half of publishing (it needs the data the report reads + a write t
 """
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))  # so `import clean_docs` (sibling) works
 
-from clean_docs import clean_html  # noqa: E402
-from mini.reports import export_dir, export_key, is_report_notebook, report_notebooks  # noqa: E402
+from clean_docs import clean_html, default_hidden_code  # noqa: E402
+from mini.reports import (  # noqa: E402
+    PROVENANCE_ASSET,
+    export_dir,
+    export_key,
+    is_report_notebook,
+    report_notebooks,
+    set_provenance,
+)
 
 ROOT = Path(__file__).parent.parent.resolve()
 DOCS = ROOT / "docs"
@@ -47,9 +55,17 @@ def export_one(nb: Path) -> Path:
     """Export *nb* to ``.mini/exports/<key>/index.html`` (assets land beside it). Returns the dir."""
     out = export_dir(nb) / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)
+    # The render rewrites the provenance sidecar as it resolves refs; clear the last
+    # export's first so a report that stopped reading a ref can't inherit stale claims.
+    sidecar = out.parent / "_assets" / PROVENANCE_ASSET
+    sidecar.unlink(missing_ok=True)
     print(f"  export {nb.relative_to(ROOT)} -> {out.relative_to(ROOT)}")
     subprocess.run(["marimo", "export", "html", "-f", str(nb), "-o", str(out)], check=True, cwd=ROOT)
     clean_html(out)  # scrub terminal control seqs + redact modal URLs from the published HTML
+    default_hidden_code(out)  # literate reports open with code collapsed; the menu toggle still reveals it
+    if sidecar.exists():  # the render read store refs — cite their producers in a footer
+        refs = json.loads(sidecar.read_text()).get("refs", {})
+        out.write_text(set_provenance(out.read_text("utf-8"), refs), "utf-8")
     return out.parent
 
 

@@ -7,6 +7,7 @@ the ambient store, the same shape as ``get_data_dir``).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -17,9 +18,11 @@ from mini.store import (
     get,
     get_ref,
     get_store,
+    producer_context,
     publish,
     publish_repo,
     put,
+    resolved_refs_context,
     set_ref,
     store_bucket,
     store_for,
@@ -137,6 +140,52 @@ def test_refs_round_trip_including_nested_names(store: LocalStore):
 
 def test_get_ref_missing_returns_none(store: LocalStore):
     assert store.get_ref("nope") is None
+
+
+# ---------------------------------------------------------------------------
+# Ref provenance: producer stamping + resolution tracking
+# ---------------------------------------------------------------------------
+
+
+def test_set_ref_stamps_the_ambient_producer(store: LocalStore):
+    art = store.put(b"curves", name="curves.json")
+    with producer_context({"experiment": "prep", "task": "abc123", "git_sha": "d" * 40}):
+        store.set_ref("shared/curves", art)
+    producer = store.ref_producer("shared/curves")
+    assert producer is not None
+    assert producer["experiment"] == "prep" and producer["task"] == "abc123"
+    assert producer["written_at"]  # stamped at write time
+    assert store.get_ref("shared/curves") == art  # the handle round-trips unchanged
+
+
+def test_set_ref_outside_producer_context_is_unstamped(store: LocalStore):
+    store.set_ref("shared/plain", store.put(b"x", name="x.bin"))
+    assert store.ref_producer("shared/plain") is None
+    assert store.get_ref("shared/plain") is not None
+
+
+def test_get_ref_reads_pre_producer_payloads(store: LocalStore):
+    # A ref written before producer stamping existed: the bare artifact dict.
+    art = store.put(b"old", name="old.bin")
+    store._write_ref("legacy/ref", json.dumps(art.to_dict(), sort_keys=True))
+    assert store.get_ref("legacy/ref") == art
+    assert store.ref_producer("legacy/ref") is None
+
+
+def test_resolved_refs_context_collects_what_a_step_reads(store: LocalStore):
+    art = store.put(b"a", name="a.bin")
+    with producer_context({"experiment": "prep"}):
+        store.set_ref("shared/a", art)
+    store.set_ref("shared/anon", store.put(b"b", name="b.bin"))  # unstamped
+
+    seen: dict[str, dict | None] = {}
+    with resolved_refs_context(seen):
+        store.get_ref("shared/a")
+        store.get_ref("shared/anon")
+        store.get_ref("shared/missing")  # unset — resolves to nothing, so no evidence
+    assert seen["shared/a"] and seen["shared/a"]["experiment"] == "prep"
+    assert seen["shared/anon"] is None  # read, but unattributable
+    assert "shared/missing" not in seen
 
 
 def test_publish_writes_extensioned_view_and_returns_url(store: LocalStore):
