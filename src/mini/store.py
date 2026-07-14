@@ -55,6 +55,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Literal
 
@@ -72,6 +73,8 @@ __all__ = [
     "publish",
     "set_ref",
     "get_ref",
+    "producer_context",
+    "resolved_refs_context",
     "store_root_for",
     "store_for",
     "project_store",
@@ -225,6 +228,66 @@ def artifact_shas(obj: Any) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# Ref provenance: who wrote a name, and who read it
+#
+# The store is project-shared and knows nothing about experiments, so producer
+# identity arrives ambiently: the task worker wraps a step in `producer_context`
+# and `set_ref` stamps that identity into the ref payload. The consumer side is
+# the mirror image — `resolved_refs_context` collects every ref a step resolves
+# (with its stamped producer), which is how a run's upstream experiments are
+# detected without declaring `Experiment(deps=[...])` by hand, and how a report
+# knows which runs its data came from.
+# ---------------------------------------------------------------------------
+
+_producer: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("mini_ref_producer", default=None)
+_resolved: contextvars.ContextVar[dict[str, dict[str, Any] | None] | None] = contextvars.ContextVar(
+    "mini_resolved_refs", default=None
+)
+
+
+@contextmanager
+def producer_context(info: dict[str, Any]) -> Iterator[None]:
+    """Bind *info* as the identity ``set_ref`` stamps into refs written in this context.
+
+    Set by the task worker around a step (experiment name, task key, and the run's
+    code state from its stored lineage). Refs written outside any producer context
+    are simply unstamped — capture degrades, it never blocks a write.
+    """
+    token = _producer.set(info)
+    try:
+        yield
+    finally:
+        _producer.reset(token)
+
+
+@contextmanager
+def resolved_refs_context(seen: dict[str, dict[str, Any] | None]) -> Iterator[None]:
+    """Collect every ref resolved in this context into *seen* (name → stamped producer).
+
+    The task worker reads the collected set back after the step to record which
+    upstream experiments actually fed it (``upstream_refs`` on the task record).
+    """
+    token = _resolved.set(seen)
+    try:
+        yield
+    finally:
+        _resolved.reset(token)
+
+
+def _note_resolution(name: str, producer: dict[str, Any] | None) -> None:
+    """Fan a ref resolution out to whoever is listening — never let it break a read."""
+    if (seen := _resolved.get()) is not None:
+        seen[name] = producer
+    try:  # a rendering report tracks resolutions through its active publisher
+        from mini.reports import current_publisher
+
+        if pub := current_publisher():
+            pub.note_ref(name, producer)
+    except Exception:
+        log.debug("failed to note ref resolution for %r", name, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # The store
 # ---------------------------------------------------------------------------
 
@@ -334,13 +397,35 @@ class Store(ABC):
         return dest
 
     def set_ref(self, name: str, art: Artifact) -> None:
-        """Point the mutable name *name* at *art* — the cross-experiment by-name handle."""
-        self._write_ref(name, json.dumps(art.to_dict(), sort_keys=True))
+        """Point the mutable name *name* at *art* — the cross-experiment by-name handle.
+
+        When an ambient :func:`producer_context` is set (the task worker binds one),
+        the writer's identity rides the payload as a ``producer`` key —
+        ``Artifact.from_dict`` ignores it, so old readers are unaffected.
+        """
+        payload = art.to_dict()
+        if producer := _producer.get():
+            payload["producer"] = {**producer, "written_at": datetime.now(timezone.utc).isoformat()}
+        self._write_ref(name, json.dumps(payload, sort_keys=True))
 
     def get_ref(self, name: str) -> Artifact | None:
-        """Resolve the name *name* to its artifact handle, or ``None`` if unset."""
+        """Resolve the name *name* to its artifact handle, or ``None`` if unset.
+
+        Each resolution is announced (:func:`_note_resolution`) with the producer
+        stamped at ``set_ref`` time, so a consuming run records its upstream
+        experiments and a rendering report can cite where its data came from.
+        """
         payload = self._read_ref(name)
-        return Artifact.from_dict(json.loads(payload)) if payload is not None else None
+        if payload is None:
+            return None
+        d = json.loads(payload)
+        _note_resolution(name, d.get("producer"))
+        return Artifact.from_dict(d)
+
+    def ref_producer(self, name: str) -> dict[str, Any] | None:
+        """The producer stamped on ref *name* (see :meth:`set_ref`), or ``None``."""
+        payload = self._read_ref(name)
+        return json.loads(payload).get("producer") if payload is not None else None
 
     # -- gc surface (optional capability) --------------------------------------
     #

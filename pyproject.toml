@@ -41,6 +41,7 @@ mini = "mini.__main__:main"
 dev = [
     "pandas-stubs",
     "pytest-asyncio>=0.25.3",
+    "pytest-xdist>=3.6",
     "pytest>=8.3.5",
     "ruff>=0.9.7",  # linter and formatter
     "scipy-stubs>=1.15.2.2",
@@ -125,6 +126,11 @@ ignore = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 norecursedirs = ["node_modules", ".venv", "tmp*", "scratch*"]
+# Run in parallel by default (pytest-xdist): the suite is a mix of network-,
+# import-, and compute-bound tests that all isolate via tmp_path/monkeypatch, so
+# it scales near-linearly across cores. Override with `-n0` for a serial run
+# (e.g. when using --pdb).
+addopts = ["-n", "auto"]
 
 [tool.vulture]
 exclude = [
@@ -138,7 +144,8 @@ ignore_decorators = [
     "@property",
     "@classmethod",
     "@staticmethod",
-    "@model_validator"
+    "@model_validator",
+    "@pytest.fixture"
 ]
 ignore_names = [
     "visit_*",
@@ -146,14 +153,16 @@ ignore_names = [
     "test_*",
     "pytestmark",
     "setUp",
-    "tearDown"
+    "tearDown",
+    "_",  # marimo cell functions
+    "__generated_with"  # marimo file metadata
 ]
 # make_whitelist = true
 min_confidence = 60
 paths = [
     "src/",
     "tests/",
-    ".vulture-cache/",
+    "docs/",
     ".vulture-allowlist.py"
 ]
 sort_by_size = true

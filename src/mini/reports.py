@@ -34,10 +34,12 @@ base. The convention is *the only relative URLs left in a report are store asset
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 __all__ = [
     "Publisher",
@@ -47,6 +49,7 @@ __all__ = [
     "is_report_notebook",
     "report_notebooks",
     "SOURCE_ONLY_MARKER",
+    "PROVENANCE_ASSET",
     "use_publisher",
     "current_publisher",
     "relative_urls",
@@ -55,6 +58,7 @@ __all__ = [
     "insert_base",
     "set_theme",
     "set_banner",
+    "set_provenance",
 ]
 
 # Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
@@ -72,6 +76,14 @@ def _safe_leaf(name: str) -> str:
     """A filesystem/URL-safe leaf filename from *name* (its readable download name)."""
     leaf = re.sub(r"[^A-Za-z0-9._-]", "-", PurePosixPath(name).name)
     return leaf or "asset"
+
+
+# The bundle's provenance sidecar: which store refs the report resolved when it was
+# rendered, and the producer stamped on each (see ``mini.store.Store.set_ref``). The
+# publisher maintains it as the notebook runs; the exporter reads it back to inject
+# the report's provenance footer. It lives in ``_assets/`` so it rides the bundle
+# sync — the published site carries its own machine-readable provenance.
+PROVENANCE_ASSET = "provenance.json"
 
 
 @dataclass(frozen=True)
@@ -96,6 +108,24 @@ class Publisher:
     # name -> sha of what we wrote under it this export, so a second *different*
     # blob under the same name is caught rather than silently clobbering.
     _written: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
+    # ref name -> the producer stamped on it (or None) — every store ref the report
+    # resolved while rendering, mirrored to the PROVENANCE_ASSET sidecar.
+    _refs: dict[str, dict[str, Any] | None] = field(default_factory=dict, compare=False, repr=False)
+
+    def note_ref(self, name: str, producer: dict[str, Any] | None) -> None:
+        """Record that the report resolved store ref *name*, written by *producer*.
+
+        Called by ``mini.store`` on every ``get_ref`` while this publisher is
+        active, so the bundle's provenance sidecar always reflects the refs the
+        *current* render actually read. Deterministic given the store's refs —
+        re-rendering unchanged data rewrites the same sidecar.
+        """
+        self._refs[name] = producer
+        dest = self.asset_dir / PROVENANCE_ASSET
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(f"{PROVENANCE_ASSET}.tmp")
+        tmp.write_text(json.dumps({"refs": self._refs}, sort_keys=True, indent=1))
+        tmp.replace(dest)
 
     def asset_url(self, data: bytes | Path, *, name: str) -> str:
         """Write *data* (bytes or a file) as ``<name>`` and return its relative URL.
@@ -107,6 +137,8 @@ class Publisher:
         """
         blob = bytes(data) if isinstance(data, (bytes, bytearray)) else Path(data).read_bytes()
         leaf = _safe_leaf(name)
+        if leaf == PROVENANCE_ASSET:
+            raise ValueError(f"{PROVENANCE_ASSET!r} is reserved for the bundle's provenance sidecar")
         sha = hashlib.sha256(blob).hexdigest()
         if (prev := self._written.get(leaf)) is not None and prev != sha:
             raise ValueError(
@@ -402,3 +434,73 @@ def set_banner(html: str, *, index_url: str | None = None, source_url: str | Non
         count=1,
     )
     return re.sub(r"(<body[^>]*>)", lambda m: f"{m.group(1)}\n    {bar}", html, count=1)
+
+
+# The provenance chip mirrors the nav banner's mechanics (fixed overlay above
+# Marimo's full-viewport layer, UA system colors, blurred backdrop) but sits
+# bottom-left and folds away behind a <details> — provenance should be *findable*,
+# not competing with the report's content.
+_PROVENANCE_STYLE = (
+    "position:fixed;bottom:.5rem;left:.5rem;z-index:2147483647;"
+    "max-width:min(30rem,90vw);"
+    "padding:.3rem .65rem;font-size:.75rem;line-height:1.5;"
+    "font-family:system-ui,sans-serif;border-radius:.375rem;"
+    "background:color-mix(in srgb, Canvas 85%, transparent);"
+    "border:1px solid color-mix(in srgb, CanvasText 18%, transparent);"
+    "-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);"
+)
+_PROVENANCE_DIM = "color:color-mix(in srgb, CanvasText 60%, transparent)"
+
+
+def _provenance_entries(refs: dict[str, dict[str, Any] | None]) -> list[dict[str, Any]]:
+    """Fold ref → producer down to one entry per producing experiment (sorted).
+
+    Unattributed refs (written before producer stamping, or outside a run) are
+    dropped — the footer only makes claims it has evidence for.
+    """
+    by_exp: dict[str, dict[str, Any]] = {}
+    for name, producer in sorted(refs.items()):
+        if not producer or not producer.get("experiment"):
+            continue
+        entry = by_exp.setdefault(producer["experiment"], {**producer, "refs": []})
+        entry["refs"].append(name)
+    return [by_exp[k] for k in sorted(by_exp)]
+
+
+def set_provenance(html: str, refs: dict[str, dict[str, Any] | None]) -> str:
+    """Give a published report a folded data-provenance footer.
+
+    *refs* is the bundle's provenance sidecar content (ref name → the producer
+    stamped at ``set_ref`` time). Each producing experiment gets one line — name,
+    code state, run date — with the resolved ref names beneath it, inside a
+    ``<details>`` chip pinned bottom-left. A report whose refs carry no producer
+    (or that read no refs at all) is left untouched. Content is derived only from
+    the store's refs, so re-exporting unchanged data injects the same footer.
+    """
+    entries = _provenance_entries(refs)
+    if not entries:
+        return html
+
+    def line(e: dict[str, Any]) -> str:
+        code = e.get("git_describe") or (e.get("git_sha") or "")[:12]
+        bits = [f"<strong>{e['experiment']}</strong>"]
+        if code:
+            bits.append(f"<code>{code}</code>{' (dirty)' if e.get('git_dirty') else ''}")
+        if run_at := e.get("run_at"):
+            bits.append(f"run {str(run_at)[:10]}")
+        via = f'<div style="{_PROVENANCE_DIM}">via {", ".join(e["refs"])}</div>'
+        return f"<div>{' · '.join(bits)}{via}</div>"
+
+    chip = (
+        f'<details data-mini-provenance style="{_PROVENANCE_STYLE}">'
+        f'<summary style="cursor:pointer;{_PROVENANCE_DIM}">Data provenance</summary>'
+        f"{''.join(line(e) for e in entries)}"
+        "</details>"
+    )
+    html = re.sub(
+        r"(</head>)",
+        lambda m: f"    <style>@media print{{[data-mini-provenance]{{display:none}}}}</style>\n{m.group(1)}",
+        html,
+        count=1,
+    )
+    return re.sub(r"(<body[^>]*>)", lambda m: f"{m.group(1)}\n    {chip}", html, count=1)

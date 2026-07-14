@@ -90,3 +90,24 @@ Two further decisions:
   only `MINI_PUBLISH_REPO` — not the (now private) bucket. `store_for` builds a CAS-less
   store from a `publish-repo` alone for exactly this; the single-bucket default still
   serves the build off `MINI_STORE_BUCKET`. Set whichever your store layout uses.
+- **PR previews ride the same read-only build.** Because `./go publish` runs on the
+  agent's branch *before* the PR opens, the bundles are already on the publish tier when
+  review starts — a preview needs no compute, just HTML assembled around them.
+  `pr-preview.yml` runs `./go build` on the PR and deploys to `pr-preview/pr-<n>/` on the
+  `gh-pages` branch (torn down on close, linked from a sticky PR comment). That forces
+  the production deploy to be branch-based too (`clean-exclude: pr-preview/`): an
+  artifact deploy replaces the whole site, so previews couldn't coexist with it. Viewing
+  a bundle straight off the dataset repo is *not* an option — HF serves repo HTML as
+  `text/plain` behind a sandbox CSP. Known gap: exports aren't branch-namespaced, so
+  re-publishing an existing key from a branch swaps the assets under the live site's
+  older HTML; if that bites, publish PR exports to a `pr-<n>` git *revision* of the
+  dataset repo and point the preview `<base>` at `resolve/pr-<n>/` (see todo.md).
+- **Provenance is injected at export, not build.** The provenance footer (which
+  experiment runs produced the data a report shows) needs the producers stamped on the
+  store's refs — state only the authenticated export half can see, and only *while the
+  notebook runs* (the resolutions happen inside cells). So the render records each
+  `get_ref` into the bundle's `_assets/provenance.json` via the active publisher, and
+  the exporter injects the footer into the HTML before the bundle syncs; the read-only
+  build stays dumb. Everything in the footer derives from the store's refs — no build
+  timestamps — so re-publishing unchanged data produces the same bundle content and
+  publishing stays idempotent.

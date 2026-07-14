@@ -33,7 +33,24 @@ locally or on Modal without edits.
 Split definition from report. The definition is imported by the CLI and the
 remote workers; the report reads persisted results and plots, so it opens
 standalone without re-running the work. See `docs/pipeline/` for a worked,
-runnable example.
+runnable example with both halves.
+
+Two conventions that keep the pairing healthy:
+
+- **Avoid naming a `src/` package after a docs filename.** Marimo runs a report
+  with its own directory first on `sys.path`, so the sibling `experiment.py`
+  shadows any package named `experiment`. Symptom: import dies with "'X' is not
+  a package".
+- **Extract shared testbed code.** When a new experiment starts by copying a
+  sibling's model/eval helpers, consider lifting them into a shared `src/`
+  module (unless you expect heavy churn). Memoization evidence tracks project
+  source transitively, so the split doesn't weaken cache correctness.
+
+CI globs `docs/**/experiment.py` (`tests/mini/test_experiments_e2e.py`): every
+definition is at least *loaded* (import + construct), and the light demos run to
+completion. So a new or renamed experiment gets rot coverage for free — but its
+module top level must stay cheap and side-effect-free (imports of heavy deps
+belong inside task fns, which also keeps the driver light).
 
 ## Write cache-friendly experiments
 

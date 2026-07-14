@@ -12,8 +12,10 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager, nullcontext
@@ -75,6 +77,25 @@ def control_dict_name(name: str) -> str:
 def _modal_auth_error_message() -> str:
     """Build a user-facing message for Modal authentication failures."""
     return "Modal authentication failed. Run ./go auth, then try again."
+
+
+def _settled_failure(fc: modal.FunctionCall) -> bool:
+    """Did *fc*'s input settle in a terminal failure state (never to write its record)?
+
+    The discriminator for ``_is_task_alive``'s ambiguous branch: ``get`` re-raised
+    something that is either a deserialized remote failure (settled — dead) or a
+    local client/transport error (the call may be fine). The call graph reports
+    the input's status directly, so no exception-type guessing; unknown statuses
+    and unreachable graphs stay ``False`` (→ alive, the conservative default).
+    """
+    from modal.call_graph import InputStatus
+
+    settled = {InputStatus.FAILURE, InputStatus.INIT_FAILURE, InputStatus.TERMINATED, InputStatus.TIMEOUT}
+    try:
+        graph = fc.get_call_graph()
+    except Exception:
+        return False  # can't tell (transport error again, most likely) — don't reap on a guess
+    return any(inp.status in settled for inp in graph if inp.function_call_id == fc.object_id)
 
 
 def _app_page_url(app: modal.App) -> str | None:
@@ -353,7 +374,83 @@ def _modal_task_entry(blob: bytes, key: str, gen: str, dict_name: str, volume_na
     # *under* the mounted Volume (committed with the result), per-experiment until
     # #22's project Volume.
     artifacts = store_for(Path(mount_point) / "store", cache_root=WORKER_STORE_CACHE)
-    execute_task(store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts, gen=gen)
+    # The Volume is named after the experiment (the mount point isn't), so it
+    # carries the experiment identity for ref provenance.
+    execute_task(
+        store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts, gen=gen, experiment=volume_name
+    )
+
+
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _worker_fn_name(fn: Callable) -> str:
+    """A Modal-safe display name for the worker that will run *fn*.
+
+    One generic entry (:func:`_modal_task_entry`) dispatches a cloudpickled call, so
+    without this every task shows up as that one name on the Modal dashboard.
+    Registering the entry under ``<fn-name>-<hash>`` surfaces the *actual* task
+    function instead, with a short stable hash of its module+qualname appended so two
+    distinct functions that happen to share a ``__name__`` don't collide — Modal
+    silently overrides a name clash rather than erroring, which would hide one behind
+    the other.
+    """
+    base = _UNSAFE_NAME.sub("-", getattr(fn, "__name__", None) or "task")[:48] or "task"
+    ident = f"{getattr(fn, '__module__', '')}.{getattr(fn, '__qualname__', base)}"
+    return f"{base}-{hashlib.blake2b(ident.encode(), digest_size=3).hexdigest()}"
+
+
+def _record_app_id(store: MemoStore, app_id: str) -> None:
+    """Append a Modal app-instance id to the run's meta (dedup), for cost attribution.
+
+    Each detached ``app.run()`` is a fresh ephemeral app instance with its own id;
+    a multi-wake run accumulates several. Recording them lets :func:`query_cost`
+    reconcile this run's exact Modal billing after the fact (billing lags the run).
+    """
+    ids = list(store.meta().get("modal_app_ids") or [])
+    if app_id not in ids:
+        store.set_meta(modal_app_ids=[*ids, app_id])
+
+
+def query_cost(app_ids: list[str], since_epoch: float | None = None) -> dict[str, Any]:
+    """Reconcile Modal cost for the given app-instance ids from the billing API.
+
+    Modal bills per object (App) at daily resolution and the data lags the run, so
+    this is a *post-run* query: sum the cost of every billing interval whose
+    ``object_id`` is one of *app_ids*, plus a per-resource breakdown (CPU / Memory /
+    each GPU type). *since_epoch* bounds the report window (defaulting to ~30 days
+    back), clamped to Modal's 31-day hard limit for daily reports — so a very old
+    run reports its most recent 31 days rather than erroring. Costs are
+    :class:`~decimal.Decimal`.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    wanted = set(app_ids)
+    end = datetime.now(timezone.utc) + timedelta(days=1)  # a day of slack past "now"
+    earliest = end - timedelta(days=31)  # daily reports can't span more than 31 days
+    if since_epoch:
+        start = max(earliest, datetime.fromtimestamp(since_epoch, timezone.utc) - timedelta(days=1))
+    else:
+        start = end - timedelta(days=30)
+    report = modal.Workspace.from_context().billing.report(start=start, end=end, resolution="d")
+    return {**_aggregate_cost(report, wanted), "app_ids": list(app_ids)}
+
+
+def _aggregate_cost(items: Iterable[Any], wanted: set[str]) -> dict[str, Any]:
+    """Sum billing *items* whose ``object_id`` is in *wanted* into a total + per-resource breakdown."""
+    from decimal import Decimal
+
+    total = Decimal(0)
+    by_resource: dict[str, Decimal] = {}
+    intervals = 0
+    for item in items:
+        if item.object_id not in wanted:
+            continue
+        intervals += 1
+        total += item.cost
+        for resource, cost in item.cost_by_resource.items():
+            by_resource[resource] = by_resource.get(resource, Decimal(0)) + cost
+    return {"total": total, "by_resource": by_resource, "intervals": intervals}
 
 
 class ModalApparatus(Apparatus[ModalVolume]):
@@ -387,7 +484,9 @@ class ModalApparatus(Apparatus[ModalVolume]):
         # while the blocking `amap` path defaults to 1 — applied in `_build_modal_fn`.
         self._before_hooks: list[Callable[[], Any]] = []
         self._volume: ModalVolume | None = ModalVolume(name)
-        self._memo_fn: modal.Function | None = None
+        # One registered worker per distinct task-fn *display name* (see
+        # ``_worker_fn_name``), so the Modal dashboard names each task usefully.
+        self._memo_fns: dict[str, modal.Function] = {}
         self._image: modal.Image | None = None  # lazily built default; see _ensure_image
 
     def __str__(self) -> str:
@@ -468,21 +567,24 @@ class ModalApparatus(Apparatus[ModalVolume]):
         cache = LocalStore(data_root() / "store-cache" / self.app.name)
         return ModalVolumeStore(self.volume, cache)
 
-    def _memo_worker(self) -> modal.Function:
-        """Register (once) and return the generic remote worker for memo tasks.
+    def _memo_worker(self, fn: Callable) -> modal.Function:
+        """Register (once per display name) and return the remote worker for *fn*.
 
-        One stable function serves every task; each spawned call carries its own
-        cloudpickled call. The Volume is mounted so the worker writes results to
-        the same path the client reads back from.
+        The body is always the generic :func:`_modal_task_entry` (each spawned call
+        carries its own cloudpickled call), but it's registered under *fn*'s display
+        name (:func:`_worker_fn_name`) so the dashboard names the task — one
+        registration per distinct task fn, cached. The Volume is mounted so the
+        worker writes results to the same path the client reads back from.
 
         A detached sweep should parallelise, so there's *no* ``max_containers``
         default here — it's unbounded unless the caller sets one
         (``--max-containers`` / ``.w(max_containers=N)``), which now passes through
         to cap concurrency/cost. Only ``startup_timeout`` (a client-side knob, not a
-        ``@function`` kwarg) is dropped.
+        ``@function`` kwarg) and ``name`` (we set it) are dropped.
         """
-        if self._memo_fn is None:
-            drop = {"startup_timeout"}
+        name = _worker_fn_name(fn)
+        if name not in self._memo_fns:
+            drop = {"startup_timeout", "name"}
             fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k not in drop}
             fn_kwargs["image"] = self._ensure_image()
             if isinstance(self._volume, ModalVolume):
@@ -493,13 +595,16 @@ class ModalApparatus(Apparatus[ModalVolume]):
             if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
                 fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), secret]
             _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
-            self._memo_fn = self.app.function(serialized=True, **fn_kwargs)(_modal_task_entry)
-        return self._memo_fn
+            self._memo_fns[name] = self.app.function(serialized=True, name=name, **fn_kwargs)(_modal_task_entry)
+        return self._memo_fns[name]
 
     @override
     def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, str, Callable, tuple, list]]) -> None:
-        worker = self._memo_worker()
         dict_name, volume_name, mount_point = self._dict_name, self.app.name, str(self.volume.path)
+        # Register a worker per distinct task fn *before* opening the run context, so
+        # each shows on the dashboard under its own name. A ``map`` batch shares one
+        # fn (one registration); a mixed batch registers each once.
+        workers = {key: self._memo_worker(fn) for key, gen, fn, args, hooks in batch}
         # One detached app context for the whole batch (the cost we batch away is
         # app setup/registration, not the per-task spawn), then one ``spawn`` per
         # task. Unlike ``spawn_map`` — which returns None on Modal 1.3.x — ``spawn``
@@ -508,14 +613,18 @@ class ModalApparatus(Apparatus[ModalVolume]):
         # on the dashboard) even before the worker writes its first heartbeat.
         # max_containers is dropped in ``_memo_worker``, so the tasks parallelise.
         fc_ids: dict[str, tuple[str, str]] = {}
+        app_id: str | None = None
         with self.app.run(detach=True):
+            app_id = getattr(self.app, "app_id", None)  # the ephemeral app instance, for cost attribution
             for key, gen, fn, args, hooks in batch:
                 blob = cloudpickle.dumps((fn, args, hooks))
-                fc = worker.spawn(blob, key, gen, dict_name, volume_name, mount_point)
+                fc = workers[key].spawn(blob, key, gen, dict_name, volume_name, mount_point)
                 fc_ids[key] = (gen, fc.object_id)
         now = time.time()
         for key, (gen, fc_id) in fc_ids.items():
             store.update_if(key, gen, fc_id=fc_id, heartbeat_at=now)
+        if app_id:  # record the app id so `mini cost` can attribute Modal billing to this run
+            _record_app_id(store, app_id)
 
     @override
     def _stop_task(self, rec: dict[str, Any]) -> None:
@@ -530,28 +639,52 @@ class ModalApparatus(Apparatus[ModalVolume]):
     def _is_task_alive(self, rec: dict[str, Any]) -> bool:
         """Probe the task's ``FunctionCall`` for liveness (for ``reap_dead``).
 
-        ``get(timeout=0)`` polls without waiting: a ``modal.exception.TimeoutError``
-        means the input is still unfinished (running/queued → alive); a normal
-        return means it completed (the record settles on its own → treat as alive).
-        Only the *definitive gone* signals — the output expired, or the call id is
-        unknown — count as dead. We deliberately treat any other error (a remote
-        infra failure, or a transient read-side network blip) as alive: a false
-        "dead" would mark a live GPU task FAILED, and a retry would double-spawn it.
+        ``get(timeout=0)`` polls without waiting. The key invariant: the worker
+        never lets a task exception escape — it writes the record (FAILED) and
+        returns normally (``mini._taskworker.execute_task``). So a *settled*
+        failure raised out of ``get`` means the call died at the infra level
+        and will never settle its record (#20):
+
+        - poll came up empty → running/queued → alive. Modal raises the
+          *builtin* ``TimeoutError`` here (``modal._functions.poll_function``),
+          verified live on modal 1.5.1;
+        - ``FunctionTimeoutError`` → Modal killed the worker at the function
+          timeout → dead;
+        - ``InternalFailure`` → the input settled as an infra failure (a status
+          the call graph can't represent, so it's named here) → dead;
+        - ``OutputExpiredError`` / ``NotFoundError`` → the call is gone → dead;
+        - a normal return → completed; the record settles on its own → alive;
+        - anything else is ambiguous — a settled remote failure re-raised from
+          the output (arbitrary deserialized type), or a client/transport blip.
+          Cross-check the input's status via :func:`_settled_failure` instead
+          of guessing from exception types; when even that can't tell, stay
+          conservative (alive): a false "dead" would mark a live GPU task
+          FAILED, and a retry would double-spawn it.
+
+        Catch order matters: ``FunctionTimeoutError`` and ``OutputExpiredError``
+        both subclass ``modal.exception.TimeoutError``, so the dead arms come
+        before the timeout arm — the pre-#20 probe caught modal's ``TimeoutError``
+        first, which is exactly how settled timeouts read alive forever. (Both
+        timeout bases share one alive arm so a healthy task never pays the
+        cross-check RPC on a routine poll.)
         """
         fc_id = rec.get("fc_id")
         if not fc_id:
             return True  # not launched on Modal yet — nothing to probe
-        from modal.exception import NotFoundError, OutputExpiredError
+        from modal.exception import FunctionTimeoutError, InternalFailure, NotFoundError, OutputExpiredError
         from modal.exception import TimeoutError as ModalTimeout
 
+        fc = modal.FunctionCall.from_id(fc_id)
         try:
-            modal.FunctionCall.from_id(fc_id).get(timeout=0)
-        except ModalTimeout:
-            return True  # output not ready, input still unfinished → running/queued
+            fc.get(timeout=0)
+        except FunctionTimeoutError, InternalFailure:
+            return False  # settled failure at the infra level — the record will never be written
         except OutputExpiredError, NotFoundError:
             return False  # the call is gone — it will never settle the record
+        except TimeoutError, ModalTimeout:  # the builtin (poll-empty on 1.5.1) and modal's own
+            return True  # output not ready, input still unfinished → running/queued
         except Exception:
-            return True  # ambiguous infra/network error — don't risk reaping a live task
+            return not _settled_failure(fc)
         return True  # completed and returned → the record settles on its own
 
     @override

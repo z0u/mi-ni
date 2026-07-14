@@ -26,8 +26,9 @@ budget**, then reports. Depth lives in
 
 - `run` / `retry` / `cancel` **tick** the DAG: they launch or stop work and
   **cost money**.
-- `ls` / `status` / `results` / `logs` only **read**. Poll progress with
-  `status` — **never re-`run` to check progress** (that advances/relaunches).
+- `ls` / `status` / `watch` / `results` / `logs` only **read**. Poll progress
+  with `status` — **never re-`run` to check progress** (that
+  advances/relaunches).
 
 ## Driving to completion
 
@@ -36,12 +37,15 @@ re-invoke you for cadence — **drive within this one invocation**, but always
 bounded:
 
 1. **Launch / advance** with `bin/mini run <exp>` (one tick advances a stage).
-2. **Poll** with `bin/mini status <exp>` on an interval (every few seconds),
-   **not** by re-`run`ning. Stop when every task is settled, when you hit your
-   time/poll budget, or when something needs escalation.
-3. `--watch` is allowed **only** for a run you expect to finish quickly, and
-   **only with a timeout** (`timeout 180 bin/mini run <exp> --watch`) so it can't
-   block forever. For anything long, prefer launch + bounded `status` polling.
+2. **Poll** with `bin/mini status <exp> --json` on an interval (every few
+   seconds), **not** by re-`run`ning — parse `state` / `settled` /
+   `stale_heartbeat`, don't grep the human lines. Stop when `settled` is true,
+   when you hit your time/poll budget, or when something needs escalation.
+3. To block until a stage settles, prefer the read-only `timeout 180 bin/mini
+   watch <exp>` — it exits when every current task settles, 0 iff DONE (never
+   ticks, safe to interrupt). `run --watch` (which *drives*) is allowed **only**
+   for a run you expect to finish quickly, and **only with a timeout** so it
+   can't block forever. For anything long, prefer launch + bounded polling.
 4. **On a FAILED task**: `bin/mini logs <exp> <key>`, then apply the hotfix
    rules below or escalate.
 5. **When all DONE**: report the results location (`bin/mini results <exp>` /
