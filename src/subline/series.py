@@ -6,7 +6,10 @@ import numpy as np
 
 @dataclass
 class Series:
-    """A series of values for visualization with optional styling."""
+    """One line under the text: a value per token, plus how to draw it.
+
+    *raw* is one value per token, in whatever units the caller holds them; :meth:`normalize` maps them to the band's 0–1 fractions, and the base class passes them through unchanged. So either scale before constructing, or subclass to carry the units with the series (:class:`EntropySeries`). ``NaN`` marks a position with no value and breaks the line there. *label* names the series in the legend, and is the only place it appears.
+    """
 
     raw: np.ndarray
     color: str = ""

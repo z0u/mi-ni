@@ -1,6 +1,12 @@
 {
     "files.exclude": {
-        "__pycache__": true,
+        "**/__marimo__": true,
+        "**/__pycache__": true,
+        ".claude/skills/": true,
+        ".codex/skills/": true,
+        "CLAUDE.md": true,
+        "package-lock.json": true,
+        "uv.lock": true,
         ".venv": true,
         ".vulture-cache": true,
         ".pytest_cache": true,
@@ -20,4 +26,7 @@
         ".claude/skills": true,
         ".codex/skills": true
     },
+    "markdown.styles": [
+        "scripts/md.css"
+    ],
 }

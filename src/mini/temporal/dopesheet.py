@@ -24,11 +24,7 @@ class Dopesheet:
     A class to represent a dope sheet for parameter keyframes.
 
     ## Background
-    A dope sheet (or exposure sheet) is a tool used in animation to organize and plan
-    the timing of keyframes and actions. It typically helps animators visualize the
-    sequence of events and manage the timing of actions effectively. It consists of a
-    grid, where each row is a step in the animation, and each column represents a
-    different property or action.
+    A dope sheet (or exposure sheet) is a tool used in animation to organize and plan the timing of keyframes and actions. It typically helps animators visualize the sequence of events and manage the timing of actions effectively. It consists of a grid, where each row is a step in the animation, and each column represents a different property or action.
 
     ## Structure
     Dope sheets as defined by this class have the following columns:
@@ -48,8 +44,7 @@ class Dopesheet:
         """
         Initialize the Dopesheet with a DataFrame.
 
-        Parses column headers for property configurations (e.g., 'x:log:minjerk')
-        and resolves relative timesteps.
+        Parses column headers for property configurations (e.g., 'x:log:minjerk') and resolves relative timesteps.
 
         See `from_csv`.
         """
@@ -86,8 +81,7 @@ class Dopesheet:
         """
         Get the step details for the given step number.
 
-        The sheet may not contain a keyframe for the given step. In that case, the
-        current phase details will be returned without any keyed properties.
+        The sheet may not contain a keyframe for the given step. In that case, the current phase details will be returned without any keyed properties.
         """
         steps_col = self._df["STEP"]
 
@@ -236,7 +230,7 @@ class Dopesheet:
         """
         Convert the dopesheet to a dictionary.
 
-        Some logger frameworks like WandB will call this when storing model config.
+        A serialization hook — handy for storing the schedule alongside a run's config (e.g. in a lineage record or a metrics artifact).
         """
         df = self._df.copy()
         for col in df.columns:
@@ -418,10 +412,8 @@ def resolve_timesteps(steps: pd.Series) -> pd.Series:
 
     Handles:
     - Absolute steps: Non-negative integers (e.g., '0', '10').
-    - Relative integer steps: '+N' (N steps after previous anchor),
-                              '-N' (N steps before next anchor). N must be positive.
-    - Relative fractional steps: '+F' (interpolate between prev/next anchors),
-                                 '-F' (interpolate backwards from next anchor). 0 < F < 1.
+    - Relative integer steps: '+N' (N steps after previous anchor), '-N' (N steps before next anchor). N must be positive.
+    - Relative fractional steps: '+F' (interpolate between prev/next anchors), '-F' (interpolate backwards from next anchor). 0 < F < 1.
     - Invalid formats result in pd.NA.
     - Resolved negative steps are clamped to 0.
     """

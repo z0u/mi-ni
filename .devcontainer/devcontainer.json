@@ -72,5 +72,9 @@
       ]
     }
   },
-  "postCreateCommand": "./.devcontainer/post-create.sh"
+  // Carry the host's time zone into the container. The first runs on the host
+  // before start-up; the second applies what it recorded, on every start.
+  "initializeCommand": "./.devcontainer/host-timezone.sh",
+  "postCreateCommand": "./.devcontainer/post-create.sh",
+  "postStartCommand": "./.devcontainer/set-timezone.sh"
 }

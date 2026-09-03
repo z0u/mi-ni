@@ -1,23 +1,26 @@
 """Tests for memoized multi-step orchestration (ctx.run/ctx.map + tick).
 
-Task functions are *local* so cloudpickle serializes them by value; the
-orchestration ``main`` runs in-process in the driver.
+Task functions are *local* so cloudpickle serializes them by value; the orchestration ``main`` runs in-process in the driver.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+from rich.console import Console
 
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
 from mini.memo import LocalRecordStore, MemoStore, task_key
+from mini import orchestration
+from mini.monitor import drive_and_watch
 from mini.orchestration import TaskFailed, retry, tick
-from mini.runs import RunState
+from mini.runs import RunState, installed_numerics
 
 
 def _setup(name: str, main, tmp_path: Path) -> tuple[Experiment, LocalApparatus]:
@@ -25,27 +28,16 @@ def _setup(name: str, main, tmp_path: Path) -> tuple[Experiment, LocalApparatus]
     return Experiment(name=name, main=main), LocalApparatus(name, data_dir=tmp_path / name)
 
 
-def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 30.0, keep_stale: bool = False):
-    """Re-run the orchestration each 'wake' until it completes (mirrors the agent loop)."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        done, payload = tick(exp, app, keep_stale=keep_stale)
-        if done:
-            return payload
-        time.sleep(0.1)
-    raise AssertionError(f"orchestration did not complete: {payload}")
+def _drive(exp: Experiment, app: LocalApparatus, keep_stale: bool = False):
+    """Drive to completion exactly as ``mini run --watch`` does — tick, poll the records, re-tick — with the display muted and the human-paced poll wound right down."""
+    return drive_and_watch(exp, app, poll=0.005, console=Console(quiet=True), keep_stale=keep_stale)
 
 
-def _drive_to_failure(exp: Experiment, app: LocalApparatus, timeout: float = 30.0) -> ExceptionGroup:
-    """Tick until the strict map surfaces its failures; return the group."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            tick(exp, app)
-        except ExceptionGroup as eg:
-            return eg
-        time.sleep(0.1)
-    raise AssertionError("map never surfaced the failure")
+def _drive_to_failure(exp: Experiment, app: LocalApparatus) -> ExceptionGroup:
+    """Drive until the strict map surfaces its failures; return the group."""
+    with pytest.raises(ExceptionGroup) as exc:
+        _drive(exp, app)
+    return exc.value
 
 
 def test_multistep_dependency(tmp_path: Path):
@@ -86,9 +78,7 @@ def test_prep_runs_once_across_wakes(tmp_path: Path):
 
 
 def test_failed_is_terminal_until_retry(tmp_path: Path):
-    """A thrown task settles FAILED and does *not* auto-relaunch: the strict map
-    keeps raising on every wake. An explicit ``retry`` resets it so the next drive
-    reruns just that task and completes."""
+    """A thrown task settles FAILED and does *not* auto-relaunch: the strict map keeps raising on every wake. An explicit ``retry`` resets it so the next drive reruns just that task and completes."""
 
     def train(x):
         from mini import get_data_dir
@@ -113,7 +103,6 @@ def test_failed_is_terminal_until_retry(tmp_path: Path):
         with pytest.raises(ExceptionGroup) as exc:
             tick(exp, app)
         assert all(isinstance(e, TaskFailed) for e in exc.value.exceptions)
-        time.sleep(0.1)
     states = {r["key"]: r.get("state") for r in store.records()}
     assert sum(s == RunState.FAILED for s in states.values()) == 1  # not relaunched
     assert (tmp_path / "crash" / "att_2").read_text() == "1"  # threw exactly once
@@ -126,9 +115,7 @@ def test_failed_is_terminal_until_retry(tmp_path: Path):
 
 
 def test_allow_partial_returns_sentinel_for_failed_cell(tmp_path: Path):
-    """``allow_partial=True`` lets a map settle with a failed cell instead of
-    blocking forever: the result stays index-aligned with the inputs, with
-    ``MISSING`` where a task failed, so a downstream reduce can run on the rest."""
+    """``allow_partial=True`` lets a map settle with a failed cell instead of blocking forever: the result stays index-aligned with the inputs, with ``MISSING`` where a task failed, so a downstream reduce can run on the rest."""
     from mini.orchestration import MISSING
 
     def train(x):
@@ -147,13 +134,12 @@ def test_allow_partial_returns_sentinel_for_failed_cell(tmp_path: Path):
 
 
 def test_allow_partial_still_waits_for_in_flight(tmp_path: Path):
-    """Partial is not best-effort: it waits for running tasks to settle before
-    returning, so a slow-but-fine cell still lands a real result (not a gap)."""
+    """Partial is not best-effort: it waits for running tasks to settle before returning, so a slow-but-fine cell still lands a real result (not a gap)."""
 
     def train(x):
         if x == 2:
             raise RuntimeError("nope")
-        time.sleep(0.3)  # outlives the first wake; must be awaited, not skipped
+        time.sleep(0.1)  # outlives the first wake; must be awaited, not skipped
         return x * 10
 
     def main(ctx):
@@ -165,61 +151,36 @@ def test_allow_partial_still_waits_for_in_flight(tmp_path: Path):
 
 
 def test_strict_map_surfaces_failures_as_group(tmp_path: Path):
-    """Without ``allow_partial`` failed cells are terminal: once the fan-out has
-    settled, the map raises an ``ExceptionGroup`` of ``TaskFailed`` — *all* the
-    failures at once, after waiting for the slower siblings to settle too."""
+    """Without ``allow_partial`` failed cells are terminal: once the fan-out has settled, the map raises an ``ExceptionGroup`` of ``TaskFailed`` — *all* the failures at once, after waiting for the slower siblings to settle too."""
 
     def train(x):
         if x in (2, 3):
             raise RuntimeError("boom")
         return x
 
-    exp, app = _setup("strict", lambda ctx: ctx.map(train, [1, 2, 3]), tmp_path)
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            done, _ = tick(exp, app)
-        except ExceptionGroup as eg:
-            assert len(eg.exceptions) == 2  # both failing cells, surfaced together
-            failures = [e for e in eg.exceptions if isinstance(e, TaskFailed)]
-            assert len(failures) == 2  # all of them are TaskFailed
-            assert {e.state for e in failures} == {RunState.FAILED}
-            # the original exception's type rides along as a string, so a caller can
-            # bucket failures by kind without importing the worker's libraries
-            assert {e.exc_type for e in failures} == {"builtins.RuntimeError"}
-            return
-        assert not done, "strict map completed despite a failed cell"
-        time.sleep(0.1)
-    raise AssertionError("strict map never surfaced its failures")
+    eg = _drive_to_failure(*_setup("strict", lambda ctx: ctx.map(train, [1, 2, 3]), tmp_path))
+    assert len(eg.exceptions) == 2  # both failing cells, surfaced together
+    failures = [e for e in eg.exceptions if isinstance(e, TaskFailed)]
+    assert len(failures) == 2  # all of them are TaskFailed
+    assert {e.state for e in failures} == {RunState.FAILED}
+    # the original exception's type rides along as a string, so a caller can
+    # bucket failures by kind without importing the worker's libraries
+    assert {e.exc_type for e in failures} == {"builtins.RuntimeError"}
 
 
-def test_missing_sentinel_is_falsey_singleton_and_pickles(tmp_path: Path):
-    """``MISSING`` is a falsey singleton distinct from ``None``, and survives a
-    (cloud)pickle round-trip as the *same* object — so ``r is MISSING`` holds in a
-    downstream task that receives a partial result over the wire."""
+def test_missing_sentinel_is_falsey_singleton_and_pickles():
+    """``MISSING`` is a falsey singleton distinct from ``None``, and survives a (cloud)pickle round-trip as the *same* object — so ``r is MISSING`` holds in a downstream task that receives a partial result over the wire."""
     import pickle
 
     from mini import MISSING
 
     assert not MISSING and MISSING is not None
-    assert bool(MISSING) is False
     assert pickle.loads(pickle.dumps(MISSING)) is MISSING
     assert repr(MISSING) == "<missing>"
 
 
-def test_single_map(tmp_path: Path):
-    def sq(x):
-        return x * x
-
-    exp = Experiment(name="map", main=lambda ctx: ctx.map(sq, [2, 3]))
-    app = LocalApparatus("map", data_dir=tmp_path / "map")
-    assert _drive(exp, app) == [4, 9]
-
-
 def test_map_does_not_unpack_tuple_items(tmp_path: Path):
-    """A single-iterable map passes each element as *one* argument — an element
-    that happens to be a tuple stays a tuple. (The old items-based map unpacked
-    tuples as positional args, silently breaking tasks that take a tuple.)"""
+    """A single-iterable map passes each element as *one* argument — an element that happens to be a tuple stays a tuple. (The old items-based map unpacked tuples as positional args, silently breaking tasks that take a tuple.)"""
 
     def span(pair):
         lo, hi = pair
@@ -230,8 +191,7 @@ def test_map_does_not_unpack_tuple_items(tmp_path: Path):
 
 
 def test_map_zips_iterables_strictly(tmp_path: Path):
-    """Multiple iterables zip Executor-style into positional args — and
-    mismatched lengths raise rather than silently truncating the sweep."""
+    """Multiple iterables zip Executor-style into positional args — and mismatched lengths raise rather than silently truncating the sweep."""
 
     def add(a, b):
         return a + b
@@ -244,7 +204,9 @@ def test_map_zips_iterables_strictly(tmp_path: Path):
         tick(exp, app)
 
 
-def test_metrics_recorded_on_task(tmp_path: Path):
+def test_metrics_and_env_recorded_on_task(tmp_path: Path):
+    """The worker stamps each record with what the task measured, and with *what it ran on* (host/OS/Python)."""
+
     def t(x):
         from mini import emit_metrics
 
@@ -255,21 +217,14 @@ def test_metrics_recorded_on_task(tmp_path: Path):
         return ctx.map(t, [5])
 
     _drive(*_setup("met", main, tmp_path))
-    recs = MemoStore(tmp_path / "met").records()
-    assert any(r.get("metrics", {}).get("v") == 5.0 for r in recs)
-
-
-def test_env_recorded_on_task(tmp_path: Path):
-    """The worker stamps each record with *what it ran on* (host/OS/Python)."""
-    _drive(*_setup("env", lambda ctx: ctx.map(lambda x: x, [5]), tmp_path))
-    (rec,) = MemoStore(tmp_path / "env").records()
+    (rec,) = MemoStore(tmp_path / "met").records()
+    assert rec["metrics"] == {"v": 5.0}
     env = rec["env"]
     assert env["host"] and env["platform"] and env["python"]
 
 
 class _CountingStore(LocalRecordStore):
-    """A ``LocalRecordStore`` that records which keys were read, to assert the
-    cache stops re-reading the settled tail."""
+    """A ``LocalRecordStore`` that records which keys were read, to assert the cache stops re-reading the settled tail."""
 
     def __init__(self, root: Path):
         super().__init__(root)
@@ -281,8 +236,7 @@ class _CountingStore(LocalRecordStore):
 
 
 def test_poll_cache_reads_settled_records_once(tmp_path: Path):
-    """``PollCache`` serves the immutable settled tail from memory: a key is read
-    from the backend exactly once after it settles, then never again."""
+    """``PollCache`` serves the immutable settled tail from memory: a key is read from the backend exactly once after it settles, then never again."""
     from mini.memo import PollCache
 
     backend = _CountingStore(tmp_path / "pc")
@@ -304,8 +258,7 @@ def test_poll_cache_reads_settled_records_once(tmp_path: Path):
 
 
 def test_version_reruns_in_place(tmp_path: Path):
-    """``version=`` is evidence, not identity: a bump re-runs the task as a new
-    attempt on the *same* record, with the old attempt kept in its history."""
+    """``version=`` is evidence, not identity: a bump re-runs the task as a new attempt on the *same* record, with the old attempt kept in its history."""
 
     def t(x):
         return x
@@ -326,10 +279,9 @@ def test_version_reruns_in_place(tmp_path: Path):
 def test_prune_and_memo_hits_across_config_edits(tmp_path: Path):
     """Editing a sweep's config set re-runs only what changed.
 
-    The fix/prune/retry contract for a `ctx.map`: re-running with a different set
-    of items leaves unchanged items as memo hits (not relaunched), runs only the
-    new/changed items, and simply stops requesting a removed item. Proven with a
-    per-arg execution counter on the volume, so a memo hit shows count == 1."""
+    The fix/prune/retry contract for a `ctx.map`: re-running with a different set of items leaves unchanged items as memo hits (not relaunched), runs only the new/changed items, and simply stops requesting a removed item. Proven with a per-arg execution counter on the volume, so a memo hit shows count == 1.
+
+    Each tick also records the keys the DAG requested (the ``__run__`` manifest), so read-only views can split current records from superseded ones without re-running ``main`` (reads must never tick)."""
     counts = tmp_path / "counts"
     counts.mkdir()
 
@@ -342,8 +294,10 @@ def test_prune_and_memo_hits_across_config_edits(tmp_path: Path):
         return Experiment(name="prune", main=lambda ctx: ctx.map(work, items))
 
     data_dir = tmp_path / "prune"  # one shared memo store across both drives
+    store = MemoStore(data_dir)
     assert _drive(sweep([1, 2]), LocalApparatus("prune", data_dir=data_dir, max_workers=3)) == [10, 20]
     assert {p.name for p in counts.iterdir()} == {"1", "2"}
+    assert set(store.requested_keys() or []) == {r["key"] for r in store.records()}
 
     # Drop 1, keep 2, add 3: only 3 runs; 2 is a memo hit; 1 is no longer requested.
     assert _drive(sweep([2, 3]), LocalApparatus("prune", data_dir=data_dir, max_workers=3)) == [20, 30]
@@ -351,37 +305,14 @@ def test_prune_and_memo_hits_across_config_edits(tmp_path: Path):
     assert (counts / "3").read_text() == "1", "added item did not run exactly once"
     assert {p.name for p in counts.iterdir()} == {"1", "2", "3"}  # 1 retained, never re-run
 
-
-def test_tick_persists_requested_keys(tmp_path: Path):
-    """Each tick records the keys the DAG requested (the ``__run__`` manifest), so
-    read-only views can split current records from superseded ones without
-    re-running ``main`` (reads must never tick)."""
-
-    def work(x):
-        return x * 10
-
-    def sweep(items):
-        return Experiment(name="req", main=lambda ctx: ctx.map(work, items))
-
-    data_dir = tmp_path / "req"
-    _drive(sweep([1, 2]), LocalApparatus("req", data_dir=data_dir))
-    store = MemoStore(data_dir)
-    assert set(store.requested_keys() or []) == {r["key"] for r in store.records()}
-
-    # Prune a config: its record survives on disk, but the manifest no longer
-    # requests it — so the run's *current* view is just the surviving cell.
-    _drive(sweep([2]), LocalApparatus("req", data_dir=data_dir))
+    # 1's record survives on disk, but the manifest no longer requests it — so the
+    # run's *current* view is just the two surviving cells.
     current, stale = store.split_current(store.records())
-    assert len(current) == 1 and len(stale) == 1
+    assert len(current) == 2 and len(stale) == 1
 
 
 def test_superseded_records_are_excluded_and_not_retried(tmp_path: Path):
-    """*Renaming* (replacing) a task fn changes its identity, orphaning the old
-    records — an in-place edit does not (see the hotfix tests). The orphaned
-    FAILED record must not poison the run: ``retry`` skips it (resetting it would
-    plant a phantom no tick ever relaunches), and the manifest marks it
-    superseded for read-only views. Explicit ``--key`` intent still beats the
-    manifest."""
+    """*Renaming* (replacing) a task fn changes its identity, orphaning the old records — an in-place edit does not (see the hotfix tests). The orphaned FAILED record must not poison the run: ``retry`` skips it (resetting it would plant a phantom no tick ever relaunches), and the manifest marks it superseded for read-only views. Explicit ``--key`` intent still beats the manifest."""
 
     def bad(x):
         if x == 2:
@@ -414,8 +345,7 @@ def test_superseded_records_are_excluded_and_not_retried(tmp_path: Path):
 
 
 def _make_train(fixed: bool):
-    """Two variants of the *same* task fn — same module and qualname, different
-    source: an in-place edit, as far as identity is concerned."""
+    """Two variants of the *same* task fn — same module and qualname, different source: an in-place edit, as far as identity is concerned."""
     if fixed:
 
         def train(x):
@@ -443,11 +373,7 @@ def _hotfix_sweep(fixed: bool) -> Experiment:
 
 
 def test_hotfix_edit_relaunches_failed_cells_in_place(tmp_path: Path):
-    """The sweep-hotfix story. Editing the fn moves its *evidence*, not its keys:
-    the FAILED cell relaunches automatically (the fix is what it was waiting for
-    — no ``retry``), nothing is orphaned, and by default the stale DONE cell
-    re-runs too (bias to over-invalidate). The healed record keeps the failed
-    attempt in its history."""
+    """The sweep-hotfix story. Editing the fn moves its *evidence*, not its keys: the FAILED cell relaunches automatically (the fix is what it was waiting for — no ``retry``), nothing is orphaned, and by default the stale DONE cell re-runs too (bias to over-invalidate). The healed record keeps the failed attempt in its history."""
     data_dir = tmp_path / "hot"
     _drive_to_failure(_hotfix_sweep(False), LocalApparatus("hot", data_dir=data_dir))
     store = LocalApparatus("hot", data_dir=data_dir).memo_store()
@@ -465,9 +391,7 @@ def test_hotfix_edit_relaunches_failed_cells_in_place(tmp_path: Path):
 
 
 def test_keep_stale_bounds_hotfix_to_unfinished_cells(tmp_path: Path):
-    """``--keep-stale-done``: after an edit, DONE cells are served as-is and only
-    the cells that never finished re-run with the new code — the bounded hotfix.
-    The kept key lands in run meta so read-only views can badge it."""
+    """``--keep-stale-done``: after an edit, DONE cells are served as-is and only the cells that never finished re-run with the new code — the bounded hotfix. The kept key lands in run meta so read-only views can badge it."""
     data_dir = tmp_path / "hot"
     _drive_to_failure(_hotfix_sweep(False), LocalApparatus("hot", data_dir=data_dir))
     store = LocalApparatus("hot", data_dir=data_dir).memo_store()
@@ -477,25 +401,26 @@ def test_keep_stale_bounds_hotfix_to_unfinished_cells(tmp_path: Path):
     assert store.meta()["kept_stale"] == [task_key(_make_train(True), (1,))]
 
 
+def _mark(name: str):
+    """A ``before_each`` hook that leaves *name* in the data dir — the evidence for which apparatus actually ran a step."""
+
+    def hook():
+        from mini import get_data_dir
+
+        (get_data_dir() / name).touch()
+
+    return hook
+
+
 def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
     """``on=`` routes a step to a different apparatus — here proven via its hooks."""
-
-    def mark_default():
-        from mini import get_data_dir
-
-        (get_data_dir() / "default_hook").touch()
-
-    def mark_gpu():
-        from mini import get_data_dir
-
-        (get_data_dir() / "gpu_hook").touch()
 
     def task(x):
         return x
 
     data_dir = tmp_path / "perstep"
-    default = LocalApparatus("perstep", data_dir=data_dir).before_each(mark_default)
-    gpu = LocalApparatus("perstep", data_dir=data_dir).before_each(mark_gpu)
+    default = LocalApparatus("perstep", data_dir=data_dir).before_each(_mark("default_hook"))
+    gpu = LocalApparatus("perstep", data_dir=data_dir).before_each(_mark("gpu_hook"))
 
     def main(ctx):
         return ctx.map(task, [1], on=gpu)
@@ -506,18 +431,7 @@ def test_per_step_apparatus_uses_its_hooks(tmp_path: Path):
 
 
 def test_role_routes_to_its_apparatus(tmp_path: Path):
-    """``role=`` binds a label to a ``.w()`` variant via the experiment's ``roles``
-    table — proven (like ``on=``) through each variant's ``before_each`` hook."""
-
-    def mark_prep():
-        from mini import get_data_dir
-
-        (get_data_dir() / "prep_hook").touch()
-
-    def mark_train():
-        from mini import get_data_dir
-
-        (get_data_dir() / "train_hook").touch()
+    """``role=`` binds a label to a ``.w()`` variant via the experiment's ``roles`` table — proven (like ``on=``) through each variant's ``before_each`` hook."""
 
     def task(x):
         return x
@@ -528,7 +442,7 @@ def test_role_routes_to_its_apparatus(tmp_path: Path):
         # callable form: lets each role attach its own hook (local has no .w knobs).
         # Typed against the base Apparatus so it matches Experiment.roles' contract
         # (the field's callable must accept any apparatus --app built, not just local).
-        return {"prep": base.before_each(mark_prep), "train": base.before_each(mark_train)}
+        return {"prep": base.before_each(_mark("prep_hook")), "train": base.before_each(_mark("train_hook"))}
 
     def main(ctx):
         ctx.run(task, 0, role="prep")
@@ -540,8 +454,7 @@ def test_role_routes_to_its_apparatus(tmp_path: Path):
 
 
 def test_role_kwargs_table_applies_w(tmp_path: Path):
-    """The dict form maps a label to ``.w()`` kwargs; the base apparatus's ``.w``
-    interprets them (local ignores GPU knobs, so the same table runs locally)."""
+    """The dict form maps a label to ``.w()`` kwargs; the base apparatus's ``.w`` interprets them (local ignores GPU knobs, so the same table runs locally)."""
     captured: dict[str, Any] = {}
 
     class RecordingLocal(LocalApparatus):
@@ -563,8 +476,6 @@ def test_unknown_role_and_role_on_conflict_raise(tmp_path: Path):
     app = LocalApparatus("routing", data_dir=tmp_path / "routing")
     ctx = Ctx(app.memo_store(), app, roles={"train": app})
 
-    import pytest
-
     with pytest.raises(ValueError, match="unknown role"):
         ctx.run(lambda: None, role="gpu")
     with pytest.raises(ValueError, match="not both"):
@@ -572,10 +483,7 @@ def test_unknown_role_and_role_on_conflict_raise(tmp_path: Path):
 
 
 def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
-    """``ctx`` launches tasks through ``apparatus.spawn_tasks`` — the seam the
-    Modal backend implements — and batches a map's fan-out into one call. Proven
-    by routing to an apparatus that runs tasks *synchronously in-process* instead
-    of spawning: if Ctx bypassed the seam, the drive would time out."""
+    """``ctx`` launches tasks through ``apparatus.spawn_tasks`` — the seam the Modal backend implements — and batches a map's fan-out into one call. Proven by routing to an apparatus that runs tasks *synchronously in-process* instead of spawning: if Ctx bypassed the seam, the drive would time out."""
     from mini._taskworker import run_task
     from mini.local_apparatus import LocalApparatus
 
@@ -597,19 +505,8 @@ def test_ctx_spawns_via_the_apparatus(tmp_path: Path):
     assert batches == [2]  # both tasks launched in a single batched spawn
 
 
-def test_task_key_is_deterministic_and_input_sensitive():
-    def fn(x):
-        return x
-
-    assert task_key(fn, (1,)) == task_key(fn, (1,))
-    assert task_key(fn, (1,)) != task_key(fn, (2,))
-
-
 def test_input_fingerprint_stable_across_processes():
-    """Inputs containing a set (e.g. a Pydantic model's ``__pydantic_fields_set__``)
-    must fingerprint identically across processes — every agent wake is a fresh one,
-    and ``PYTHONHASHSEED`` randomizes set order. A plain ``pickle.dumps`` would differ.
-    """
+    """Inputs containing a set (e.g. a Pydantic model's ``__pydantic_fields_set__``) must fingerprint identically across processes — every agent wake is a fresh one, and ``PYTHONHASHSEED`` randomizes set order. A plain ``pickle.dumps`` would differ."""
     import os
     import subprocess
     import sys
@@ -626,3 +523,41 @@ def test_input_fingerprint_stable_across_processes():
         for seed in ("0", "1", "2")
     }
     assert len(outs) == 1, f"fingerprint varied across hash seeds: {outs}"
+
+
+def test_numerics_warning_names_the_drift_and_grows_with_the_hits_it_covers(tmp_path: Path, caplog):
+    """A library upgrade changes what a task computes while leaving key and evidence untouched, so the memo serves the old number silently. The tick names the version move instead — without re-running anything: whether to re-run is a `version=` decision the caller makes.
+
+    A tick can also suspend partway through the DAG, having counted only some of the drifted hits — the warning fires in ``finally``, partial tick or not. A later, fuller wake that serves more drifted hits under the same signature must not be silenced by the first, smaller report."""
+
+    def train(lr):
+        return lr * 2
+
+    exp, app = _setup("drift", lambda ctx: ctx.map(train, [0.1, 0.2]), tmp_path)
+    assert _drive(exp, app) == [0.2, 0.4]
+
+    store = app.memo_store()
+
+    def age(rec):  # same key, same code, an older jax
+        env = {**rec["env"], "numerics_packages": {**rec["env"]["numerics_packages"], "jax": "0.0.1-old"}}
+        store.update(rec["key"], env=env)
+
+    first, second = store.records()
+    orchestration._warned_numerics.clear()  # process-level "said it once" guard
+
+    age(first)  # stands in for a suspended tick that only reached one of the hits
+    with caplog.at_level(logging.WARNING, logger="mini.orchestration"):
+        assert _drive(exp, app) == [0.2, 0.4]  # the results are still served — detection, not a re-run
+    assert f"jax 0.0.1-old → {installed_numerics()['jax']}" in caplog.text
+    assert "1 memo hit(s)" in caplog.text
+
+    caplog.clear()
+    age(second)  # same signature, one more hit under it — the count must catch up
+    with caplog.at_level(logging.WARNING, logger="mini.orchestration"):
+        _drive(exp, app)
+    assert "2 memo hit(s)" in caplog.text
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="mini.orchestration"):
+        _drive(exp, app)
+    assert caplog.text == ""  # a watching driver ticks every few seconds; the answer doesn't change

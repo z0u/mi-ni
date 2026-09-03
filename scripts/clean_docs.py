@@ -1,7 +1,5 @@
 #!/usr/bin/env python
-"""Post-export tidy-ups for Marimo HTML and session JSON: collapse terminal control
-sequences, redact URLs that shouldn't ship, and hide report code by default.
-"""
+"""Post-export tidy-ups for Marimo HTML and session JSON: collapse terminal control sequences, redact URLs that shouldn't ship, and hide report code by default."""
 
 import json
 import re

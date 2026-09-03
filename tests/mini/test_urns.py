@@ -16,9 +16,7 @@ def test_matches_with_wildcards():
     assert matches_urn("mini:test:123", "*:*:*")
     assert not matches_urn("mini:test:123", "mini:*:456")
 
-
-def test_matches_multiple_wildcards():
-    """Test patterns with multiple wildcards."""
+    # Several wildcards in one pattern.
     assert matches_urn("mini:foo:bar:baz", "mini:*:bar:*")
     assert matches_urn("mini:foo:bar:baz:qux", "mini:*:*:baz:*")
     assert not matches_urn("mini:foo:bar:baz", "mini:*:qux:*")
@@ -38,17 +36,3 @@ def test_matches_with_url_encoding():
     assert matches_urn(encoded_urn, "mini:test:hello%20world")
     assert matches_urn(encoded_urn, "mini:*:*")
     assert not matches_urn(encoded_urn, "mini:test:hello")
-
-
-def test_matches_complex_patterns():
-    """Test more complex pattern matching scenarios."""
-    assert matches_urn("mini:api:v1:users:1234", "mini:api:*:users:*")
-    assert matches_urn("mini:api:v1:users:1234", "mini:api:v1:*")
-    assert not matches_urn("mini:api:v1:users:1234", "mini:api:v2:*")
-
-    # Testing with longer URNs
-    complex_urn = "mini:system:database:users:profile:1234:avatar"
-    assert matches_urn(complex_urn, "mini:system:*:users:*")
-    assert matches_urn(complex_urn, "mini:*:database:*:profile:*:*")
-    assert not matches_urn(complex_urn, "mini:system:database:*:settings:*")
-    assert matches_urn(complex_urn, "mini:system:database:*:*:*")

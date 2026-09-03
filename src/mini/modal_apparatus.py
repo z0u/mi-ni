@@ -68,8 +68,7 @@ STARTUP_TIMEOUT_SECONDS = 120
 def control_dict_name(name: str) -> str:
     """Name of the control-plane ``modal.Dict`` for experiment *name*.
 
-    Module-level so a client can address the control plane without constructing
-    a ``ModalApparatus`` (e.g. the CLI's other-backend peek on an empty read).
+    Module-level so a client can address the control plane without constructing a ``ModalApparatus`` (e.g. the CLI's other-backend peek on an empty read).
     """
     return f"mini-cp-{name}"
 
@@ -82,11 +81,7 @@ def _modal_auth_error_message() -> str:
 def _settled_failure(fc: modal.FunctionCall) -> bool:
     """Did *fc*'s input settle in a terminal failure state (never to write its record)?
 
-    The discriminator for ``_is_task_alive``'s ambiguous branch: ``get`` re-raised
-    something that is either a deserialized remote failure (settled — dead) or a
-    local client/transport error (the call may be fine). The call graph reports
-    the input's status directly, so no exception-type guessing; unknown statuses
-    and unreachable graphs stay ``False`` (→ alive, the conservative default).
+    The discriminator for ``_is_task_alive``'s ambiguous branch: ``get`` re-raised something that is either a deserialized remote failure (settled — dead) or a local client/transport error (the call may be fine). The call graph reports the input's status directly, so no exception-type guessing; unknown statuses and unreachable graphs stay ``False`` (→ alive, the conservative default).
     """
     from modal.call_graph import InputStatus
 
@@ -101,9 +96,7 @@ def _settled_failure(fc: modal.FunctionCall) -> bool:
 def _app_page_url(app: modal.App) -> str | None:
     """Extract the dashboard URL from a running Modal app.
 
-    The URL comes from the backend via ``RunningApp.app_page_url``, but
-    synchronicity hides ``_running_app`` on the public ``App`` wrapper.
-    Reach through the wrapper to get it.
+    The URL comes from the backend via ``RunningApp.app_page_url``, but synchronicity hides ``_running_app`` on the public ``App`` wrapper. Reach through the wrapper to get it.
     """
     # synchronicity stores the underlying _App as the sole entry in __dict__
     inner_values = list(app.__dict__.values())
@@ -119,9 +112,7 @@ def _app_page_url(app: modal.App) -> str | None:
 def make_image() -> modal.Image:
     """Helper to create a Modal image with experiment dependencies.
 
-    Includes the `cuda` dependency group (e.g. `jax[cuda12]`), which is excluded
-    from local installs: locally we run CPU-only, while the remote image gets
-    the CUDA plugin and picks up the GPU when one is attached.
+    Includes the `cuda` dependency group (e.g. `jax[cuda12]`), which is excluded from local installs: locally we run CPU-only, while the remote image gets the CUDA plugin and picks up the GPU when one is attached.
     """
     deps = uv_freeze(all_groups=True, not_groups=["local", "dev"])
     project_deps = project_packages()
@@ -154,11 +145,21 @@ HF_CACHE_MOUNT = "/hf-cache"
 WORKER_STORE_CACHE = Path("/tmp/mini-store-cache")
 
 
+def _attach_env(fn_kwargs: dict[str, Any]) -> None:
+    """Turn the intercepted ``env=`` mapping into a container Secret (in place).
+
+    Env has to be in place *before* the worker process starts: a container is reused across tasks, and a library that reads its env once at init (XLA parses ``XLA_FLAGS`` when the backend comes up) locks in whatever the *first* task on that container saw. Setting it from inside a task is therefore order-dependent — which is why this is a container-level option rather than a hook.
+
+    A Secret is the vehicle Modal gives us, but this channel is **not** for credentials: ``env=`` values are recorded in the task record (see :func:`mini.runs.compute_env`). Pass tokens through ``secrets=`` instead.
+    """
+    if env := fn_kwargs.pop("env", None):
+        fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), modal.Secret.from_dict(dict(env))]
+
+
 def _attach_hf_cache(fn_kwargs: dict[str, Any]) -> None:
     """Mount the shared HF cache Volume and point ``HF_HOME`` at it (in place).
 
-    The env var rides in a Secret rather than on the image so a user-supplied
-    ``.w(image=...)`` still gets it.
+    The env var rides in a Secret rather than on the image so a user-supplied ``.w(image=...)`` still gets it.
     """
     cache = modal.Volume.from_name(HF_CACHE_VOLUME, create_if_missing=True)
     fn_kwargs["volumes"] = {**fn_kwargs.get("volumes", {}), HF_CACHE_MOUNT: cache}
@@ -173,10 +174,7 @@ def _attach_hf_cache(fn_kwargs: dict[str, Any]) -> None:
 class ModalRecordStore(RecordStore):
     """``RecordStore`` backed by a named ``modal.Dict``.
 
-    The Dict is readable/writable from the client with no remote function and no
-    commit (Redis-backed), so polling never spins up compute. The same named
-    Dict is opened by the remote worker to write back state/metrics. Records are
-    tiny and last-writer-wins, so a Dict value per key is the natural fit.
+    The Dict is readable/writable from the client with no remote function and no commit (Redis-backed), so polling never spins up compute. The same named Dict is opened by the remote worker to write back state/metrics. Records are tiny and last-writer-wins, so a Dict value per key is the natural fit.
     """
 
     def __init__(self, d: Any):
@@ -212,13 +210,7 @@ class ModalRecordStore(RecordStore):
     def write_if(self, key: str, record: dict[str, Any], gen: str | None) -> bool:
         """Gen-fenced write; the *first claim of a fresh key* is exact on Modal.
 
-        ``modal.Dict`` has no compare-and-swap, but it does have insert-if-absent
-        (``put(..., skip_if_exists=True)``) — which is exactly the shape of the
-        double-spawn race two tickers run when they both classify a never-run key
-        as launchable (``gen=None``, no record). Claiming through it makes that
-        race lose atomically. The other transitions — re-claiming a reset record
-        (present but unclaimed) or superseding gen *x* — have no matching
-        primitive, so they stay read-check-write with a tiny window.
+        ``modal.Dict`` has no compare-and-swap, but it does have insert-if-absent (``put(..., skip_if_exists=True)``) — which is exactly the shape of the double-spawn race two tickers run when they both classify a never-run key as launchable (``gen=None``, no record). Claiming through it makes that race lose atomically. The other transitions — re-claiming a reset record (present but unclaimed) or superseding gen *x* — have no matching primitive, so they stay read-check-write with a tiny window.
         """
         if gen is None and (put := getattr(self._d, "put", None)) is not None:
             if put(key, record, skip_if_exists=True):
@@ -230,13 +222,24 @@ class ModalRecordStore(RecordStore):
             # can't take it, so fall through to the read-check-write path below.
         return super().write_if(key, record, gen)
 
+    def merge_if(self, key: str, fields: dict[str, Any], gen: str | None) -> bool:
+        """Gen-fenced merge in one read and one write, rather than the base's three.
+
+        The inherited version reads to check the fence, then calls ``merge``, which reads *again* for something to merge onto. Locally that's free under the store lock; here each step is a network round-trip, and this is the hottest write in the system — every progress update from every worker lands through it. One read serves both purposes.
+
+        The saved round-trip isn't the only gain: it also halves the gap between checking the fence and acting on it (one write, not a read plus a write), so a superseded worker has less room to land a merge it no longer owns.
+
+        Not atomic, and can't be made so here. ``put(skip_if_exists=)`` — the primitive ``write_if`` uses — arbitrates who *creates* a key, not who replaces a value; compare-and-swap on top of it means a lock, at 4+ round-trips on the hottest write in the system, and no per-key TTL to release one a dead worker still holds. For progress fields the residual race is cosmetic (the next update overwrites them); the terminal write is the one that matters, and that's better handled on the read side — see todo.md.
+        """
+        cur = self._d.get(key)
+        if (cur or {}).get("gen") != gen:
+            return False
+        self._d[key] = (cur or {}) | fields
+        return True
+
 
 class ModalMemoStore(MemoStore):
-    """A ``MemoStore`` whose records live in a ``modal.Dict`` and whose results
-    are read back from the Modal Volume (the remote worker writes them there and
-    commits). Only the I/O-plane *reads* differ from the local store — the remote
-    worker, with the Volume mounted, writes through a plain ``MemoStore``.
-    """
+    """A ``MemoStore`` whose records live in a ``modal.Dict`` and whose results are read back from the Modal Volume (the remote worker writes them there and commits). Only the I/O-plane *reads* differ from the local store — the remote worker, with the Volume mounted, writes through a plain ``MemoStore``."""
 
     def __init__(self, volume: ModalVolume, records: RecordStore):
         super().__init__(volume.path, records=records)
@@ -273,13 +276,7 @@ class ModalMemoStore(MemoStore):
 class ModalVolumeStore(Store):
     """Client-side artifact :class:`~mini.store.Store` that reads blobs off the Volume.
 
-    The remote worker writes the CAS *under* the mounted Volume (``store/cas/ab/<sha>``)
-    and commits it; this reads those blobs back from the client (a report, or
-    ``ctx.run`` resolving a handle into the next step) with no running function,
-    caching each blob into a local :class:`~mini.store.LocalStore` so a re-read is
-    free. Read-only: producing artifacts happens *in* a step (on the worker), and a
-    report that wants to publish a Modal-produced asset resolves it here, then
-    ``put``/``publish``es through the local project store.
+    The remote worker writes the CAS *under* the mounted Volume (``store/cas/ab/<sha>``) and commits it; this reads those blobs back from the client (a report, or ``ctx.run`` resolving a handle into the next step) with no running function, caching each blob into a local :class:`~mini.store.LocalStore` so a re-read is free. Read-only: producing artifacts happens *in* a step (on the worker), and a report that wants to publish a Modal-produced asset resolves it here, then ``put``/``publish``es through the local project store.
     """
 
     def __init__(self, volume: ModalVolume, cache: Any):
@@ -332,10 +329,7 @@ class ModalVolumeStore(Store):
 def _hf_store_secret() -> modal.Secret | None:
     """A Modal Secret carrying the HF bucket config into the worker, if configured.
 
-    When a bucket is configured (``[tool.mini] store-bucket`` or the env override)
-    and a token is available, forward both into the remote container's env so the
-    worker's ``store_for`` resolves to the shared bucket. Absent either, the
-    worker falls back to the Volume-backed store.
+    When a bucket is configured (``[tool.mini] store-bucket`` or the env override) and a token is available, forward both into the remote container's env so the worker's ``store_for`` resolves to the shared bucket. Absent either, the worker falls back to the Volume-backed store.
     """
     bucket = store_bucket()
     if not bucket:
@@ -349,12 +343,19 @@ def _hf_store_secret() -> modal.Secret | None:
     return modal.Secret.from_dict(env)
 
 
-def _modal_task_entry(blob: bytes, key: str, gen: str, dict_name: str, volume_name: str, mount_point: str) -> None:
+def _modal_task_entry(
+    blob: bytes,
+    key: str,
+    gen: str,
+    dict_name: str,
+    volume_name: str,
+    mount_point: str,
+    watchdog_s: float | None = None,
+    watchdog_grace_s: float | None = None,
+) -> None:
     """Remote entry: run one memoized call on Modal and persist its result/state.
 
-    Mirrors the local subprocess worker (``mini._taskworker``) but reads the call
-    from the ``spawn`` argument (not disk), writes records to the ``modal.Dict``,
-    and commits the Volume before flipping the record to a settled state.
+    Mirrors the local subprocess worker (``mini._taskworker``) but reads the call from the ``spawn`` argument (not disk), writes records to the ``modal.Dict``, and commits the Volume before flipping the record to a settled state.
     """
     import cloudpickle as _cp
     import modal as _modal
@@ -377,7 +378,17 @@ def _modal_task_entry(blob: bytes, key: str, gen: str, dict_name: str, volume_na
     # The Volume is named after the experiment (the mount point isn't), so it
     # carries the experiment identity for ref provenance.
     execute_task(
-        store, key, fn, args, hooks, commit=volume.commit, artifacts=artifacts, gen=gen, experiment=volume_name
+        store,
+        key,
+        fn,
+        args,
+        hooks,
+        commit=volume.commit,
+        artifacts=artifacts,
+        gen=gen,
+        experiment=volume_name,
+        watchdog_s=watchdog_s,
+        watchdog_grace_s=watchdog_grace_s,
     )
 
 
@@ -387,13 +398,7 @@ _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
 def _worker_fn_name(fn: Callable) -> str:
     """A Modal-safe display name for the worker that will run *fn*.
 
-    One generic entry (:func:`_modal_task_entry`) dispatches a cloudpickled call, so
-    without this every task shows up as that one name on the Modal dashboard.
-    Registering the entry under ``<fn-name>-<hash>`` surfaces the *actual* task
-    function instead, with a short stable hash of its module+qualname appended so two
-    distinct functions that happen to share a ``__name__`` don't collide — Modal
-    silently overrides a name clash rather than erroring, which would hide one behind
-    the other.
+    One generic entry (:func:`_modal_task_entry`) dispatches a cloudpickled call, so without this every task shows up as that one name on the Modal dashboard. Registering the entry under ``<fn-name>-<hash>`` surfaces the *actual* task function instead, with a short stable hash of its module+qualname appended so two distinct functions that happen to share a ``__name__`` don't collide — Modal silently overrides a name clash rather than erroring, which would hide one behind the other.
     """
     base = _UNSAFE_NAME.sub("-", getattr(fn, "__name__", None) or "task")[:48] or "task"
     ident = f"{getattr(fn, '__module__', '')}.{getattr(fn, '__qualname__', base)}"
@@ -403,9 +408,7 @@ def _worker_fn_name(fn: Callable) -> str:
 def _record_app_id(store: MemoStore, app_id: str) -> None:
     """Append a Modal app-instance id to the run's meta (dedup), for cost attribution.
 
-    Each detached ``app.run()`` is a fresh ephemeral app instance with its own id;
-    a multi-wake run accumulates several. Recording them lets :func:`query_cost`
-    reconcile this run's exact Modal billing after the fact (billing lags the run).
+    Each detached ``app.run()`` is a fresh ephemeral app instance with its own id; a multi-wake run accumulates several. Recording them lets :func:`query_cost` reconcile this run's exact Modal billing after the fact (billing lags the run).
     """
     ids = list(store.meta().get("modal_app_ids") or [])
     if app_id not in ids:
@@ -415,13 +418,7 @@ def _record_app_id(store: MemoStore, app_id: str) -> None:
 def query_cost(app_ids: list[str], since_epoch: float | None = None) -> dict[str, Any]:
     """Reconcile Modal cost for the given app-instance ids from the billing API.
 
-    Modal bills per object (App) at daily resolution and the data lags the run, so
-    this is a *post-run* query: sum the cost of every billing interval whose
-    ``object_id`` is one of *app_ids*, plus a per-resource breakdown (CPU / Memory /
-    each GPU type). *since_epoch* bounds the report window (defaulting to ~30 days
-    back), clamped to Modal's 31-day hard limit for daily reports — so a very old
-    run reports its most recent 31 days rather than erroring. Costs are
-    :class:`~decimal.Decimal`.
+    Modal bills per object (App) at daily resolution and the data lags the run, so this is a *post-run* query: sum the cost of every billing interval whose ``object_id`` is one of *app_ids*, plus a per-resource breakdown (CPU / Memory / each GPU type). *since_epoch* bounds the report window (defaulting to ~30 days back), clamped to Modal's 31-day hard limit for daily reports — so a very old run reports its most recent 31 days rather than erroring. Costs are :class:`~decimal.Decimal`.
     """
     from datetime import datetime, timedelta, timezone
 
@@ -501,12 +498,9 @@ class ModalApparatus(Apparatus[ModalVolume]):
         return new_app
 
     def _ensure_image(self) -> modal.Image:
-        """The image for remote functions: a user override via ``.w(image=)`` if
-        present, else the project default, built once and cached.
+        """The image for remote functions: a user override via ``.w(image=)`` if present, else the project default, built once and cached.
 
-        Deferred (not built in ``__init__``) so read-only commands — ``status`` /
-        ``results`` / ``cancel``, which only touch the ``modal.Dict`` and Volume —
-        never run ``make_image`` (no ``uv`` freeze, no "Creating Modal image" noise).
+        Deferred (not built in ``__init__``) so read-only commands — ``status`` / ``results`` / ``cancel``, which only touch the ``modal.Dict`` and Volume — never run ``make_image`` (no ``uv`` freeze, no "Creating Modal image" noise).
         """
         if "image" in self.modal_fn_kwargs:
             return self.modal_fn_kwargs["image"]
@@ -524,12 +518,13 @@ class ModalApparatus(Apparatus[ModalVolume]):
         """
         Return a new apparatus with additional Modal function kwargs merged in.
 
-        These kwargs are passed to the ``@app.function()`` decorator when
-        mapping, and can be used to specify things like GPU requirements or
-        timeouts.
+        These kwargs are passed to the ``@app.function()`` decorator when mapping, and can be used to specify things like GPU requirements or timeouts. A few are intercepted by mini rather than passed to Modal: ``startup_timeout`` (a client-side wait), ``watchdog`` (seconds without step progress before the worker aborts itself — the backend-agnostic wedge guard, see :mod:`mini._watchdog`), ``watchdog_grace`` (the looser threshold until the first emission, covering one-off setup) and ``env`` (container environment, see :func:`_attach_env`).
+
+        ``env`` *merges* key by key, so a role can add one variable without restating the project-wide defaults; every other option replaces.
         """
         new_app = self.clone()
-        new_app.modal_fn_kwargs = {**self.modal_fn_kwargs, **kwargs}
+        env = {**self.modal_fn_kwargs.get("env", {}), **kwargs.get("env", {})}
+        new_app.modal_fn_kwargs = {**self.modal_fn_kwargs, **kwargs} | ({"env": env} if env else {})
         return new_app
 
     @override
@@ -554,12 +549,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
     def store(self) -> Store:
         """The artifact store for reads on the client (reports, ``ctx`` resolves).
 
-        With a bucket configured *and* a token available, that's the shared HF
-        bucket the worker wrote to — so artifacts read back the same everywhere, no
-        Volume needed. Otherwise it's a read-through over this experiment's Modal
-        Volume, warm-caching into a local checkout (``.mini/store-cache/<app>``).
-        The token gate mirrors ``_hf_store_secret``: with no token the worker writes
-        to the Volume, so the client must read from there too (not an empty bucket).
+        With a bucket configured *and* a token available, that's the shared HF bucket the worker wrote to — so artifacts read back the same everywhere, no Volume needed. Otherwise it's a read-through over this experiment's Modal Volume, warm-caching into a local checkout (``.mini/store-cache/<app>``). The token gate mirrors ``_hf_store_secret``: with no token the worker writes to the Volume, so the client must read from there too (not an empty bucket).
         """
         if store_bucket() and _hf_token():
             return store_for(data_root() / "store")
@@ -570,21 +560,13 @@ class ModalApparatus(Apparatus[ModalVolume]):
     def _memo_worker(self, fn: Callable) -> modal.Function:
         """Register (once per display name) and return the remote worker for *fn*.
 
-        The body is always the generic :func:`_modal_task_entry` (each spawned call
-        carries its own cloudpickled call), but it's registered under *fn*'s display
-        name (:func:`_worker_fn_name`) so the dashboard names the task — one
-        registration per distinct task fn, cached. The Volume is mounted so the
-        worker writes results to the same path the client reads back from.
+        The body is always the generic :func:`_modal_task_entry` (each spawned call carries its own cloudpickled call), but it's registered under *fn*'s display name (:func:`_worker_fn_name`) so the dashboard names the task — one registration per distinct task fn, cached. The Volume is mounted so the worker writes results to the same path the client reads back from.
 
-        A detached sweep should parallelise, so there's *no* ``max_containers``
-        default here — it's unbounded unless the caller sets one
-        (``--max-containers`` / ``.w(max_containers=N)``), which now passes through
-        to cap concurrency/cost. Only ``startup_timeout`` (a client-side knob, not a
-        ``@function`` kwarg) and ``name`` (we set it) are dropped.
+        A detached sweep should parallelise, so there's *no* ``max_containers`` default here — it's unbounded unless the caller sets one (``--max-containers`` / ``.w(max_containers=N)``), which now passes through to cap concurrency/cost. Only ``startup_timeout`` (a client-side knob, not a ``@function`` kwarg), ``watchdog``/``watchdog_grace`` (mini's, ride the spawn args instead) and ``name`` (we set it) are dropped.
         """
         name = _worker_fn_name(fn)
         if name not in self._memo_fns:
-            drop = {"startup_timeout", "name"}
+            drop = {"startup_timeout", "watchdog", "watchdog_grace", "name"}
             fn_kwargs = {k: v for k, v in self.modal_fn_kwargs.items() if k not in drop}
             fn_kwargs["image"] = self._ensure_image()
             if isinstance(self._volume, ModalVolume):
@@ -594,6 +576,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
                 }
             if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
                 fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), secret]
+            _attach_env(fn_kwargs)  # container-level env (e.g. XLA_FLAGS), in place before the worker starts
             _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
             self._memo_fns[name] = self.app.function(serialized=True, name=name, **fn_kwargs)(_modal_task_entry)
         return self._memo_fns[name]
@@ -614,15 +597,23 @@ class ModalApparatus(Apparatus[ModalVolume]):
         # max_containers is dropped in ``_memo_worker``, so the tasks parallelise.
         fc_ids: dict[str, tuple[str, str]] = {}
         app_id: str | None = None
+        watchdog_s = self.modal_fn_kwargs.get("watchdog")
+        watchdog_grace_s = self.modal_fn_kwargs.get("watchdog_grace")
         with self.app.run(detach=True):
             app_id = getattr(self.app, "app_id", None)  # the ephemeral app instance, for cost attribution
             for key, gen, fn, args, hooks in batch:
                 blob = cloudpickle.dumps((fn, args, hooks))
-                fc = workers[key].spawn(blob, key, gen, dict_name, volume_name, mount_point)
+                fc = workers[key].spawn(
+                    blob, key, gen, dict_name, volume_name, mount_point, watchdog_s, watchdog_grace_s
+                )
                 fc_ids[key] = (gen, fc.object_id)
         now = time.time()
+        # The role's task timeout rides on the record: it's what a projected
+        # finish time has to be judged against, and only the launching client
+        # knows it (see `_timeout_projection` in the CLI).
+        timeout_s = self.modal_fn_kwargs.get("timeout")
         for key, (gen, fc_id) in fc_ids.items():
-            store.update_if(key, gen, fc_id=fc_id, heartbeat_at=now)
+            store.update_if(key, gen, fc_id=fc_id, heartbeat_at=now, timeout_s=timeout_s)
         if app_id:  # record the app id so `mini cost` can attribute Modal billing to this run
             _record_app_id(store, app_id)
 
@@ -639,34 +630,16 @@ class ModalApparatus(Apparatus[ModalVolume]):
     def _is_task_alive(self, rec: dict[str, Any]) -> bool:
         """Probe the task's ``FunctionCall`` for liveness (for ``reap_dead``).
 
-        ``get(timeout=0)`` polls without waiting. The key invariant: the worker
-        never lets a task exception escape — it writes the record (FAILED) and
-        returns normally (``mini._taskworker.execute_task``). So a *settled*
-        failure raised out of ``get`` means the call died at the infra level
-        and will never settle its record (#20):
+        ``get(timeout=0)`` polls without waiting. The key invariant: the worker never lets a task exception escape — it writes the record (FAILED) and returns normally (``mini._taskworker.execute_task``). So a *settled* failure raised out of ``get`` means the call died at the infra level and will never settle its record (#20):
 
-        - poll came up empty → running/queued → alive. Modal raises the
-          *builtin* ``TimeoutError`` here (``modal._functions.poll_function``),
-          verified live on modal 1.5.1;
-        - ``FunctionTimeoutError`` → Modal killed the worker at the function
-          timeout → dead;
-        - ``InternalFailure`` → the input settled as an infra failure (a status
-          the call graph can't represent, so it's named here) → dead;
+        - poll came up empty → running/queued → alive. Modal raises the *builtin* ``TimeoutError`` here (``modal._functions.poll_function``), verified live on modal 1.5.1;
+        - ``FunctionTimeoutError`` → Modal killed the worker at the function timeout → dead;
+        - ``InternalFailure`` → the input settled as an infra failure (a status the call graph can't represent, so it's named here) → dead;
         - ``OutputExpiredError`` / ``NotFoundError`` → the call is gone → dead;
         - a normal return → completed; the record settles on its own → alive;
-        - anything else is ambiguous — a settled remote failure re-raised from
-          the output (arbitrary deserialized type), or a client/transport blip.
-          Cross-check the input's status via :func:`_settled_failure` instead
-          of guessing from exception types; when even that can't tell, stay
-          conservative (alive): a false "dead" would mark a live GPU task
-          FAILED, and a retry would double-spawn it.
+        - anything else is ambiguous — a settled remote failure re-raised from the output (arbitrary deserialized type), or a client/transport blip. Cross-check the input's status via :func:`_settled_failure` instead of guessing from exception types; when even that can't tell, stay conservative (alive): a false "dead" would mark a live GPU task FAILED, and a retry would double-spawn it.
 
-        Catch order matters: ``FunctionTimeoutError`` and ``OutputExpiredError``
-        both subclass ``modal.exception.TimeoutError``, so the dead arms come
-        before the timeout arm — the pre-#20 probe caught modal's ``TimeoutError``
-        first, which is exactly how settled timeouts read alive forever. (Both
-        timeout bases share one alive arm so a healthy task never pays the
-        cross-check RPC on a routine poll.)
+        Catch order matters: ``FunctionTimeoutError`` and ``OutputExpiredError`` both subclass ``modal.exception.TimeoutError``, so the dead arms come before the timeout arm — the pre-#20 probe caught modal's ``TimeoutError`` first, which is exactly how settled timeouts read alive forever. (Both timeout bases share one alive arm so a healthy task never pays the cross-check RPC on a routine poll.)
         """
         fc_id = rec.get("fc_id")
         if not fc_id:
@@ -774,6 +747,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
             }
         if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
             fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), secret]
+        _attach_env(fn_kwargs)  # container-level env (e.g. XLA_FLAGS), in place before the worker starts
         _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
         modal_fn = self.app.function(serialized=True, **fn_kwargs)(wrapped_fn)
         return modal_fn, startup_timeout
@@ -786,8 +760,7 @@ async def _startup_watchdog(
 ) -> AsyncIterator[None]:
     """Raise if no remote container checks in within *timeout_seconds*.
 
-    Once the display receives any message (set via ``display._any_message``),
-    the deadline is cancelled and the body runs without a time limit.
+    Once the display receives any message (set via ``display._any_message``), the deadline is cancelled and the body runs without a time limit.
     """
     try:
         async with asyncio.timeout(timeout_seconds) as scope:

@@ -19,3 +19,7 @@ scratch*
 
 .claude/settings.local.json
 node_modules/
+.claude/worktrees/
+
+# Host time zone captured by .devcontainer/host-timezone.sh at container start.
+.devcontainer/.host-tz

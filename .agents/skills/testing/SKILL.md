@@ -10,6 +10,14 @@ This project uses pytest.
 - Use pytest idioms: fixtures, parametrize, assert, approx, ANY.
 - Prefer brevity.
 
+## Fast, serial, hermetic
+
+The whole suite runs in about 30s serially (`uv run pytest -n0`) and half that under the default `pytest-xdist` (`-n auto`). Keep it that way: mock or fake anything that sleeps, polls, or talks to the network (see `test_watchdog.py`'s fake clock and `test_orchestration.py`'s `drive_and_watch(poll=0.005)`), use toy models with the smallest config that still clears the assertion with margin, and isolate all state via `tmp_path`/`monkeypatch` — never write to a shared path or the cwd. Don't rely on test execution order. A per-test `timeout = 60` fails a wedged test rather than hanging the run. JAX's persistent compile cache is on (`tests/conftest.py`), so jitted steps compile once per checkout.
+
+Tests that need a real service carry a marker and are deselected by default: `uv run pytest -m hf` runs the Hugging Face bucket tests (they probe for write access and skip on a read-only token). Run them when touching `src/mini/hf_store.py`.
+
+Tests for `scripts/*.py` load the script with `load_script("name")` from `tests/conftest.py`.
+
 Prefer specialized testing utilities, and specify tolerances.
 ```diff
 - assert np.allclose(x, y)  # ❌
@@ -17,7 +25,7 @@ Prefer specialized testing utilities, and specify tolerances.
 + np.testing.assert_allclose(x, y, rtol=1e-7, atol=0)  # ✅
 + torch.testing.assert_close(a, b, rtol=1e-7, atol=0)  # ✅
 ```
-Reason: Specialized testing utilities will give you better error messages when assertions fail, and they often have additional features that make them more powerful and flexible than generic assertions. Tolerances are highly context-dependent, so choose them based on principle.
+Reason: Specialized testing utilities give better error messages when assertions fail, and they often have features that generic assertions lack. Tolerances are highly context-dependent, so choose them based on principle.
 
 Use structural assertions.
 ```diff
@@ -55,15 +63,15 @@ Use `pytest.mark.parametrize` to test multiple cases without repetition.
 
 ## What to test?
 
-**We only write valuable tests.** We test for behavioral verification under uncertainty:
+We only write valuable tests. We test for behavioral verification under uncertainty:
 
 - Exercise meaningful state transitions and invariants: Tests that verify your system maintains its promises; Boundary condition handling; State consistency across operations (e.g., after a series of mutations, derived state still makes sense)
 - Capture domain logic and business rules: Scenarios that encode actual user workflows or data processing pipelines; Edge cases that reflect real-world complexity your system needs to handle
 - Reveal integration assumptions: How your code behaves when dependencies return unexpected (but valid) responses; Error propagation and recovery behavior; Resource cleanup and lifecycle management
 - Executable documentation: Tests that demonstrate intended usage patterns, with clear naming that explains the "given/when/then" story
 
-Valuable tests fail _for interesting reasons_ — they break when you've actually broken something that matters to users. We rely on linters and type-checkers for everything else.
+Valuable tests fail for interesting reasons: they break when you've broken something that matters to users. We rely on linters and type-checkers for everything else.
 
 ## Wrapping up
 
-When you have finished, review your work with a critical eye. Ask yourself: Does this test actually verify something meaningful? Is it clear what the test is doing and why? Could it be simplified without losing value?
+When you have finished, review your work: does this test verify something meaningful? Is it clear what the test is doing and why? Could it be simplified without losing value?

@@ -1,4 +1,4 @@
-from typing import Literal, TypeAlias
+from typing import Literal
 
 from pydantic import NonNegativeFloat, PositiveFloat, PositiveInt, model_validator
 from pydantic.dataclasses import dataclass
@@ -15,7 +15,7 @@ class Range:
         return self
 
 
-SearchMethod: TypeAlias = Literal["steepest", "lowest", "balanced"]
+type SearchMethod = Literal["steepest", "lowest", "balanced"]
 
 
 @dataclass

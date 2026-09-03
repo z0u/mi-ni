@@ -59,9 +59,9 @@ def _loss_chart() -> plt.Figure: ...
 ```
 
 ```bash
-./go export  docs/pipeline/report.py   # export the bundle locally (offline preview)
+./go open    docs/pipeline/report.py   # edit live in marimo
+./go preview                           # export stale reports → local site → :8000
 ./go publish docs/pipeline/report.py   # export + mirror to the bucket (needs ./go auth)
-./go serve                             # build the static site and serve it
 ```
 
 At export the HTML is cleaned: progress-bar terminal sequences are collapsed, and Modal app URLs (which would leak your username) are redacted.

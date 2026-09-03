@@ -140,8 +140,7 @@ class DynamicProp:
         """
         Get the duration of the transition.
 
-        This is a unitless value. The actual time it takes depends on how `step()` is
-        called.
+        This is a unitless value. The actual time it takes depends on how `step()` is called.
         """
         return self._interpolator.duration if self._interpolator is not None else self._duration
 

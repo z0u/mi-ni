@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import logging
 import time
+
+import pytest
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -15,63 +18,28 @@ from mini.progress import ProgressMessage
 from mini.progress_display import RichProgressDisplay, _route_logging_to
 
 
-def test_route_logging_to_swaps_and_restores_root_handlers():
-    """Root handlers are replaced inside the context and restored on exit."""
+@pytest.mark.parametrize("body_raises", [False, True], ids=["clean-exit", "body-raises"])
+def test_route_logging_to_swaps_and_restores_root_handlers(body_raises: bool):
+    """Root handlers are replaced inside the context and restored on exit — including when the body raises, since a display torn down by an error must not leave the root logger pointed at a dead console."""
     root = logging.getLogger()
     sentinel = logging.NullHandler()
     saved = root.handlers[:]
     root.handlers = [sentinel]
     try:
         console = Console(file=io.StringIO(), force_terminal=False)
-        with _route_logging_to(console):
+        with contextlib.suppress(RuntimeError), _route_logging_to(console):
             assert root.handlers != [sentinel]
             assert len(root.handlers) == 1
             assert isinstance(root.handlers[0], RichHandler)
+            if body_raises:
+                raise RuntimeError("boom")
         assert root.handlers == [sentinel]
     finally:
         root.handlers = saved
 
 
-def test_route_logging_to_writes_records_through_console():
-    """Log records emitted inside the context land in the supplied console."""
-    buf = io.StringIO()
-    console = Console(file=buf, force_terminal=False, width=120)
-
-    root = logging.getLogger()
-    saved_handlers = root.handlers[:]
-    saved_level = root.level
-    try:
-        root.setLevel(logging.INFO)
-        with _route_logging_to(console):
-            logging.getLogger("mini.test").info("hello-from-test")
-    finally:
-        root.handlers = saved_handlers
-        root.setLevel(saved_level)
-
-    output = buf.getvalue()
-    assert "hello-from-test" in output
-
-
-def test_route_logging_to_restores_on_exception():
-    """Handlers are restored even if the body raises."""
-    root = logging.getLogger()
-    saved = root.handlers[:]
-    marker = logging.NullHandler()
-    root.handlers = [marker]
-    try:
-        console = Console(file=io.StringIO(), force_terminal=False)
-        try:
-            with _route_logging_to(console):
-                raise RuntimeError("boom")
-        except RuntimeError:
-            pass
-        assert root.handlers == [marker]
-    finally:
-        root.handlers = saved
-
-
 def test_rich_progress_display_routes_logging_while_running():
-    """While the live display is running, logging goes through its console."""
+    """While the live display is running, logging goes through its console: the handler is installed by the display thread, records land in the display's buffer, and the caller's own handlers come back on exit."""
     buf = io.StringIO()
     queue: LocalQueue[ProgressMessage] = LocalQueue()
     display = RichProgressDisplay(total_jobs=1, queue=queue)

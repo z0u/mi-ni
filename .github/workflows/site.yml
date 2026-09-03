@@ -1,0 +1,70 @@
+name: Site
+
+# Builds the whole site — production from `main`, plus a preview of every open PR
+# under pr-preview/pr-<n>/ — and deploys it to gh-pages as a single commit. Every
+# run rebuilds everything from current state, which is what lets one concurrency
+# group serve every trigger: a run that gets displaced or cancelled loses nothing,
+# because the one that replaces it reads the same state, later. Nothing is torn
+# down and nothing is pruned; a closed PR is absent from the next build, and the
+# branch is always one commit deep. scripts/deploy_site.py carries the reasoning,
+# eng/publishing.md the history it replaced.
+#
+# The build is read-only: it pulls whatever bundles `./go publish` already synced
+# to the publish tier and writes HTML around them, each report fetched and based at
+# the revision pinned in docs/publish.lock *on the branch being built*. So a branch
+# publish shows up in that PR's preview and nowhere else — merging the pin is what
+# changes production.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+  schedule:
+    # Once a day, for a PR whose `closed` event scheduled no run (observed: three of
+    # seven leaked previews). Any other event rebuilds sooner.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: site
+  cancel-in-progress: true
+
+# Pushes gh-pages, and keeps one comment per PR carrying its preview link.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # A fork's PR event runs without secrets (the build needs HF_TOKEN to read the
+    # publish tier) and mustn't deploy anything; the script skips forks in the
+    # open-PR list for the same reason.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout
+        # Only the script runs from this checkout. It fetches `main` and each PR head
+        # itself, into worktrees, so the trigger's ref doesn't matter here.
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        # Full-version pin, not a floating major — see lint-check.yml for why, and
+        # bump both workflows together.
+        uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Build and deploy
+        # Set *whichever* variable matches your store layout — an undefined repo
+        # variable expands to '' and is treated as unset, so leaving one blank is fine:
+        #   - split store (#38): MINI_PUBLISH_REPO alone → serve exports off the public
+        #     dataset repo (the bucket can be private; the build never reads it).
+        #   - single bucket (default): MINI_STORE_BUCKET → serve exports off the bucket.
+        # A read-only HF_TOKEN suffices — this never writes the store or runs a notebook.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MINI_PUBLISH_REPO: ${{ vars.MINI_PUBLISH_REPO }}
+          MINI_STORE_BUCKET: ${{ vars.MINI_STORE_BUCKET }}
+        # Standard library only, so it runs on uv's bare interpreter; each checkout it
+        # builds syncs its own environment from its own lockfile.
+        run: uv run --no-project scripts/deploy_site.py

@@ -21,7 +21,7 @@ class Apparatus:
         """Return a new Apparatus that runs *hook* before each job."""
 ```
 
-An appartus instance is usually named `app`. Usage:
+An apparatus instance is usually named `app`. Usage:
 
 ```py
 app = LocalApparatus("demo", max_workers=3)
@@ -36,8 +36,7 @@ metrics = [x async for x in app.amap(train, [1, 2, 3, 4, 5])]
 await app.volume.download("outputs", f"/data/outputs")
 ```
 
-The apparatus takes care of setting up the environment with Python packages and a volume to write to.
-To change the compute provider, just swap in another `Apparatus`, e.g. `ModalApparatus`.
+The apparatus takes care of setting up the environment with Python packages and a volume to write to. To change the compute provider, just swap in another `Apparatus`, e.g. `ModalApparatus`.
 
 ## Selecting the backend at run time (notebooks)
 
@@ -48,15 +47,15 @@ app_type = mo.cli_args().get("app", "local")   # a marimo radio in edit mode; a 
 app = ModalApparatus("demo").w(gpu="L4") if app_type == "modal" else LocalApparatus("demo")
 ```
 
-Export it headless with `./go export`, passing notebook options after a `--`:
+Run it headless with `marimo export html`, passing notebook options after a `--`:
 
 ```bash
-./go export docs/gpt.py -- --app=modal --arch=ngpt
+uv run marimo export html docs/gpt.py -o /dev/null -- --app=modal --arch=ngpt
 ```
 
-The `--` delimits notebook options from `./go`'s own args (and `./go` forwards them to `marimo export`). It's optional — `./go export docs/gpt.py --app=modal` also works — but explicit is clearer.
+The `--` delimits notebook options from marimo's own args, which arrive via `mo.cli_args()` — so only a notebook that reads them (like the radio above) responds; a report that just consults the configured store ignores them. The report-export verbs `./go preview` and `./go publish` render with defaults and don't forward notebook options, so a notebook whose backend you want to choose is exported directly like this.
 
-**Syntax gotcha:** the options are flags — marimo's `cli_args()` only parses `--key=value` or `--key value`. A bare `key=value` parses to *nothing*, so the notebook silently falls back to its default (here `local`) with no error. Confirm which backend actually ran from the logs — a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally`.
+Syntax gotcha: the options are flags, and marimo's `cli_args()` only parses `--key=value` or `--key value`. A bare `key=value` parses to *nothing*, so the notebook silently falls back to its default (here `local`) with no error. Confirm which backend actually ran from the logs: a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally`.
 
 Always use the async methods `arun` and `amap` in Marimo notebooks and wherever there is an asynchronous context: Modal will complain otherwise. In other contexts, you can use the synchronous variants `run` and `map`, which are just wrappers provided for convenience.
 

@@ -1,8 +1,7 @@
 """
 Display and aggregate progress messages using Rich.
 
-This module provides a live progress display for apparatus by collecting
-ProgressMessage objects via a queue and rendering them with Rich.
+This module provides a live progress display for apparatus by collecting ProgressMessage objects via a queue and rendering them with Rich.
 """
 
 from __future__ import annotations
@@ -36,13 +35,9 @@ from mini.progress import ProgressMessage
 def _route_logging_to(console: Console):
     """Route root-logger output through a Rich console for the duration.
 
-    Rich's Live (used by Progress) repaints the bar after each console write,
-    so log records emitted via this handler appear above a stable progress bar
-    instead of clobbering it. Stdout/stderr are already redirected by Progress
-    itself (``redirect_stdout``/``redirect_stderr`` default to True).
+    Rich's Live (used by Progress) repaints the bar after each console write, so log records emitted via this handler appear above a stable progress bar instead of clobbering it. Stdout/stderr are already redirected by Progress itself (``redirect_stdout``/``redirect_stderr`` default to True).
 
-    Existing root handlers (e.g. those installed by ``mini.logging``) are
-    restored on exit; per-logger levels are untouched.
+    Existing root handlers (e.g. those installed by ``mini.logging``) are restored on exit; per-logger levels are untouched.
     """
     root = logging.getLogger()
     handler = RichHandler(console=console, show_path=False, rich_tracebacks=True, markup=False)
@@ -89,8 +84,7 @@ class RichProgressDisplay:
     """
     Collect progress messages from a queue and display them using Rich.
 
-    This runs in a background thread, periodically polling the queue for
-    new progress messages and updating the Rich display.
+    This runs in a background thread, periodically polling the queue for new progress messages and updating the Rich display.
     """
 
     queue: QueueLike[ProgressMessage]
@@ -133,9 +127,7 @@ class RichProgressDisplay:
         """
         Stop the background display thread.
 
-        Wait up to *drain_timeout* seconds for all jobs to report completion
-        before signalling the thread to exit.  This prevents the display from
-        tearing down before in-flight progress messages arrive.
+        Wait up to *drain_timeout* seconds for all jobs to report completion before signalling the thread to exit.  This prevents the display from tearing down before in-flight progress messages arrive.
         """
         self.queue.put(EndOfQueue(), timeout=drain_timeout)
         self._stop_event.set()

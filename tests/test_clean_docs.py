@@ -1,14 +1,8 @@
 """Post-export HTML tidy-ups: the code-collapsed-by-default shim."""
 
-import importlib.util
-from pathlib import Path
+from tests.conftest import load_script
 
-_SPEC = importlib.util.spec_from_file_location(
-    "clean_docs", Path(__file__).resolve().parent.parent / "scripts" / "clean_docs.py"
-)
-assert _SPEC and _SPEC.loader
-clean_docs = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(clean_docs)
+clean_docs = load_script("clean_docs")
 
 
 _EXPORT = '<!doctype html><html><head><meta charset="utf-8"></head><body>…</body></html>'

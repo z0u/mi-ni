@@ -8,65 +8,50 @@ Write with a clear, correct, and understated style: considered but conversationa
 
 Characteristics:
 
-- Semantically-appropriate punctuation, including colons, semicolons, and the various dashes. Use the Oxford comma. Use double quotation marks for quotes, and single quotation marks for quotes within quotes. Do not use "smart quotes".
-- Use em dashes sparingly (approx. one per page). Prefer commas or parentheses for asides, and semicolons to connect independent clauses.
-- "I think...", "It seems...": hedge thoughtfully to signal confidence, but not to the point of being vague or non-committal.
-- Varied sentence rhythm.
-- American spelling to match the convention in scientific literature.
-- High readability, with a Flesch-Kincaid grade level of around 10-12.
-- Assume an intelligent audience and use precise language. See _Concision_ for more on this.
-- Alt text for all images: aids vision-impaired people and LLMs alike (see the
-  alt-text skill).
+- Oxford comma; straight (not "smart") quotes, em-dashes sparingly (prefer other punctuation).
+- Calibrate confidence to the evidence: plain declaratives for what was measured or observed. Show how strongly a claim is made: "would start to matter" is weaker than "matters".
+- Verbs agree with which direction is good. Containment, decay and retention run downward, so "no condition reaches 0.1" reads backwards; "falls to" does not.
+- A term the reader may not know gets one short plain-English gloss on first use, in a footnote or a `details` block. Figure captions stay pure legend.
+- Plain connectives to continue a thought: "So", "But", etc.
+- American spelling and double quotes to match the convention in scientific literature.
+- Alt text for all images: aids vision-impaired people and LLMs alike (see the alt-text skill).
 
 Anti-patterns:
 
-- ~~Business jargon and bombast~~. Avoid buzzwords, corporate-speak, and military and baseball metaphors.
-- ~~All the lists~~. Mostly use paragraphs, but use lists sparingly when they are the clearest way to present the information.
-- ~~Heavy-handed transitions~~. Avoid "Furthermore", "In conclusion", "The honest answer is", etc. Just continue the thought.
-- ~~Excessive use of em dashes~~. Prefer other punctuation.
-- ~~Excessive use of bold and italic text~~. List items should not be bolded. 1-2 callouts (bold) per page or section; italics only for references & borrowed words, or when it's truly unobvious which phrase should be emphasized (usually the reader can infer without it).
-- ~~Contrastive conclusions~~. "is a feature, not a confound", etc. Instead of `A, ~A`, just say `A`.
+- Business jargon and bombast, evocative headings, narrated paragraph openers
+- Adversarial or aggressive framing
+- Excessive use of lists, em dashes, and bold and italic text
+- Contrastive conclusions and verdict kickers
+- Committing to unplanned future work
+- Possessives on abstract terms
 
-### Concision and clarity
+## Pacing and structure
 
-We write to communicate. We respect the intelligence of our readers, but we also respect their time. We aim for high readability because it improves our chances of conveying complex technical ideas. We accept that writing takes time, and spend that time to make the writing as clear and concise as possible. We spend the effort so our audience doesn't have to.
+- Short paragraphs
+- Say what's coming up to prime the reader
+- State results where they first become visible
+- Keep commentary adjacent to what it explains; introduce a figure in a paragraph before, put interpretation afterward rather than in the caption
+- Cut tangents; don't repeat information in several sections
 
-## Workflow
+## Clarity
 
-Start by planning in your own words. Then, revise the draft to align with this style and tone. Use the characteristics and anti-patterns as a guide. Finally, review the draft for clarity, correctness, and consistency.
+Write plain English, as though explaining to an intelligent person with technical skill who is _not_ an expert in machine learning. Allow the reader to infer information from figures, context, and a few exemplar results; draw their attention to key details.
 
-First drafts are invariably too verbose, so always edit them down after writing them. You should use tools to help: 1. Write in a file and save it. Include markers if the document has many sections. 2. Count length: `wc -wml file` for the whole file, and `.agents/skills/writing/scripts/block-wc file` for per-block word counts (sorted so the verbose blocks surface first) to see where to cut. 3. Edit the file to reduce length, aiming for > 20% reduction. Stop when you can't remove more without losing load-bearing information. 4. Remove the markers with a tool, then confirm none survived (e.g. `rg 'R:|/R' file` returns nothing).
+## Formatting and structure
 
-Example section/block markers:
-
-```md
-<!--R:short-description-->
-
-The text.
-
-<!--/R-->
-```
-
-When in doubt about how to phrase something, err on the side of clarity and simplicity. Avoid jargon and complex sentence structures unless they are necessary to convey the technical content accurately.
-
-## Markdown
-
-Never hard-wrap a line inside an inline code span or math expression. A wrapped
-span can start the next line with block syntax — a hex code like `#f78` at the
-start of a line renders as a heading — and some renderers break the span
-entirely. Rewrap the surrounding prose so the whole span sits on one line.
-
-Use sentence case for headings and descriptive lists.
+Use normal-weight sentence case for headings and descriptive lists.
 
 ```patch
 - # Experiment Design
 -
--   - **Foo Bar:** baz
+- - **Foo Bar:** baz
 + # Experiment design
 +
-+   - Foo bar: baz
++ - Foo bar: baz
 ```
 
-Prefer paragraphs for nuanced or complex explanations; use lists for
-summarizing steps, or when clarity would genuinely benefit from structure —
-and use them sparingly.
+Prefer paragraphs for nuanced or complex explanations; use lists sparingly, for summarizing steps or where clarity benefits from the structure.
+
+Emphasis is distracting to read, so it is reserved for specific jobs. Concepts like _red_ take italics whenever they appear. Named terms take italics on first use in a section, and again later only if the role of the word would otherwise be ambiguous — to distinguish _gate_ the threshold from "the gate on the residual step", say. Inline list markers like **(a)** and **Left:** should be bold, but only if they are short. Paragraph headings may be bolded instead of using a 4th or 5th-level heading. Try to avoid it though. Never use bold or italics for other emphasis. The user will add them if necessary.
+
+For syntax conventions, refer to the relevant `style-*` skill.

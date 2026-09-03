@@ -55,4 +55,28 @@ if ! fast_out="$(./go check --lint --format --typecheck 2>&1)"; then
     exit 2
 fi
 
+# Reports changed without a `./go publish`. The failure this catches is a quiet one —
+# the notebook merges and the site keeps serving the previous export's figures — so it
+# blocks here, in the session that still has a warm store and can publish cheaply. Pure
+# git plus docs/publish.lock: no store access, no render, seconds at most. CI repeats it
+# read-only, for the pushes that skip this hook.
+base="$(git rev-parse --verify --quiet origin/main 2>/dev/null || true)"
+if [[ -n "$base" && -x .venv/bin/python ]] \
+    && stale="$(.venv/bin/python scripts/unpublished_reports.py "$base" 2>/dev/null)" \
+    && [[ -n "$stale" ]]; then
+    {
+        echo 'Reports changed without a publish — the site would serve the previous export:'
+        sed 's/^/  - /' <<< "$stale"
+        echo
+        echo 'Publish them, then push again:'
+        # shellcheck disable=SC2001  # a loop here would be longer than the sed
+        echo "  ./go publish $(tr '\n' ' ' <<< "$stale" | sed 's/ $//')"
+        echo
+        echo 'Or push anyway with `git push --no-verify` — CI will still flag it, and the'
+        echo '`skip-publish-check` label on the PR silences that. For a report you always'
+        echo 'publish by hand, put `# mini:manual-publish` in the notebook.'
+    } >&2
+    exit 2
+fi
+
 exit 0

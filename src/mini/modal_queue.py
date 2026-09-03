@@ -1,12 +1,9 @@
 """
-Apparatus for running sweeps on Modal infrastructure.
+Progress transport for the *blocking* Modal path (``Apparatus.amap``).
 
-Example::
+A queue needs a consumer: with nobody draining it, it grows until the backend caps it. That's a fine assumption here and only here — the sole :class:`ModalQueue` in the codebase is built in :meth:`~mini.modal_apparatus.ModalApparatus._amap` over a ``modal.Queue.ephemeral()``, inside the ``async with`` that also holds its consumer (:class:`~mini.progress_display.RichProgressDisplay`). The queue is created and destroyed with that block, so it cannot outlive the reader.
 
-    from mini.modal_apparatus import ModalApparatus
-
-    app = ModalApparatus("my-experiment").w(gpu="T4", timeout=3600)
-    results = list(app.map(train, configs))
+The memoized orchestration path deliberately has no queue at all. Its workers are detached and its readers are short-lived polls (``status``/``watch``, a fresh process each wake), so there is no consumer to assume: progress goes straight into the control-plane ``modal.Dict``, last-writer-wins, via ``mini._taskworker._MemoSink``. See eng/operations.md.
 """
 
 from __future__ import annotations

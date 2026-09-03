@@ -1,10 +1,6 @@
 """Entry point for `bin/modal`: apply the TLS fix, then run modal's real CLI.
 
-The `modal` console script is a separate process from ours, so the
-monkeypatch in `mini._tls` (see its docstring for the root cause) never gets
-a chance to run when you invoke the CLI directly — only `ModalApparatus`
-benefits. This shim applies the patch first, then hands off to modal's own
-entry point, so `bin/modal` works behind the same TLS-inspecting proxies.
+The `modal` console script is a separate process from ours, so the monkeypatch in `mini._tls` (see its docstring for the root cause) never gets a chance to run when you invoke the CLI directly — only `ModalApparatus` benefits. This shim applies the patch first, then hands off to modal's own entry point, so `bin/modal` works behind the same TLS-inspecting proxies.
 """
 
 from __future__ import annotations

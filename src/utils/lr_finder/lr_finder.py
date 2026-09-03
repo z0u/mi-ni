@@ -1,4 +1,4 @@
-from typing import Callable, Iterator, TypeAlias, cast
+from typing import Callable, Iterator, cast
 
 import equinox as eqx
 import jax.random as jr
@@ -10,9 +10,9 @@ from mini.progress import emit_progress
 from utils.lr_finder.types import LRFinderConfig, LRFinderSeries, SearchMethod
 from utils.param_types import validate_call
 
-Range: TypeAlias = tuple[float, float]
-Batch: TypeAlias = tuple[np.ndarray, np.ndarray]
-LossFn: TypeAlias = Callable
+type Range = tuple[float, float]
+type Batch = tuple[np.ndarray, np.ndarray]
+type LossFn = Callable
 
 
 @validate_call

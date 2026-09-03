@@ -16,6 +16,9 @@ set -euo pipefail
     # Seed default configs if not already present
     [[ -f ~/.config/marimo/marimo.toml ]] || cp .devcontainer/marimo.toml ~/.config/marimo/marimo.toml
 
+    # Skip mechanical-reformat commits in `git blame` (see .git-blame-ignore-revs).
+    git config blame.ignoreRevsFile .git-blame-ignore-revs
+
     # Initialize Python environment.
     uv venv --allow-existing < /dev/null
     ./go install < /dev/null

@@ -18,8 +18,7 @@ class ModalVolume(Volume):
     """
     A volume backed by a Modal named volume.
 
-    The volume is mounted at ``mount_point`` inside Modal functions. The
-    mount point is created by Modal automatically when the volume is attached.
+    The volume is mounted at ``mount_point`` inside Modal functions. The mount point is created by Modal automatically when the volume is attached.
     """
 
     def __init__(self, name: str, mount_point: str = "/vol", *, create: bool = True):
@@ -37,8 +36,7 @@ class ModalVolume(Volume):
         """
         Copy a local file or directory into the volume.
 
-        ``remote_path`` is the **full destination path** within the volume,
-        not a parent directory.
+        ``remote_path`` is the **full destination path** within the volume, not a parent directory.
 
         For files::
 
@@ -62,8 +60,7 @@ class ModalVolume(Volume):
         """
         Copy a file or directory from the volume to a local path.
 
-        ``local_path`` is the **full destination path**, not a parent directory.
-        Parent directories are created automatically.
+        ``local_path`` is the **full destination path**, not a parent directory. Parent directories are created automatically.
 
         For files::
 

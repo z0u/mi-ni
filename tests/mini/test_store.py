@@ -1,8 +1,6 @@
 """Tests for the content-addressed artifact store.
 
-Two layers: the :class:`~mini.store.LocalStore` backend (hashing, idempotency,
-trees, refs, publish) and the contextvar front door (``put``/``get`` resolving
-the ambient store, the same shape as ``get_data_dir``).
+Two layers: the :class:`~mini.store.LocalStore` backend (hashing, idempotency, trees, refs, publish) and the contextvar front door (``put``/``get`` resolving the ambient store, the same shape as ``get_data_dir``).
 """
 
 from __future__ import annotations
@@ -45,10 +43,7 @@ def test_content_type_inferred_from_name():
     assert Artifact("sha", 1, "fig.png").content_type == "image/png"
     assert Artifact("sha", 1, "data.json").content_type == "application/json"
     assert Artifact("sha", 1, "blob").content_type == "application/octet-stream"  # no extension
-
-
-def test_content_type_explicit_overrides_guess():
-    assert Artifact("sha", 1, "blob", media_type="image/svg+xml").content_type == "image/svg+xml"
+    assert Artifact("sha", 1, "blob", media_type="image/svg+xml").content_type == "image/svg+xml"  # explicit wins
 
 
 def test_artifact_round_trips_through_dict():
@@ -75,13 +70,8 @@ def test_put_is_content_addressed_and_idempotent(store: LocalStore):
     b = store.put(b"same", name="two.bin")  # different name, same bytes
     assert a.sha256 == b.sha256
     blobs = [p for p in (store.root / "cas").rglob("*") if p.is_file()]
-    assert len(blobs) == 1  # stored once (under its two-char shard dir)
-
-
-def test_blobs_are_sharded_by_prefix(store: LocalStore):
-    """A blob lands under a two-char shard dir (``cas/ab/abcd…``), not a flat tree."""
-    art = store.put(b"hello world", name="greeting.txt")
-    assert (store.root / "cas" / art.sha256[:2] / art.sha256).is_file()
+    assert len(blobs) == 1  # stored once
+    assert (store.root / "cas" / a.sha256[:2] / a.sha256).is_file()  # under a two-char shard dir, not a flat tree
 
 
 def test_put_file_hashes_streaming(store: LocalStore, tmp_path: Path):
@@ -136,9 +126,6 @@ def test_refs_round_trip_including_nested_names(store: LocalStore):
     art = store.put(b"corpus", name="corpus.bin")
     store.set_ref("datasets/tiny/v1", art)
     assert store.get_ref("datasets/tiny/v1") == art
-
-
-def test_get_ref_missing_returns_none(store: LocalStore):
     assert store.get_ref("nope") is None
 
 
@@ -158,12 +145,6 @@ def test_set_ref_stamps_the_ambient_producer(store: LocalStore):
     assert store.get_ref("shared/curves") == art  # the handle round-trips unchanged
 
 
-def test_set_ref_outside_producer_context_is_unstamped(store: LocalStore):
-    store.set_ref("shared/plain", store.put(b"x", name="x.bin"))
-    assert store.ref_producer("shared/plain") is None
-    assert store.get_ref("shared/plain") is not None
-
-
 def test_get_ref_reads_pre_producer_payloads(store: LocalStore):
     # A ref written before producer stamping existed: the bare artifact dict.
     art = store.put(b"old", name="old.bin")
@@ -176,7 +157,9 @@ def test_resolved_refs_context_collects_what_a_step_reads(store: LocalStore):
     art = store.put(b"a", name="a.bin")
     with producer_context({"experiment": "prep"}):
         store.set_ref("shared/a", art)
-    store.set_ref("shared/anon", store.put(b"b", name="b.bin"))  # unstamped
+    store.set_ref("shared/anon", store.put(b"b", name="b.bin"))  # written outside a producer context
+    assert store.ref_producer("shared/anon") is None  # so nothing is stamped
+    assert store.get_ref("shared/anon") is not None  # but the handle still round-trips
 
     seen: dict[str, dict | None] = {}
     with resolved_refs_context(seen):
@@ -214,46 +197,34 @@ def test_store_root_is_project_scoped_beside_the_volume():
     assert store_root_for(Path("/proj/.mini/acts")) == Path("/proj/.mini/store")
 
 
-def test_store_bucket_reads_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    (tmp_path / "pyproject.toml").write_text('[tool.mini]\nstore-bucket = "ns/bkt"\n')
+@pytest.mark.parametrize(
+    ("read", "env", "key"),
+    [(store_bucket, "MINI_STORE_BUCKET", "store-bucket"), (publish_repo, "MINI_PUBLISH_REPO", "publish-repo")],
+    ids=["store_bucket", "publish_repo"],
+)
+@pytest.mark.parametrize(
+    ("configured", "override", "expected"),
+    [("ns/cfg", None, "ns/cfg"), ("ns/cfg", "ns/env", "ns/env"), (None, None, None)],
+    ids=["pyproject", "env-overrides-pyproject", "unset"],
+)
+def test_config_reads_pyproject_unless_the_env_overrides_it(
+    read,
+    env: str,
+    key: str,
+    configured: str | None,
+    override: str | None,
+    expected: str | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    table = f'[tool.mini]\n{key} = "{configured}"\n' if configured else '[project]\nname = "x"\n'
+    (tmp_path / "pyproject.toml").write_text(table)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
-    assert store_bucket() == "ns/bkt"
-
-
-def test_store_bucket_env_overrides_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    (tmp_path / "pyproject.toml").write_text('[tool.mini]\nstore-bucket = "ns/bkt"\n')
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MINI_STORE_BUCKET", "other/override")
-    assert store_bucket() == "other/override"
-
-
-def test_store_bucket_unset_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n')
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
-    assert store_bucket() is None
-
-
-def test_publish_repo_reads_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    (tmp_path / "pyproject.toml").write_text('[tool.mini]\npublish-repo = "ns/pub"\n')
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
-    assert publish_repo() == "ns/pub"
-
-
-def test_publish_repo_env_overrides_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    (tmp_path / "pyproject.toml").write_text('[tool.mini]\npublish-repo = "ns/pub"\n')
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MINI_PUBLISH_REPO", "other/override")
-    assert publish_repo() == "other/override"
-
-
-def test_publish_repo_unset_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n')
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
-    assert publish_repo() is None
+    if override:
+        monkeypatch.setenv(env, override)
+    else:
+        monkeypatch.delenv(env, raising=False)
+    assert read() == expected
 
 
 def test_store_for_threads_publish_repo_into_the_hfstore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -265,6 +236,7 @@ def test_store_for_threads_publish_repo_into_the_hfstore(tmp_path: Path, monkeyp
     store = store_for(tmp_path / "store")
     assert isinstance(store, HFStore)
     assert store.publish_repo == "ns/pub"  # a bucket for the CAS, a repo for the publish tier
+    assert store._cache.root == tmp_path / "store-cache" / "hf"  # warm cache sits beside root by default
 
 
 def test_store_for_falls_back_to_local_without_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -297,16 +269,6 @@ def test_publish_only_store_errors_on_cas_operations(tmp_path: Path):
         store.list_refs()
 
 
-def test_store_for_uses_bucket_with_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from mini.hf_store import HFStore
-
-    monkeypatch.setenv("MINI_STORE_BUCKET", "ns/bkt")
-    monkeypatch.setattr("mini.store._hf_token", lambda: "tok")
-    store = store_for(tmp_path / "store")
-    assert isinstance(store, HFStore)
-    assert store._cache.root == tmp_path / "store-cache" / "hf"  # warm cache sits beside root by default
-
-
 def test_store_for_cache_root_moves_the_warm_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A Modal worker points the warm cache at container-local disk, off the committed Volume."""
     from mini.hf_store import HFStore
@@ -318,12 +280,9 @@ def test_store_for_cache_root_moves_the_warm_cache(tmp_path: Path, monkeypatch: 
     assert store._cache.root == tmp_path / "ephemeral"
 
 
-def test_get_store_raises_outside_context():
+def test_ambient_put_get_and_refs(store: LocalStore, tmp_path: Path):
     with pytest.raises(RuntimeError, match="No store configured"):
         get_store()
-
-
-def test_ambient_put_get_and_refs(store: LocalStore, tmp_path: Path):
     with store_context(store):
         art = put(b"payload", name="p.bin")
         set_ref("k", art)
@@ -331,5 +290,5 @@ def test_ambient_put_get_and_refs(store: LocalStore, tmp_path: Path):
         assert get(art, tmp_path / "p.bin").read_bytes() == b"payload"
         url = publish(art, "reports/p.bin")
         assert url.startswith("file://")
-    with pytest.raises(RuntimeError):  # ambient store resets on exit
+    with pytest.raises(RuntimeError, match="No store configured"):  # ambient store resets on exit
         get_store()

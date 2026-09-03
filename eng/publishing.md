@@ -4,110 +4,69 @@
 
 ## Publish is a separate, outward-facing verb
 
-`put` persists; `publish` deliberately exposes. **Public exposure is never a side
-effect of persisting a result** — that separation is the point.
+`put` persists; `publish` deliberately exposes. **Public exposure is never a side effect of persisting a result** — that separation is the point.
 
-A CAS blob at `cas/<sha>` has no extension, so a browser gets `application/octet-stream`.
-`publish` does a server-side copy *by xet hash* (instant, no bytes moved) to an
-extensioned path; the bucket's resolve URL then sets `Content-Type` from that extension
-and serves `Content-Disposition: inline`. So one bucket is both the durable store and a
-CDN-backed asset host.
+A CAS blob at `cas/<sha>` has no extension, so a browser gets `application/octet-stream`. `publish` does a server-side copy *by xet hash* (instant, no bytes moved) to an extensioned path; the bucket's resolve URL then sets `Content-Type` from that extension and serves `Content-Disposition: inline`. So one bucket is both the durable store and a CDN-backed asset host.
 
-## Two tiers, split by write concurrency (#38)
+## Two tiers, split by write concurrency ([mi-ni#38](https://github.com/z0u/mi-ni/issues/38))
 
-By default **one bucket** backs both the CAS and the published views. That's fine until
-you persist something that shouldn't be world-readable: HF buckets have **no per-prefix
-ACL** (public/private is bucket-level only), so a public bucket makes *every* `put`
-world-readable, not just what you `publish`. The fix is two stores — and the seam
-between them is **write concurrency**, not just visibility:
+By default **one bucket** backs both the CAS and the published views. That's fine until you persist something that shouldn't be world-readable: HF buckets have **no per-prefix ACL** (public/private is bucket-level only), so a public bucket makes *every* `put` world-readable, not just what you `publish`. The fix is two stores — and the seam between them is **write concurrency**, not just visibility:
 
 | Tier | Namespaces | Writer | Concurrency | Backend |
 |---|---|---|---|---|
 | **Durable store** | `cas/<sha>`, `refs/` | workers | high, parallel | a **bucket** (no git history → concurrent writers never 412) — make it **private** |
 | **Publish tier** | `published/`, `exports/` | a driver / CI | low, single-writer | a **dataset repo** (real git history → versioned, citable) — **public** |
 
-The CAS *must* stay a bucket: that's the whole reason buckets were chosen (concurrent
-result writers would 412 on a git-backed repo's shared parent). But `publish` and report
-export are deliberate, single-writer, driver-side acts — so they can afford a git-backed
-**dataset repo**, which buys what a bucket can't:
+The CAS *must* stay a bucket: that's the whole reason buckets were chosen (concurrent result writers would 412 on a git-backed repo's shared parent). But `publish` and report export are deliberate, single-writer, driver-side acts — so they can afford a git-backed **dataset repo**, which buys what a bucket can't:
 
 - a **public** face over a **private** CAS (the two-store split HF's bucket-level ACL forces), and
 - **versioned names with history** — a citation pins to `…/resolve/<commit-sha>/published/<path>`, which a mutable bucket path can't guarantee.
 
-So one move settles both halves of #38: point the publish tier at a dataset repo and it's
-public *and* citable.
+So one move settles both halves of [mi-ni#38](https://github.com/z0u/mi-ni/issues/38): point the publish tier at a dataset repo and it's public *and* citable.
 
-**Cost.** Not a byte more of storage. Xet chunk dedup is **account-wide**, so a blob
-published from the private CAS into the public repo references the *same* chunks —
-publishing pulls the blob local (the warm cache usually has it) and uploads, but Xet skips
-every chunk the CAS already stored, so it's a metadata + git-commit op, not a re-transfer.
-The only real deltas: public storage is best-effort quota (vs private's ~100 GB
-guaranteed), and each publish is a commit rather than the in-bucket instant by-hash copy.
+**Cost.** Not a byte more of storage. Xet chunk dedup is **account-wide**, so a blob published from the private CAS into the public repo references the *same* chunks — publishing pulls the blob local (the warm cache usually has it) and uploads, but Xet skips every chunk the CAS already stored, so it's a metadata + git-commit op, not a re-transfer. The only real deltas: public storage is best-effort quota (vs private's ~100 GB guaranteed), and each publish is a commit rather than the in-bucket instant by-hash copy.
 
-**Enabling it.** Set `[tool.mini] publish-repo = "<ns>/<repo>"` (or `MINI_PUBLISH_REPO`)
-and flip the existing bucket to private. Unset, everything stays in the one bucket — the
-seam is opt-in and `HFStore` routes `publish`/`export_*` on `publish_repo` alone, so no
-experiment or report code changes. Provisioning is typically just **one** new public
-dataset repo; a second public *bucket* is only needed if you want high-churn public assets
-that shouldn't be versioned (reports overwrite by name, so they don't accumulate — you
-usually don't).
+**Enabling it.** Set `[tool.mini] publish-repo = "<ns>/<repo>"` (or `MINI_PUBLISH_REPO`) and flip the existing bucket to private. Unset, everything stays in the one bucket — the seam is opt-in and `HFStore` routes `publish`/`export_*` on `publish_repo` alone, so no experiment or report code changes. Provisioning is typically just **one** new public dataset repo; a second public *bucket* is only needed if you want high-churn public assets that shouldn't be versioned (reports overwrite by name, so they don't accumulate — you usually don't).
 
 ## Reports are a bundle plus a `<base>` switch
 
-A report is one Marimo HTML document plus its heavy assets. Assets are externalized
-*at production* and referenced by a **relative** URL (`_assets/<name>`). A single
-`<base href>` in the `<head>` decides where those resolve:
+A report is one Marimo HTML document plus its heavy assets. Assets are externalized *at production* and referenced by a **relative** URL (`_assets/<name>`). A single `<base href>` in the `<head>` decides where those resolve:
 
-- **Opened locally / offline** → no base tag → `_assets/…` resolves to co-located files
-  (real PNGs).
-- **Published** → `build_site` inserts one `<base href="…/exports/<key>/">` → the *same*
-  relative URLs resolve at the bucket CDN.
+- **Opened locally / offline** → no base tag → `_assets/…` resolves to co-located files (real PNGs).
+- **Published** → `build_site` inserts one `<base href="…/exports/<key>/">` → the *same* relative URLs resolve at the bucket CDN.
 
-The `<base>` is what makes this work without **per-URL rewriting**, which matters because
-the asset URLs are buried in Marimo's doubly-escaped session JSON where surgical rewrites
-are fragile — one tag repoints all of them, including a relative `fetch()`. It's safe
-because a fresh `marimo export` contributes *zero* relative URLs of its own (every
-framework resource is an absolute CDN URL), so a `<base>` governs only the assets we
-introduce. The one caveat: `<base>` also repoints *author-written* relative links, so
-`build_site` resolves those to absolute targets (`stray_links` / `rewrite_links`) — a
-link to another report becomes its rendered page, a link to a source file its GitHub
-source. **Convention: the only relative URLs in a report are its assets.**
+The `<base>` is what makes this work without **per-URL rewriting**, which matters because the asset URLs are buried in Marimo's doubly-escaped session JSON where surgical rewrites are fragile — one tag repoints all of them, including a relative `fetch()`. It's safe because a fresh `marimo export` contributes *zero* relative URLs of its own (every framework resource is an absolute CDN URL), so a `<base>` governs only the assets we introduce. The one caveat: `<base>` also repoints *author-written* relative links, so `build_site` resolves those to absolute targets (`stray_links` / `rewrite_links`) — a link to another report becomes its rendered page, a link to a source file its GitHub source. **Convention: the only relative URLs in a report are its assets.**
 
-Two further decisions:
+Further decisions:
 
-- **No HTML in Git.** The notebooks (`docs/**/*.py`) are the only source of truth; each
-  exports on demand to a bundle synced under `exports/<key>/`. This keeps PRs reviewable
-  *and* lets a Cloud agent publish — the original blocker was Git LFS, which a Cloud
-  session can't write, so an agent could run an experiment but not publish it.
-- **Assets keyed by readable name**, not content hash, so a re-export overwrites in place
-  and a report accumulates no orphans (the name is also what a browser "Save as"
-  suggests, since the bucket sets no `Content-Disposition`).
-- **Publish/build split by trigger.** `./go publish` (authenticated, runs the notebook,
-  writes the store) is the heavy half; the CI build is **read-only** — it pulls each
-  bundle, resolves links, inserts the `<base>`, and never writes or runs a notebook, so
-  a read-only token suffices. When the publish tier is split off (#38) the build reads
-  exports straight from the public dataset repo and never touches the CAS, so CI needs
-  only `MINI_PUBLISH_REPO` — not the (now private) bucket. `store_for` builds a CAS-less
-  store from a `publish-repo` alone for exactly this; the single-bucket default still
-  serves the build off `MINI_STORE_BUCKET`. Set whichever your store layout uses.
-- **PR previews ride the same read-only build.** Because `./go publish` runs on the
-  agent's branch *before* the PR opens, the bundles are already on the publish tier when
-  review starts — a preview needs no compute, just HTML assembled around them.
-  `pr-preview.yml` runs `./go build` on the PR and deploys to `pr-preview/pr-<n>/` on the
-  `gh-pages` branch (torn down on close, linked from a sticky PR comment). That forces
-  the production deploy to be branch-based too (`clean-exclude: pr-preview/`): an
-  artifact deploy replaces the whole site, so previews couldn't coexist with it. Viewing
-  a bundle straight off the dataset repo is *not* an option — HF serves repo HTML as
-  `text/plain` behind a sandbox CSP. Known gap: exports aren't branch-namespaced, so
-  re-publishing an existing key from a branch swaps the assets under the live site's
-  older HTML; if that bites, publish PR exports to a `pr-<n>` git *revision* of the
-  dataset repo and point the preview `<base>` at `resolve/pr-<n>/` (see todo.md).
-- **Provenance is injected at export, not build.** The provenance footer (which
-  experiment runs produced the data a report shows) needs the producers stamped on the
-  store's refs — state only the authenticated export half can see, and only *while the
-  notebook runs* (the resolutions happen inside cells). So the render records each
-  `get_ref` into the bundle's `_assets/provenance.json` via the active publisher, and
-  the exporter injects the footer into the HTML before the bundle syncs; the read-only
-  build stays dumb. Everything in the footer derives from the store's refs — no build
-  timestamps — so re-publishing unchanged data produces the same bundle content and
-  publishing stays idempotent.
+- **No HTML in Git.** The notebooks (`docs/**/*.py`) are the only source of truth; each exports on demand to a bundle synced under `exports/<key>/`. This keeps PRs reviewable *and* lets a Cloud agent publish — the original blocker was Git LFS, which a Cloud session can't write, so an agent could run an experiment but not publish it.
+- **Assets keyed by readable name**, not content hash, so a re-export overwrites in place and a report accumulates no orphans (the name is also what a browser "Save as" suggests, since the bucket sets no `Content-Disposition`).
+- **Interactive renders externalize too, into `public/.mini/`.** Externalizing was first scoped to the export, on the reasoning that its payoff was a lighter shipped HTML. It has a second payoff: marimo refuses to display a cell output past a size limit, so a report with a dozen themed figures (two PNGs each, base64'd) hit that limit and rendered nothing in the editor. The constraint on the fix is that marimo's dev server serves exactly one directory per notebook — its `public/` — so the assets have to live there and be referenced as `public/…`, resolved against the notebook page. `mini.reports.public_dir` puts them in `public/.mini/<stem>/`, a scratch dir the existing `.mini/` gitignore rule already covers, keyed per notebook so two in a directory don't overwrite each other. The same-name collision guard is off there: within one export pass two different blobs under a name is an authoring bug, but in an edit loop it's just a re-render. That stable filename then needs a `?v=<content hash>` on the URL, since marimo's dev server sends no `Cache-Control` and the browser's freshness heuristic will happily keep showing a figure you just edited; hashing the content rather than stamping a timestamp means unchanged figures still hit the cache. The published side needs none of this — its `<base href>` already carries the commit sha, so every republish is a new URL. One caveat worth knowing when a figure won't load: marimo serves `public/` through a service worker (it needs the notebook id on the request), and service workers need a secure context — `localhost` or https.
+- **Publish/build split by trigger.** `./go publish` (authenticated, runs the notebook, writes the store) is the heavy half; the CI build is **read-only** — it reads each bundle's `index.html`, resolves links, inserts the `<base>`, and never writes or runs a notebook, so a read-only token suffices. It reads *only* that HTML — the `<base>` leaves the `_assets/` on the CDN, so downloading them would be megabytes fetched to discard — and it reads all the reports at once, since they're independent and the read is nearly all network wait. When the publish tier is split off ([mi-ni#38](https://github.com/z0u/mi-ni/issues/38)) the build reads exports straight from the public dataset repo and never touches the CAS, so CI needs only `MINI_PUBLISH_REPO` — not the (now private) bucket. `store_for` builds a CAS-less store from a `publish-repo` alone for exactly this; the single-bucket default still serves the build off `MINI_STORE_BUCKET`. Set whichever your store layout uses.
+- **PR previews ride the same read-only build.** The bundles are already on the publish tier when review starts — a preview needs no compute, just HTML assembled around them. `site.yml` runs `./go site` on every open PR's head and serves the result at `pr-preview/pr-<n>/` under production on the `gh-pages` branch, linked from one comment per PR. Viewing a bundle straight off the dataset repo is *not* an option — HF serves repo HTML as `text/plain` behind a sandbox CSP. Branch scoping comes from the pin manifest (next bullet): the preview serves each report at the revision pinned on the *PR branch*, production at the one pinned on main, off the same mutable `exports/<key>/` names.
+- **A publish is staged until its pin lands on main.** The dataset repo is git-backed, so every `sync_export` is already an immutable commit; the missing half was making the *build* consume one. `./go publish` records each bundle's commit sha in `docs/publish.lock` (export key → revision, committed to Git), and the build fetches *and* bases the report at that revision — `resolve/<sha>/exports/<key>/` — never the mutable head. This is the same identity/evidence split the memo store uses: the dataset repo holds evidence (every bundle ever published, at every revision), while the identity (which revision the site serves) travels with the code. Publishing from a branch therefore deploys nothing: production serves main's pins, the PR preview serves the branch's, and merging the PR is the promotion — no staging prefix, no HF-side branches, and CI keeps its read-only token (the alternative, `pr-<n>` revisions promoted on merge, would have needed a write token in CI). Re-publishing unchanged content mints no commit (huggingface_hub drops no-op operations and returns the current head), so idempotent publishes stay idempotent. Two corollaries: an unpinned report falls back to the head with a build warning (how pre-lock bundles behave until republished), and the dataset repo's history must never be rewritten (`super_squash_history`) — pins and citations resolve through old commits. For the same reason `publish()` itself now returns commit-pinned URLs, so a published single file is citable as-is.
+
+  **Pinning is repo-only — a note for backports (mi-ni).** A bucket keeps no history, so on the single-bucket default there is nothing to pin: `sync_export` returns no revision, `publish.lock` is never written, and the build serves the mutable `exports/<key>/` with no unpinned warning (the nudge to pin would be misleading there). That's the pre-pin behavior, caveat included: a publish is live the moment it syncs, and a PR preview shares production's assets. So the pin machinery is safe to carry into template projects without making `publish-repo` a requirement — the seam stays opt-in, as [mi-ni#38](https://github.com/z0u/mi-ni/issues/38) chose — but the staging guarantee and PR-preview isolation exist only once a project sets one.
+- **Provenance is injected at export, not build.** The provenance footer (which experiment runs produced the data a report shows) needs the producers stamped on the store's refs — state only the authenticated export half can see, and only *while the notebook runs* (the resolutions happen inside cells). So the render records each `get_ref` into the bundle's `_assets/provenance.json` via the active publisher, and the exporter injects the footer into the HTML before the bundle syncs; the read-only build stays dumb. Everything in the footer derives from the store's refs — no build timestamps — so re-publishing unchanged data produces the same bundle content and publishing stays idempotent.
+- **Forgetting to publish is checked, not automated away.** Publishing is the one step of the loop that has to be *remembered*, and forgetting it fails quietly: the notebook merges, the site keeps serving the previous export's figures, and nothing says so. Two tripwires now compare what a branch *changed* against what it *repinned* (`scripts/unpublished_reports.py`): the pre-push hook blocks the push, and CI's `Reports published` step fails the PR. Both are a git diff plus `publish.lock` — no store access, no render, **no write token**, which is what keeps the read-only-CI property above intact.
+
+  The alternative was to have CI run `./go publish` itself, and it was built before it was rejected. Worth recording *why*, because the reasoning generalizes: **the cost was never the publishing, it was the committing.** For CI to publish, it must write the new pin back to the branch, and that one requirement cascades — a write-scoped token in a job that runs notebook code off the branch; a bot commit racing the agent's own pushes; and, because a `GITHUB_TOKEN` push doesn't re-trigger workflows, the preview would build against stale pins unless publishing were nested *inside* the preview workflow as a prerequisite job, with a merge-ref-versus-branch-tip dance to hand the fresh lock over. Every awkward part of that design traced to the commit. Dropping it collapsed ~100 lines of workflow into one read-only step.
+
+  The check also puts the work in the right place. A publish wants a warm store and the results already resolved — which the session that ran the experiment has and a fresh CI runner doesn't, so CI would re-download the lot to re-render what was just rendered.
+
+  **A weaker guarantee, deliberately.** A check tells you; it can't fix it. Ignore the red mark and the report stays stale, where auto-publishing would have closed the hole outright. That's the accepted trade: a loud, cheap, credential-free signal over a silent one that needed write access to CI. It's also why the check *fails* rather than printing advice — the session-start hook has said "always publish before pushing" for months, and the reports still went stale.
+
+  Escape hatches, in rising order of permanence: `git push --no-verify` (the hook's existing convention, for getting something onto GitHub now — CI still flags it), the `skip-publish-check` label (one PR), and `# mini:manual-publish` in a notebook (:data:`MANUAL_PUBLISH_MARKER`, for a report published on its author's own schedule). A marker rather than a list in CI config, so it travels with the report.
+
+  **What counts as changing a report is the directory, not the notebook.** The obvious reading — diff `report.py` — misses the most common way a report goes stale: re-running an experiment writes new results through `docs/<key>/experiment.py` and never touches the notebook. So a report's inputs are taken to be the directory it already draws its export key from (`mini.reports.input_dir`), and a change to anything under it counts, a sibling report excepted (a second document, not an input). `export_reports.is_stale` reads the same directory for its mtime, so `./go preview` re-exports on a re-run too. A report living directly in `docs/` claims no directory: the docs root is shared site space, and `publish.lock` alone would otherwise flag every root-level report on every publish.
+
+  Two limits worth knowing. Inputs *outside* the directory stay invisible — a restyle in `src/mini/vis/*.py` dates every report's baked figures and nothing local says so, which needs the bundle's ref sidecar and therefore store access (https://github.com/z0u/sca2/blob/main/todo/eng/shared-inputs-under-src-are-invisible.md). And a stale `origin/main`, which a fresh container often has, is self-correcting: it makes more reports look changed, but their pins moved in that same range, so they don't register as unpublished.
+
+  Not a limit, despite appearances: editing `docs/report.css` needs no republish at all. `set_report_styles` re-inlines it from source at build time, so the shared sheet restyles every published report without re-exporting one.
+- **The site is rebuilt whole on every event, by one writer, as one commit.** `site.yml` runs on a push to `main`, on every PR event, once a day, and on demand. Each run builds production from `main` and a preview from every open PR's head (`scripts/deploy_site.py`), and force-pushes the assembled tree to `gh-pages` as a single parentless commit. Nothing carries over between runs, so there is nothing to tear down and nothing to prune: a closed PR is absent from the next build, and the history is always one commit deep.
+
+  **What this replaced, and why.** Until 2026-09 the branch had three writers — a production deploy on push to `main`, a preview deploy per PR event, and a teardown on close — each writing one slice of the tree and leaving the rest alone. Every guard that arrangement grew was about the other writers: `force: false` on the production deploy, so it rebased onto a concurrent teardown; `clean-exclude: pr-preview/`, so it spared the previews; a windowed history prune, since 340 deploy commits in six weeks swamped `tig --all`, pushed under a lease so it yielded to a preview deploy landing mid-prune; and finally a reconciling sweep, when seven previews turned out to have outlived their PRs — two thirds of what the site served. The run history gave two causes for those seven. A teardown overwritten by a `synchronize` build already in flight: the two sat in different concurrency groups, because a `closed` event's `github.ref` isn't the one its builds used. And a `closed` event that scheduled no run at all: three of the seven, all closed unmerged, mechanism not established. A third leak, a production deploy beating a teardown, was held off only by the lease. A run that rebuilds everything has none of these, because it never trusts what the branch already holds.
+
+  **One concurrency group is safe here, and wasn't before.** The earlier version of this note ruled out sharing a group between the preview and production workflows: a group holds one pending run, a newer arrival displaces it, and a displaced *teardown* left a merged PR's preview live for good. That argument depends on each run doing one event-specific thing. When every run reads the open-PR list at start and rebuilds the lot, the survivor of any displacement produces what the displaced run would have and more, so `cancel-in-progress: true` costs the runner-minutes of the cancelled build and nothing else. The daily schedule covers the one case no event reaches: a close that fires nothing.
+
+  **Cost and limits.** Every event rebuilds every preview, at about 30 s each; with the handful of PRs this repo has open, a run is a minute or two. A preview that fails to build is skipped with a warning and a note on its PR, so a broken branch never holds back production. A run whose tree matches what the branch already serves pushes nothing, so an unrelated event triggers no Pages deployment. The trust boundary is unchanged: a `pull_request` run uses the PR's own workflow file with write access to `gh-pages`, as the preview workflow always did, and forks get neither a preview nor secrets. Single-commit history gives up the diff against the previous deploy and any permalink into the branch's past, so a site permalink has to live in the tip's tree — which is how https://github.com/z0u/sca2/blob/main/todo/eng/site-permalinks-for-tags.md would build one, under `v/<tag>/` beside the previews.

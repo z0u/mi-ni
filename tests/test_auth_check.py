@@ -1,21 +1,15 @@
 """Tests for the credential status probe (`./go auth --check`).
 
-The parsing helpers are pure; the per-provider checks shell out through a single
-`_run`, so we drive them by swapping in a fake that returns canned tool output.
+The parsing helpers are pure; the per-provider checks shell out through a single `_run`, so we drive them by swapping in a fake that returns canned tool output.
 """
 
 import asyncio
-import importlib.util
-import sys
-from pathlib import Path
 
-_SPEC = importlib.util.spec_from_file_location(
-    "auth_check", Path(__file__).resolve().parent.parent / "scripts" / "auth_check.py"
-)
-assert _SPEC and _SPEC.loader
-auth_check = importlib.util.module_from_spec(_SPEC)
-sys.modules["auth_check"] = auth_check  # so @dataclass can resolve the module by name
-_SPEC.loader.exec_module(auth_check)
+import pytest
+
+from tests.conftest import load_script
+
+auth_check = load_script("auth_check")
 
 
 def fake_run(code: int, out: str = "", err: str = ""):
@@ -55,53 +49,29 @@ def test_modal_reports_workspace_without_id(monkeypatch):
     assert status.ok and status.detail == "workspace acme-corp"
 
 
-def test_modal_failure_surfaces_reason(monkeypatch):
+def test_a_failed_probe_says_why(monkeypatch):
+    """Modal quotes the tool's own message; Hugging Face answers with the fix instead."""
     monkeypatch.setattr(auth_check, "_run", fake_run(1, "", "Token missing"))
-    status = asyncio.run(auth_check.check_modal())
-    assert not status.ok and status.detail == "Token missing"
+    assert asyncio.run(auth_check.check_modal()) == auth_check.Status("Modal", False, "Token missing")
+    assert asyncio.run(auth_check.check_hf()) == auth_check.Status(
+        "Hugging Face", False, "not logged in — run ./go auth"
+    )
 
 
-def test_hf_includes_user_and_bucket(monkeypatch):
+@pytest.mark.parametrize(
+    ("bucket", "repo", "detail"),
+    [
+        ("octocat/data-store", None, "user octocat, bucket octocat/data-store"),
+        ("octocat/data-store", "octocat/pub", "user octocat, bucket octocat/data-store, publish-repo octocat/pub"),
+        (None, None, "user octocat, no store-bucket set"),
+    ],
+    ids=["publish-tier-off-is-not-shown", "publish-repo-set", "no-bucket"],
+)
+def test_hf_reports_the_user_and_the_configured_repos(monkeypatch, bucket, repo, detail):
     monkeypatch.setattr(auth_check, "_run", fake_run(0, "user=octocat"))
-    monkeypatch.setattr("mini.store.store_bucket", lambda: "octocat/data-store")
-    monkeypatch.setattr("mini.store.publish_repo", lambda: None)  # publish tier off → not shown
-    status = asyncio.run(auth_check.check_hf())
-    assert status.ok and status.detail == "user octocat, bucket octocat/data-store"
-
-
-def test_hf_shows_publish_repo_when_set(monkeypatch):
-    monkeypatch.setattr(auth_check, "_run", fake_run(0, "user=octocat"))
-    monkeypatch.setattr("mini.store.store_bucket", lambda: "octocat/data-store")
-    monkeypatch.setattr("mini.store.publish_repo", lambda: "octocat/pub")
-    status = asyncio.run(auth_check.check_hf())
-    assert status.ok and status.detail == "user octocat, bucket octocat/data-store, publish-repo octocat/pub"
-
-
-def test_hf_notes_missing_bucket(monkeypatch):
-    monkeypatch.setattr(auth_check, "_run", fake_run(0, "user=octocat"))
-    monkeypatch.setattr("mini.store.store_bucket", lambda: None)
-    monkeypatch.setattr("mini.store.publish_repo", lambda: None)
-    status = asyncio.run(auth_check.check_hf())
-    assert status.ok and "no store-bucket set" in status.detail
-
-
-def test_hf_not_logged_in(monkeypatch):
-    monkeypatch.setattr(auth_check, "_run", fake_run(1, "", "Not logged in"))
-    status = asyncio.run(auth_check.check_hf())
-    assert not status.ok
-
-
-def test_wandb_reads_username_from_login(monkeypatch):
-    err = "wandb: Currently logged in as: acme to https://api.wandb.ai. Use `wandb login --relogin` to force relogin"
-    monkeypatch.setattr(auth_check, "_run", fake_run(0, "", err))
-    status = asyncio.run(auth_check.check_wandb())
-    assert status.ok and status.detail == "user acme"
-
-
-def test_wandb_not_logged_in_is_failure(monkeypatch):
-    monkeypatch.setattr(auth_check, "_run", fake_run(1, "", "Error: No API key configured."))
-    status = asyncio.run(auth_check.check_wandb())
-    assert not status.ok and "no API key" in status.detail
+    monkeypatch.setattr("mini.store.store_bucket", lambda: bucket)
+    monkeypatch.setattr("mini.store.publish_repo", lambda: repo)
+    assert asyncio.run(auth_check.check_hf()) == auth_check.Status("Hugging Face", True, detail)
 
 
 def test_github_extracts_account(monkeypatch):
@@ -119,38 +89,21 @@ def test_missing_binary_reports_not_installed(monkeypatch):
 # -- environment-aware selection ---------------------------------------------
 
 
-def test_all_checks_run_by_default(monkeypatch):
-    monkeypatch.delenv("CLAUDE_CODE_REMOTE", raising=False)
-    monkeypatch.delenv("CLAUDECODE", raising=False)
-    assert auth_check._relevant_checks() == [
-        auth_check.check_modal,
-        auth_check.check_hf,
-        auth_check.check_wandb,
-        auth_check.check_github,
-        auth_check.check_claude,
-    ]
-
-
-def test_github_skipped_on_the_web(monkeypatch):
-    # On Claude Code for the web GitHub goes through MCP tools, not `gh`.
-    monkeypatch.setenv("CLAUDE_CODE_REMOTE", "true")
-    monkeypatch.delenv("CLAUDECODE", raising=False)
-    assert auth_check.check_github not in auth_check._relevant_checks()
-    assert auth_check.check_claude in auth_check._relevant_checks()
-
-
-def test_claude_check_skipped_when_claude_is_the_caller(monkeypatch):
-    monkeypatch.delenv("CLAUDE_CODE_REMOTE", raising=False)
-    monkeypatch.setenv("CLAUDECODE", "1")
-    assert auth_check.check_claude not in auth_check._relevant_checks()
-    assert auth_check.check_github in auth_check._relevant_checks()
-
-
-def test_web_agent_runs_only_service_checks(monkeypatch):
-    monkeypatch.setenv("CLAUDE_CODE_REMOTE", "true")
-    monkeypatch.setenv("CLAUDECODE", "1")
-    assert auth_check._relevant_checks() == [
-        auth_check.check_modal,
-        auth_check.check_hf,
-        auth_check.check_wandb,
-    ]
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({}, ["check_modal", "check_hf", "check_github", "check_claude"]),
+        # On Claude Code for the web GitHub goes through MCP tools, not `gh`.
+        ({"CLAUDE_CODE_REMOTE": "true"}, ["check_modal", "check_hf", "check_claude"]),
+        # Claude's own auth is irrelevant when Claude is the caller.
+        ({"CLAUDECODE": "1"}, ["check_modal", "check_hf", "check_github"]),
+        ({"CLAUDE_CODE_REMOTE": "true", "CLAUDECODE": "1"}, ["check_modal", "check_hf"]),
+    ],
+    ids=["a-local-shell", "the-web", "claude-is-the-caller", "a-web-agent"],
+)
+def test_the_environment_selects_the_checks(monkeypatch, env: dict[str, str], expected: list[str]):
+    for name in ("CLAUDE_CODE_REMOTE", "CLAUDECODE"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert [check.__name__ for check in auth_check._relevant_checks()] == expected

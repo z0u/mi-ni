@@ -46,11 +46,22 @@ log() { echo "session-start: $*" >&2; }
     # verifies the tokens live; this just says what's plausibly wired up.
     on() { [[ -n "${!1:-}" ]] && printf on || printf OFF; }
     echo "Resources (env presence; ./go auth --check for live status):" \
-         "Modal $(on MODAL_TOKEN_ID) · HF $(on HF_TOKEN) · WandB $(on WANDB_API_KEY)"
+         "Modal $(on MODAL_TOKEN_ID) · HF $(on HF_TOKEN)"
     echo
     echo "Experiments (report.py dirs; annotated status in docs/index.md):"
     git ls-files 'docs/**/report.py' | sed 's#/report.py##; s#^docs/#  #' | paste -sd' '
-) 2>/dev/null
+    echo
+    # The two CLIs, generated rather than pinned here so they can't drift. Both
+    # are cheap enough for the synchronous path: `./go` prints its usage in pure
+    # bash, and mini is called as the venv binary rather than through `uv run`,
+    # so nothing here can trigger the sync that step 2 below defers. That venv
+    # doesn't exist yet on a cold container, hence the guard — the first session
+    # gets one line, every later one gets both.
+    echo "Project tooling: $(./go 2>&1)"
+    if [[ -x .venv/bin/mini ]]; then
+        echo "Experiments: $(COLUMNS=200 MINI_PROG=bin/mini .venv/bin/mini 2>&1)"
+    fi
+) 2>/dev/null || true
 
 # 0. Put the project venv first on PATH so bare `python` resolves to the
 #    project's 3.14 interpreter instead of the image's system Python 3.11 (which
@@ -68,10 +79,11 @@ if [[ -n "${CLAUDE_ENV_FILE:-}" ]]; then
     fi
 fi
 
-# Skip mechanical reformats in `git blame` (see .git-blame-ignore-revs). The web
-# image never runs `./go install` (which sets this for local checkouts), and the
-# config is repo-local so it can't be committed. It's instant, so do it here,
-# synchronously, before the async handoff — blame is then correct immediately.
+# 0.5. Skip mechanical-reformat commits in `git blame` (see .git-blame-ignore-revs).
+#      The dev container sets this in post-create.sh and `./go install` sets it for
+#      local checkouts; the web image runs neither, and the config is repo-local so
+#      it can't be committed. Fast and local, so it runs synchronously here rather
+#      than in the async block below.
 if [[ -d .git ]]; then
     git config --local blame.ignoreRevsFile .git-blame-ignore-revs \
         && log 'configured blame.ignoreRevsFile' || true

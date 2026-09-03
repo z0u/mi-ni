@@ -1,29 +1,16 @@
 """
 Run lineage: enough provenance to reproduce (or forensically reconstruct) a run.
 
-A memoized run is driven across many short-lived processes; this module captures,
-once per driver wake, the things a report needs to answer *what produced this, on
-what, by whom, and can I recreate it exactly*:
+A memoized run is driven across many short-lived processes; this module captures, once per driver wake, the things a report needs to answer *what produced this, on what, by whom, and can I recreate it exactly*:
 
-- the **code state** — git sha, branch, tags pointing at HEAD, remote(s), and the
-  working-tree diff when the tree is dirty (so a run off uncommitted code is still
-  reconstructable);
-- **who drove it** — the AI agent(s) and a non-PII operator handle (the repo owner
-  from the git remote; the git ``user.name`` is a bot in agent/CI contexts and a
-  real name is PII, so it's deliberately not used);
+- the **code state** — git sha, branch, tags pointing at HEAD, remote(s), and the working-tree diff when the tree is dirty (so a run off uncommitted code is still reconstructable);
+- **who drove it** — the AI agent(s) and a non-PII operator handle (the repo owner from the git remote; the git ``user.name`` is a bot in agent/CI contexts and a real name is PII, so it's deliberately not used);
 - the **environment that spawned/managed the work** — this driver process;
 - **when** — captured, and first-captured across wakes.
 
-It's deliberately dependency-light (``subprocess`` + stdlib) so it runs identically
-in a notebook, the CLI driver, a CI runner, or a cloud sandbox, and never drags a
-heavy import into the hot control plane. Per-*task* execution facts (the Modal
-container / GPU / RAM a step actually ran on) are captured separately by the worker
-(:func:`mini.runs.compute_env`); Modal **cost** is reconciled post-run from the
-billing API (:func:`mini.modal_apparatus.query_cost`).
+It's deliberately dependency-light (``subprocess`` + stdlib) so it runs identically in a notebook, the CLI driver, a CI runner, or a cloud sandbox, and never drags a heavy import into the hot control plane. Per-*task* execution facts (the Modal container / GPU / RAM a step actually ran on) are captured separately by the worker (:func:`mini.runs.compute_env`); Modal **cost** is reconciled post-run from the billing API (:func:`mini.modal_apparatus.query_cost`).
 
-Secrets never enter a record: remote URLs are stripped of embedded credentials, and
-only a safe allowlist of environment markers (versions, session kinds — never
-tokens, emails, or account ids) is recorded.
+Secrets never enter a record: remote URLs are stripped of embedded credentials, and only a safe allowlist of environment markers (versions, session kinds — never tokens, emails, or account ids) is recorded.
 """
 
 from __future__ import annotations
@@ -75,9 +62,7 @@ def _project_root(start: Path | None = None) -> Path:
 def _git(root: Path, *args: str) -> str | None:
     """Run one ``git`` command under *root*; stripped stdout, or ``None`` on any failure.
 
-    Never raises — a missing git binary, a non-repo dir, or a non-zero exit all
-    read as "unknown", so lineage capture degrades gracefully instead of taking a
-    run down.
+    Never raises — a missing git binary, a non-repo dir, or a non-zero exit all read as "unknown", so lineage capture degrades gracefully instead of taking a run down.
     """
     if not shutil.which("git"):
         return None
@@ -124,11 +109,7 @@ def _git_worktree(root: Path, info: dict[str, Any]) -> None:
 def git_lineage(root: Path | str | None = None) -> dict[str, Any] | None:
     """The repository state a run was launched from, or ``None`` when it's not a git repo.
 
-    Captures sha + branch + tags-at-HEAD + ``describe`` + sanitized remotes + the
-    last commit's subject/date, and — when the tree is dirty — the tracked-file diff
-    (capped) and the list of untracked *paths* (names only; their contents may be
-    huge or secret). This is the "recreate it exactly" half: a clean tree pins to a
-    sha, a dirty one carries the delta on top of it.
+    Captures sha + branch + tags-at-HEAD + ``describe`` + sanitized remotes + the last commit's subject/date, and — when the tree is dirty — the tracked-file diff (capped) and the list of untracked *paths* (names only; their contents may be huge or secret). This is the "recreate it exactly" half: a clean tree pins to a sha, a dirty one carries the delta on top of it.
     """
     root = Path(root) if root else _project_root()
     sha = _git(root, "rev-parse", "HEAD")
@@ -170,9 +151,7 @@ _AGENT_SPECS: tuple[tuple[str, tuple[str, ...], dict[str, str]], ...] = (
 def agents(env: dict[str, str] | None = None) -> list[dict[str, str]]:
     """Detected AI agents driving the run (non-PII: name + version/entrypoint only).
 
-    Keyed off well-known environment markers each tool sets. An unknown agent goes
-    undetected rather than guessed; the human operator is captured separately by
-    :func:`operators`.
+    Keyed off well-known environment markers each tool sets. An unknown agent goes undetected rather than guessed; the human operator is captured separately by :func:`operators`.
     """
     env = env if env is not None else dict(os.environ)
     out: list[dict[str, str]] = []
@@ -194,18 +173,14 @@ _REMOTE_OWNER = re.compile(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$")
 def operators(root: Path | str | None = None) -> list[dict[str, str]]:
     """Non-PII handle(s) for *who* ran it — the git host owner from the remote(s).
 
-    We deliberately **don't** use the git-configured ``user.name`` / ``user.email``:
-    in an agent or CI context that's a bot identity (e.g. ``Claude
+    We deliberately **don't** use the git-configured ``user.name`` / ``user.email``: in an agent or CI context that's a bot identity (e.g. ``Claude
     <noreply@anthropic.com>``), not the operator, and a real name/email is PII we
     won't put in a record that may end up in a *published* report. The clean signal
     that's actually available offline is the repo owner in the remote URL (e.g.
     ``z0u`` from ``github.com/z0u/mi-ni``) — a public pseudonym, useful for forensics
     and safe to persist.
 
-    The true operator identity (the human behind a Claude Code / CI session) lives
-    only in PII-bearing or sensitive env (session email, account/org ids, session
-    tokens), so it's intentionally left uncaptured; resolving a token to its login
-    would need a network call and often returns a bot anyway.
+    The true operator identity (the human behind a Claude Code / CI session) lives only in PII-bearing or sensitive env (session email, account/org ids, session tokens), so it's intentionally left uncaptured; resolving a token to its login would need a network call and often returns a bot anyway.
     """
     handles: list[str] = []
     for url in _git_remotes(Path(root) if root else _project_root()).values():
@@ -217,8 +192,7 @@ def operators(root: Path | str | None = None) -> list[dict[str, str]]:
 def _detect_runner(env: dict[str, str]) -> dict[str, str] | None:
     """The kind of environment that spawned/managed this driver, with safe markers.
 
-    Only non-secret identifiers (workflow/run/ref, session kind) — never tokens or
-    account ids. ``None`` when nothing distinctive is set (a plain local shell).
+    Only non-secret identifiers (workflow/run/ref, session kind) — never tokens or account ids. ``None`` when nothing distinctive is set (a plain local shell).
     """
     if env.get("CLAUDE_CODE_REMOTE"):
         runner = {"kind": "claude-code-remote"}
@@ -250,9 +224,7 @@ def _detect_runner(env: dict[str, str]) -> dict[str, str] | None:
 def driver_env(env: dict[str, str] | None = None) -> dict[str, Any]:
     """The environment that spawned and managed the work (this driver process).
 
-    Distinct from the per-task *execution* environment (a Modal container) captured
-    by :func:`mini.runs.compute_env`: this is where ``main(ctx)`` is ticked and
-    tasks are launched from.
+    Distinct from the per-task *execution* environment (a Modal container) captured by :func:`mini.runs.compute_env`: this is where ``main(ctx)`` is ticked and tasks are launched from.
     """
     env = env if env is not None else dict(os.environ)
     info: dict[str, Any] = {
@@ -285,11 +257,7 @@ def run_lineage(root: Path | str | None = None) -> dict[str, Any]:
 def merge_run_lineage(prev: dict[str, Any] | None, fresh: dict[str, Any]) -> dict[str, Any]:
     """Fold a *fresh* capture over *prev*, keeping first-run breadcrumbs.
 
-    A detached run is ticked over many wakes; the meaningful code state is the
-    *latest* one (edits re-run tasks, so the final git state is what produced the
-    current results), but the run's *start* and how many times it woke are worth
-    keeping. Last-writer-wins on the snapshot, first-writer-wins on the origin.
-    Already-captured upstreams survive a wake that didn't re-resolve them.
+    A detached run is ticked over many wakes; the meaningful code state is the *latest* one (edits re-run tasks, so the final git state is what produced the current results), but the run's *start* and how many times it woke are worth keeping. Last-writer-wins on the snapshot, first-writer-wins on the origin. Already-captured upstreams survive a wake that didn't re-resolve them.
     """
     merged = dict(fresh)
     if prev:
@@ -308,10 +276,7 @@ def merge_run_lineage(prev: dict[str, Any] | None, fresh: dict[str, Any]) -> dic
 def upstream_snapshot(name: str, meta: dict[str, Any]) -> dict[str, Any]:
     """A compact provenance record of an upstream experiment, for embedding downstream.
 
-    Given experiment *A*'s run *meta* (its stored ``lineage`` + Modal app ids), pull
-    just enough to trace back to it — its name, code state, when it first ran, and
-    the Modal apps that produced it — so a report for *B* can prove which *A* it was
-    built on without carrying *A*'s whole record.
+    Given experiment *A*'s run *meta* (its stored ``lineage`` + Modal app ids), pull just enough to trace back to it — its name, code state, when it first ran, and the Modal apps that produced it — so a report for *B* can prove which *A* it was built on without carrying *A*'s whole record.
     """
     lineage = meta.get("lineage") or {}
     git = lineage.get("git") or {}
