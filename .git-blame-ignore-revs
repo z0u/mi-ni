@@ -3,3 +3,6 @@
 
 # Switch Python string quote style from single to double
 91d519ebde7931ab1fcee857b3b4b0cd0aaa3aec
+
+# Unwrap Markdown prose to one line per paragraph
+1c04558892eb1cd1cf1e4f4d8058a3e05e8e4b15
