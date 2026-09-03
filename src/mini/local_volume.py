@@ -32,8 +32,7 @@ class LocalVolume(Volume):
         """
         Copy a local file or directory into the volume.
 
-        ``remote_path`` is the **full destination path** within the volume,
-        not a parent directory. Parent directories are created automatically.
+        ``remote_path`` is the **full destination path** within the volume, not a parent directory. Parent directories are created automatically.
 
         For files::
 
@@ -45,8 +44,7 @@ class LocalVolume(Volume):
             vol.upload('results/run-1', 'output/run-1')
             # → <vol>/output/run-1/{contents of results/run-1/}
 
-        If the destination directory already exists, its contents are merged
-        rather than replaced.
+        If the destination directory already exists, its contents are merged rather than replaced.
         """
         src = Path(local_path)
         dst = self._path / remote_path
@@ -61,8 +59,7 @@ class LocalVolume(Volume):
         """
         Copy a file or directory from the volume to a local path.
 
-        ``local_path`` is the **full destination path**, not a parent directory.
-        Parent directories are created automatically.
+        ``local_path`` is the **full destination path**, not a parent directory. Parent directories are created automatically.
 
         For files::
 
@@ -74,8 +71,7 @@ class LocalVolume(Volume):
             vol.download('output/run-1', '/tmp/run-1')
             # → /tmp/run-1/{contents of <vol>/output/run-1/}
 
-        If the destination directory already exists, its contents are merged
-        rather than replaced.
+        If the destination directory already exists, its contents are merged rather than replaced.
         """
         src = self._path / remote_path
         dst = Path(local_path)

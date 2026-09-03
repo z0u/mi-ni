@@ -1,9 +1,7 @@
 """
 Importable experiment definitions.
 
-An experiment is a ``main(ctx)`` orchestration. It carries no notebook/UI state,
-so the CLI and detached workers can both import it; the notebook becomes a report
-that reads durable results.
+An experiment is a ``main(ctx)`` orchestration. It carries no notebook/UI state, so the CLI and detached workers can both import it; the notebook becomes a report that reads durable results.
 """
 
 from __future__ import annotations
@@ -26,9 +24,7 @@ __all__ = ["Experiment", "load_experiment"]
 class Experiment:
     """A named experiment with a memoized multi-step orchestration.
 
-    The definition carries no compute: the apparatus is injected at execution
-    (by the CLI or a notebook) — ``tick(exp, apparatus)`` — so the same module
-    runs locally or remotely without edits::
+    The definition carries no compute: the apparatus is injected at execution (by the CLI or a notebook) — ``tick(exp, apparatus)`` — so the same module runs locally or remotely without edits::
 
         def main(ctx):
             meta = ctx.run(prepare_data, role='prep')    # CPU prep
@@ -36,9 +32,7 @@ class Experiment:
 
         Experiment(name='pipeline', main=main, roles={'train': dict(gpu='L4')})
 
-    Roles let ``main`` stay backend-agnostic: it names a label and the
-    ``roles`` table maps that label to concrete hardware via ``.w()``. A
-    table written for Modal still loads locally (local ``.w()`` ignores kwargs).
+    Roles let ``main`` stay backend-agnostic: it names a label and the ``roles`` table maps that label to concrete hardware via ``.w()``. A table written for Modal still loads locally (local ``.w()`` ignores kwargs).
     """
 
     name: str
@@ -54,9 +48,7 @@ class Experiment:
     def resolve_roles(self, base: Apparatus) -> dict[str, Apparatus]:
         """Bind role labels to concrete apparatus variants of *base*.
 
-        A dict maps each label to ``.w()`` kwargs applied to *base* (the common
-        case); a callable receives *base* and returns the variants directly (for
-        per-role ``before_each`` / image / volume). ``None`` → no roles.
+        A dict maps each label to ``.w()`` kwargs applied to *base* (the common case); a callable receives *base* and returns the variants directly (for per-role ``before_each`` / image / volume). ``None`` → no roles.
         """
         if self.roles is None:
             return {}

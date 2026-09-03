@@ -53,7 +53,7 @@ show_tracebacks = false
 default_csv_encoding = "utf-8"
 
 [formatting]
-line_length = 79
+line_length = 120
 
 [keymap]
 preset = "default"

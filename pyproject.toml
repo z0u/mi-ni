@@ -24,7 +24,6 @@ dependencies = [
     "requests>=2.32.3",
     "rich>=14.3.2",  # pretty terminal output
     "scikit-learn>=1.6.1",
-    "wandb>=0.25.0",  # experiment tracking
 ]
 
 [project.scripts]
@@ -39,15 +38,19 @@ mini = "mini.__main__:main"
 #     image = modal.Image.debian_slim().pip_install(*deps)
 #
 dev = [
+    "marimo-md-export>=0.8.0",
+    "markdownify>=1.2.3",
     "pandas-stubs",
     "pytest-asyncio>=0.25.3",
+    "pytest-timeout>=2.3",
     "pytest-xdist>=3.6",
     "pytest>=8.3.5",
     "ruff>=0.9.7",  # linter and formatter
     "scipy-stubs>=1.15.2.2",
     "segno>=1.6.1",  # QR code generation
-    "ty>=0.0.19",  # type checker
+    "ty>=0.0.73",  # type checker; 0.0.73 is the first to keep a PEP 695 alias through a widening generic call
     "vulture>=2.14",  # dead code detection
+    "watchdog>=6.0.0",  # Marimo hot-reload
 ]
 local = [
 ]
@@ -77,6 +80,30 @@ pages = [
 # per-shell with MINI_PUBLISH_REPO. See eng/publishing.md and issue #38.
 # publish-repo = "your-namespace/your-publish-repo"
 
+# Environment every task worker gets, on both backends. It has to be here rather
+# than set from inside a task: a Modal container is reused across tasks, and XLA
+# parses XLA_FLAGS once when its backend comes up, so an in-process setting takes
+# effect for whichever task happened to run first and is ignored thereafter.
+#
+#   deterministic_ops       makes scatter deterministic, via the fast expander.
+#                           Without it, embedding-gradient scatter-adds accumulate
+#                           in whatever order the atomics land, so the same seed
+#                           and code give a different model every run. Measured on
+#                           an L4: three containers, three digests; with it, one.
+#                           Costs about 1.7x on a d64-L4 cell (eng/determinism.md).
+#   exclude_nondeterministic_ops  the broader guard, for ops the scatter expander
+#                           doesn't cover. Free at our sizes.
+#
+# A role can override per-experiment with env= (merged key by key). Not a secret
+# channel: these values are recorded on every task record. Tokens go in secrets=.
+#
+# Off by default in the template: reproducible-by-default costs throughput, and
+# whether that trade is worth it is a per-project call. Uncomment to opt in.
+# env = { XLA_FLAGS = "--xla_cpu_enable_concurrency_optimized_scheduler=false --xla_gpu_deterministic_ops=true --xla_gpu_exclude_nondeterministic_ops=true" }
+
+[tool.marimo.runtime]
+watcher_on_save = "autorun"
+
 [tool.uv]
 # Dependency cooldown to mitigate risk of supply chain attacks.
 # https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns
@@ -91,7 +118,12 @@ namespace = true
 
 [tool.ruff]
 line-length = 120
-extend-exclude = [".vulture-*"]
+# Markdown is excluded because ruff 0.16 began formatting fenced code blocks in
+# it. Our docs' blocks are illustrative fragments, not runnable code, and the
+# formatter reads them as the latter: it collapsed the very method-chaining
+# example that `style-py` exists to teach, because the one-liner fits in 120
+# columns. Excluding restores 0.15's behavior — prose stays ours to shape.
+extend-exclude = [".vulture-*", "*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "C", "D", "T"]
@@ -125,12 +157,19 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-norecursedirs = ["node_modules", ".venv", "tmp*", "scratch*"]
-# Run in parallel by default (pytest-xdist): the suite is a mix of network-,
-# import-, and compute-bound tests that all isolate via tmp_path/monkeypatch, so
-# it scales near-linearly across cores. Override with `-n0` for a serial run
-# (e.g. when using --pdb).
-addopts = ["-n", "auto"]
+# Setting this replaces pytest's default rather than extending it, and `.*` is the
+# default entry that keeps it out of dotted directories — without it, agent worktrees
+# under `.claude/worktrees/` get collected as a second copy of tests/.
+norecursedirs = [".*", "node_modules", "tmp*", "scratch*"]
+# Parallel by default (pytest-xdist) as a convenience, not a need: the suite runs
+# in ~30s serially and ~15s across cores. Serial (`-n0`) is the baseline every test
+# must pass under, and the one to use with --pdb.
+markers = ["hf: talks to the real Hugging Face bucket (slow, network); deselected by default — opt in with `-m hf`"]
+# The orchestration tests drive real worker subprocesses through the shipped
+# `drive_and_watch`, which waits like production does — a wedged task would hang the
+# suite rather than fail it. The cap is well above the slowest test (a few seconds).
+timeout = 60
+addopts = ["-n", "auto", "-m", "not hf"]
 
 [tool.vulture]
 exclude = [
@@ -155,7 +194,9 @@ ignore_names = [
     "setUp",
     "tearDown",
     "_",  # marimo cell functions
-    "__generated_with"  # marimo file metadata
+    "__generated_with",  # marimo file metadata
+    "__getattr__",  # PEP 562 module hook: the interpreter calls it, no caller to find
+    "__dir__"  # ditto
 ]
 # make_whitelist = true
 min_confidence = 60

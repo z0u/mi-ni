@@ -2,7 +2,7 @@ import logging
 import sys
 import time
 from dataclasses import dataclass
-from typing import Literal, TypeAlias, override
+from typing import Literal, override
 
 TRACE = 5
 
@@ -38,7 +38,7 @@ class ConciseFormatter(logging.Formatter):
         return f"{prefix:15s}{record.getMessage()}"
 
 
-NamedFd: TypeAlias = Literal["stdout", "stderr"]
+type NamedFd = Literal["stdout", "stderr"]
 
 
 @dataclass

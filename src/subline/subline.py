@@ -139,7 +139,14 @@ class Subline:
             pos += width
 
     def plot(self, tokens: str | Sequence[str], series: list[Series]):
-        """Generate and display an SVG visualization of text metrics."""
+        """Render *tokens* as text, with each series drawn as a sparkline beneath it and aligned to them.
+
+        *tokens* is a plain string, split into characters, or a sequence of token strings of any width. A token wider than one character holds its value as a plateau across its glyphs before ramping to the next, so the curve reads as a rate of change rather than one bar per token.
+
+        Each series carries one value per token, as a **fraction of the band's height**: 0 sits on the token baseline, 1 at the top. Scale into that range — dividing a surprisal by ``log |V|`` gives "fraction of a uniform guess" — and clip there, because a negative value falls outside the clip and is dropped silently, while the band itself renders up to 2. ``NaN`` breaks the path, which is how a gap is drawn: a first token with no prediction behind it wants a leading ``NaN`` so the rest stay aligned.
+
+        Series take ``--col-series-1`` through ``-5`` in order, and only those five are defined. Give each a ``dasharray`` as well as a color — on a 20px band they cross constantly. Returns the SVG as a string; see ``README.md`` for restyling it through *css*.
+        """
         # A bare string is split into characters; any other sequence is taken as-is.
         tokens = list(tokens)
 

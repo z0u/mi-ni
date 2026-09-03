@@ -1,14 +1,7 @@
 # mi-ni: dark style
-axes.facecolor: "#1118"
+axes.facecolor: "#000"
 figure.facecolor: "#0000"
 savefig.facecolor: "#0000"
-savefig.edgecolor: "#333"
-
-# Rely on axes.facecolor to show extents rather than using borders
-axes.spines.top: False
-axes.spines.right: False
-axes.spines.bottom: False
-axes.spines.left: False
 
 # Ticks and labels
 xtick.color: "#fff8"
@@ -19,7 +12,7 @@ ytick.labelcolor: "#fff"
 # Text and axes labels
 text.color: "#fff"
 axes.labelcolor: "#fff"
-axes.edgecolor: "#fff5"
+axes.edgecolor: "#333a"
 
 boxplot.boxprops.color: "#fff"
 boxplot.flierprops.color: "#fff"

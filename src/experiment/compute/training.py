@@ -61,7 +61,7 @@ def train_model(
             emit_progress(step, total_steps, message=f"loss={float(loss):.4f}")
 
         val_losses = [
-            float(eval_step(model, x, y))
+            float(eval_step(model, jnp.asarray(x), jnp.asarray(y)))
             for x, y in sample_batches(val_data, config.data, config.model, val_length, rng)
         ]
         metrics = TrainingMetrics(

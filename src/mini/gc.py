@@ -2,43 +2,16 @@
 
 Two sweeps, two scopes:
 
-- **Per-experiment** (``mini gc <name>``): memo-store state — records, result
-  dirs, staged calls — on either backend. Locally that's files under
-  ``.mini/<name>``; on Modal the records live in a named ``Dict`` (which
-  self-expires after 7 idle days) and the result dirs on the Volume (which
-  never expire) — the same plan logic runs over a :class:`GcIO` adapter.
-- **Project store** (``mini gc --store``): the content-addressed artifact CAS,
-  mark-and-sweep. *Mark* walks every experiment's records (both backends) and
-  the store's refs; *sweep* deletes blobs nothing reaches. See
-  :func:`collect_store_roots` for the safety posture — it fails closed.
+- **Per-experiment** (``mini gc <name>``): memo-store state — records, result dirs, staged calls — on either backend. Locally that's files under ``.mini/<name>``; on Modal the records live in a named ``Dict`` (which self-expires after 7 idle days) and the result dirs on the Volume (which never expire) — the same plan logic runs over a :class:`GcIO` adapter.
+- **Project store** (``mini gc --store``): the content-addressed artifact CAS, mark-and-sweep. *Mark* walks every experiment's records (both backends) and the store's refs; *sweep* deletes blobs nothing reaches. See :func:`collect_store_roots` for the safety posture — it fails closed.
 
 Collectibility is judged against the store's own invariants, not age or size:
 
-- A **superseded record** (its key absent from the requested-keys manifest) is
-  collectible once the manifest is trustworthy: the last tick ran the DAG to
-  completion (``complete`` in the run meta) and nothing is still unsettled.
-  A *current* record is never collectible — a DONE one is a future memo hit,
-  and even a FAILED one is live state (deleting it would silently convert a
-  terminal failure into a relaunch on the next wake).
-- A **stale attempt file** (a ``result-<gen>.pkl``/``error-<gen>.txt``/
-  ``result-<gen>.artifacts.json`` under a generation the record no longer
-  owns) is unreachable: readers resolve through the record's current ``gen``,
-  and a fenced zombie writer can't make anything read it again. The one
-  exception is the legacy ``error.txt``, which ``MemoStore.error`` still falls
-  back to when the current attempt left no traceback — that stays live until
-  the current generation writes its own.
-- An **orphaned result dir** has no record at all. Records are claimed before
-  the worker creates its dir, so this is debris, not a race — on Modal it is
-  also the normal end state of a Dict record that expired out from under the
-  Volume.
-- A **staged call** (``.control/memo/<key>.pkl``) is worker spawn input; it is
-  dead once its task is off RUNNING (a relaunch rewrites it). Modal passes the
-  call to ``spawn`` directly, so that backend stages nothing.
-- An **unreferenced blob** in the CAS is one no record's result and no ref
-  reaches, *and* older than the grace window. The window is what makes the
-  sweep safe against writers the mark phase cannot see — a checkout that
-  hasn't pushed its memo state, or a ``put`` that skipped an upload because
-  the blob already existed moments before the sweep judged it garbage.
+- A **superseded record** (its key absent from the requested-keys manifest) is collectible once the manifest is trustworthy: the last tick ran the DAG to completion (``complete`` in the run meta) and nothing is still unsettled. A *current* record is never collectible — a DONE one is a future memo hit, and even a FAILED one is live state (deleting it would silently convert a terminal failure into a relaunch on the next wake).
+- A **stale attempt file** (a ``result-<gen>.pkl``/``error-<gen>.txt``/ ``result-<gen>.artifacts.json`` under a generation the record no longer owns) is unreachable: readers resolve through the record's current ``gen``, and a fenced zombie writer can't make anything read it again. The one exception is the legacy ``error.txt``, which ``MemoStore.error`` still falls back to when the current attempt left no traceback — that stays live until the current generation writes its own.
+- An **orphaned result dir** has no record at all. Records are claimed before the worker creates its dir, so this is debris, not a race — on Modal it is also the normal end state of a Dict record that expired out from under the Volume.
+- A **staged call** (``.control/memo/<key>.pkl``) is worker spawn input; it is dead once its task is off RUNNING (a relaunch rewrites it). Modal passes the call to ``spawn`` directly, so that backend stages nothing.
+- An **unreferenced blob** in the CAS is one no record's result and no ref reaches, *and* older than the grace window. The window is what makes the sweep safe against writers the mark phase cannot see — a checkout that hasn't pushed its memo state, or a ``put`` that skipped an upload because the blob already existed moments before the sweep judged it garbage.
 """
 
 from __future__ import annotations
@@ -88,18 +61,14 @@ GRACE_DEFAULT = "14d"
 class GcIO(ABC):
     """The I/O-plane operations a memo sweep needs, decoupled from where files live.
 
-    One listing up front (``memo_tree``), deletes addressed by key + file name —
-    so the same plan/apply logic serves local disk and a Modal Volume (per-path
-    ``remove_file``; no local mount).
+    One listing up front (``memo_tree``), deletes addressed by key + file name — so the same plan/apply logic serves local disk and a Modal Volume (per-path ``remove_file``; no local mount).
     """
 
     @abstractmethod
     def memo_tree(self) -> dict[str, dict[str, int]]:
         """``{key: {filename: size}}`` for every result dir under ``_memo/``.
 
-        Nested files appear under their relative path (``sub/x.bin``) — they
-        count toward sizes but never match the attempt-file pattern, so unknown
-        content is sized, not swept.
+        Nested files appear under their relative path (``sub/x.bin``) — they count toward sizes but never match the attempt-file pattern, so unknown content is sized, not swept.
         """
 
     @abstractmethod
@@ -155,9 +124,7 @@ class LocalGcIO(GcIO):
 class ModalGcIO(GcIO):
     """Modal-Volume I/O plane: one recursive ``listdir``, per-path ``remove_file``.
 
-    *volume* is a ``modal.Volume`` (or any duck with ``listdir``/``remove_file``
-    — a fake for tests). Import-light on purpose: constructing this never touches
-    the network; the first listing does.
+    *volume* is a ``modal.Volume`` (or any duck with ``listdir``/``remove_file`` — a fake for tests). Import-light on purpose: constructing this never touches the network; the first listing does.
     """
 
     def __init__(self, volume: Any):
@@ -232,9 +199,7 @@ class GcPlan:
 def plan_gc(store: MemoStore, records: list[dict] | None = None, io: GcIO | None = None) -> GcPlan:
     """What ``apply_gc`` would delete, and why the rest stays.
 
-    Call ``reap_dead`` first so a vanished worker's RUNNING record doesn't read
-    as alive. Pass *records* to reuse a snapshot already in hand; pass *io* to
-    plan against a non-local I/O plane (a Modal Volume).
+    Call ``reap_dead`` first so a vanished worker's RUNNING record doesn't read as alive. Pass *records* to reuse a snapshot already in hand; pass *io* to plan against a non-local I/O plane (a Modal Volume).
     """
     records = store.records() if records is None else records
     io = io or LocalGcIO(store)
@@ -320,9 +285,7 @@ def _plan_staged_calls(records: list[dict], calls: dict[str, int], collected: se
 def apply_gc(store: MemoStore, plan: GcPlan, io: GcIO | None = None) -> None:
     """Delete everything in *plan*.
 
-    Record first, files second: a crash between the two leaves an orphaned dir,
-    which the next gc collects — never the reverse (a record whose result dir
-    is gone).
+    Record first, files second: a crash between the two leaves an orphaned dir, which the next gc collects — never the reverse (a record whose result dir is gone).
     """
     io = io or LocalGcIO(store)
     for item in plan.items:
@@ -365,10 +328,7 @@ class StoreGcPlan:
 def _experiment_names(root: Path) -> list[str]:
     """Experiments with any durable trace under the data root.
 
-    ``.control/memo`` marks a local memo store; a bare ``.app`` stamp marks an
-    experiment whose state lives on another backend (Modal). ``store/``,
-    ``store-cache/`` and ``exports/`` carry neither, so they never read as
-    experiments.
+    ``.control/memo`` marks a local memo store; a bare ``.app`` stamp marks an experiment whose state lives on another backend (Modal). ``store/``, ``store-cache/`` and ``exports/`` carry neither, so they never read as experiments.
     """
     if not root.is_dir():
         return []
@@ -376,9 +336,7 @@ def _experiment_names(root: Path) -> list[str]:
 
 
 def _memo_store_for(name: str, root: Path) -> MemoStore | None:
-    """The memo store for *name* on its stamped backend — ``None`` if the Modal
-    control plane no longer exists (expired Dict: no records, so no roots).
-    """
+    """The memo store for *name* on its stamped backend — ``None`` if the Modal control plane no longer exists (expired Dict: no records, so no roots)."""
     marker = root / name / ".app"
     backend = marker.read_text().strip() if marker.is_file() else "local"
     if backend in ("local", ""):
@@ -405,20 +363,12 @@ def collect_store_roots(
 
     Fails closed (:class:`StoreGcError`) rather than under-marking:
 
-    - **An in-flight task blocks the sweep entirely.** A running worker may
-      have just seen ``has(sha) == True`` for bytes it is about to reference —
-      deleting that blob would corrupt the result it hasn't written yet.
-    - **An unreadable result blocks the sweep.** A record without an artifact
-      sidecar must be unpickled to learn its references; if that fails (moved
-      code, missing volume), its references are unknown — so nothing is safe.
+    - **An in-flight task blocks the sweep entirely.** A running worker may have just seen ``has(sha) == True`` for bytes it is about to reference — deleting that blob would corrupt the result it hasn't written yet.
+    - **An unreadable result blocks the sweep.** A record without an artifact sidecar must be unpickled to learn its references; if that fails (moved code, missing volume), its references are unknown — so nothing is safe.
 
-    *Every* record present is a root — superseded ones included. Collecting a
-    superseded record's blobs is ``mini gc <name>``'s call to make first; the
-    store sweep never second-guesses the memo layer.
+    *Every* record present is a root — superseded ones included. Collecting a superseded record's blobs is ``mini gc <name>``'s call to make first; the store sweep never second-guesses the memo layer.
 
-    Pass *stores* to mark an explicit ``(name, memo_store)`` set (tests);
-    otherwise experiments are enumerated under *root* and each is read on the
-    backend stamped at launch.
+    Pass *stores* to mark an explicit ``(name, memo_store)`` set (tests); otherwise experiments are enumerated under *root* and each is read on the backend stamped at launch.
     """
     root = data_root() if root is None else root
     if stores is None:
@@ -453,11 +403,7 @@ def collect_store_roots(
 def plan_store_gc(store: Store, roots: set[str], *, grace: float, now: float | None = None) -> StoreGcPlan:
     """Sweep phase: every blob outside *roots* ∪ refs and older than *grace* seconds.
 
-    Refs are resolved here (they live in the store itself), so a blob pinned by
-    ``set_ref`` survives even with no record referencing it — that's the
-    documented way to keep an artifact alive across record gc. A blob younger
-    than *grace* (or of unknown age) is never collected: it may belong to a
-    writer the mark phase couldn't see.
+    Refs are resolved here (they live in the store itself), so a blob pinned by ``set_ref`` survives even with no record referencing it — that's the documented way to keep an artifact alive across record gc. A blob younger than *grace* (or of unknown age) is never collected: it may belong to a writer the mark phase couldn't see.
     """
     now = time.time() if now is None else now
     roots = set(roots)

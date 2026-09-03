@@ -15,8 +15,7 @@ _current_theme: ContextVar[ThemeName] = ContextVar("_current_theme", default="li
 def use_theme(theme: ThemeName):
     """Set the active theme for the block. This is used by :func:`light_dark` to pick values based on the theme.
 
-    When *theme* is given, :func:`light_dark` and :func:`current_theme`
-    will resolve against it inside the block.
+    When *theme* is given, :func:`light_dark` and :func:`current_theme` will resolve against it inside the block.
     """
     token = _current_theme.set(theme)
     try:

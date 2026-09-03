@@ -1,8 +1,15 @@
+# Themed figures display at their physical size (mini.vis.nb pins the CSS size to
+# 96 px/in regardless of save dpi), so points map straight to CSS px: 12pt ≙ 16px,
+# Marimo's body text. Derived 'small' sizes (ticks, titles, legend) land ≈13px —
+# annotations sit just under the prose.
+font.size: 12
+
 xtick.labelsize: small
 ytick.labelsize: small
 
 axes.titlesize: small
 axes.grid: False
+axes.linewidth: 0.5
 axes3d.grid: False
 axes3d.xaxis.panecolor: none
 axes3d.yaxis.panecolor: none
@@ -13,5 +20,9 @@ legend.fontsize: small
 
 figure.frameon: False
 figure.constrained_layout.use: True
+# figure.constrained_layout.hspace: 0
+# figure.constrained_layout.h_pad: 0
+# figure.constrained_layout.wspace: 0.05
+# figure.constrained_layout.w_pad: 0
 
 lines.solid_capstyle: round

@@ -1,23 +1,18 @@
 """Execution-environment capture and the Modal lineage/cost helpers.
 
-``compute_env`` runs inside the worker to record what a task *actually* ran on; the
-Modal helpers name worker functions for the dashboard and aggregate billing. All
-pure enough to test without a live backend — the Modal env allowlist and cost
-aggregation are the security- and correctness-sensitive bits.
+``compute_env`` runs inside the worker to record what a task *actually* ran on; the Modal helpers name worker functions for the dashboard and aggregate billing. All pure enough to test without a live backend — the Modal env allowlist and cost aggregation are the security- and correctness-sensitive bits.
 """
 
 from __future__ import annotations
 
+import importlib.metadata
 from dataclasses import dataclass
 from decimal import Decimal
 
+import pytest
+
 from mini import runs
 from mini.modal_apparatus import _aggregate_cost, _worker_fn_name
-
-
-def test_compute_env_has_core_fields():
-    env = runs.compute_env()
-    assert {"host", "platform", "python", "cpu_count"} <= env.keys()
 
 
 def test_compute_env_records_modal_container_ids_but_never_secrets(monkeypatch):
@@ -30,6 +25,7 @@ def test_compute_env_records_modal_container_ids_but_never_secrets(monkeypatch):
     monkeypatch.setenv("MODAL_TASK_SECRET", "shhh")
     monkeypatch.setenv("MODAL_TOKEN_SECRET", "also-secret")
     env = runs.compute_env()
+    assert {"host", "platform", "python", "cpu_count"} <= env.keys()
     assert env["modal_task_id"] == "ta-123"
     assert env["region"] == "us-west-2"
     assert env["cloud"] == "CLOUD_PROVIDER_AWS"
@@ -40,7 +36,7 @@ def test_compute_env_records_modal_container_ids_but_never_secrets(monkeypatch):
     assert "also-secret" not in blob
 
 
-def test_worker_fn_name_is_readable_and_disambiguated():
+def test_worker_fn_name_is_readable_stable_and_disambiguated():
     def train(x):
         return x
 
@@ -48,8 +44,6 @@ def test_worker_fn_name_is_readable_and_disambiguated():
     assert name.startswith("train-")
     assert _worker_fn_name(train) == name  # stable across calls
 
-
-def test_worker_fn_name_distinguishes_same_named_functions():
     def make(tag):
         def run(x):  # both have __name__ == "run" but distinct qualnames
             return x
@@ -88,7 +82,52 @@ def test_aggregate_cost_sums_only_wanted_apps_with_breakdown():
     assert out["by_resource"] == {"L4": Decimal("0.90"), "CPU": Decimal("0.60")}
     assert out["intervals"] == 2
 
+    nothing = _aggregate_cost([_Item("ap-x", Decimal("1"), {})], {"ap-y"})
+    assert nothing == {"total": Decimal(0), "by_resource": {}, "intervals": 0}
 
-def test_aggregate_cost_empty_when_no_match():
-    out = _aggregate_cost([_Item("ap-x", Decimal("1"), {})], {"ap-y"})
-    assert out == {"total": Decimal(0), "by_resource": {}, "intervals": 0}
+
+def test_compute_env_records_the_numerics_env(monkeypatch):
+    """``XLA_FLAGS`` decides whether a GPU reduction is deterministic, so two attempts can agree on code and inputs and still disagree on results across a change to it. Recorded per attempt, from the worker's own environment — so a setting that never reached the container reads as absent rather than as whatever the client asked for."""
+    monkeypatch.delenv("XLA_FLAGS", raising=False)
+    assert "numerics_env" not in runs.compute_env()
+
+    monkeypatch.setenv("XLA_FLAGS", "--xla_gpu_deterministic_ops=true")
+    assert runs.compute_env()["numerics_env"] == {"XLA_FLAGS": "--xla_gpu_deterministic_ops=true"}
+
+
+def test_compute_env_records_the_numerics_package_versions():
+    """A library version moves a number without moving the memo key — no library source reaches a fingerprint — so the versions a task ran under are recorded alongside the flags."""
+    versions = runs.compute_env()["numerics_packages"]
+    assert versions.keys() <= set(runs._NUMERICS_PACKAGES)
+    assert versions["numpy"] == importlib.metadata.version("numpy")
+
+
+def test_numerics_drift_names_what_moved():
+    recorded = {"numerics_packages": {"jax": "0.10.1", "numpy": "2.2.3"}}
+    now = {"jax": "0.11.0", "numpy": "2.2.3"}
+    assert runs.numerics_drift(recorded, now) == {"jax": ("0.10.1", "0.11.0")}
+
+
+@pytest.mark.parametrize(
+    "env,current",
+    [
+        ({}, {"jax": "0.11.0"}),  # a record from before the versions were captured
+        ({"numerics_packages": {"jax": "0.10.1"}}, {}),  # a driver without jax installed
+        ({"numerics_packages": {"jax": "0.10.1"}}, {"numpy": "2.2.3"}),  # nothing in common
+        (None, {"jax": "0.11.0"}),  # a record with no env at all (never started)
+    ],
+)
+def test_numerics_drift_stays_quiet_without_both_halves(env, current):
+    """Absence of evidence isn't evidence of a change: a package missing from either side says nothing about whether the result would reproduce."""
+    assert runs.numerics_drift(env, current) == {}
+
+
+def test_merged_numerics_drift_keeps_every_baseline():
+    """A sweep can straddle an upgrade, so two records drifting from *different* versions of the same package both appear — numerically sorted, so `0.9.0` reads before `0.10.1`."""
+    drifts = [
+        {"jax": ("0.10.1", "0.11.0")},
+        {"jax": ("0.9.0", "0.11.0"), "numpy": ("2.2.3", "2.3.0")},
+    ]
+    merged = runs.merged_numerics_drift(drifts)
+    assert merged == {"jax": (("0.9.0", "0.10.1"), "0.11.0"), "numpy": (("2.2.3",), "2.3.0")}
+    assert runs.describe_numerics_drift(merged) == "jax 0.9.0/0.10.1 → 0.11.0, numpy 2.2.3 → 2.3.0"

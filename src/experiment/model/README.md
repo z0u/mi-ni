@@ -15,7 +15,7 @@ My key takeaways:
 [^length]: Especially in conjunction with the normalization that forces model vectors to store only direction (i.e. unit length), as in nGPT — which is exactly what this model now does.
 
 
-## [Attention](attention.py)
+## [Attention](gpt.py)
 
 ### Rotary positional encodings
 
@@ -55,7 +55,7 @@ Reading the previous section, you might think that each token can only provide o
 [^causal]: This is for causal self-attention. For cross-attention, all other tokens are queried.
 
 
-## [MLP](mlp.py)
+## [MLP](gpt.py)
 
 The multilayer perceptron (MLP) (aka feedforward layer) is an OG[^og] deep learning pattern for nonlinear learned data transformations. That doesn't tell us much about what it does here but [3b1b has a great video on it](https://www.3blue1brown.com/lessons/mlp) (Sanderson, 2024). The structure of an MLP in a transformer does this:
 
@@ -76,7 +76,7 @@ Exactly what is going on in the large matrices that project up and then back dow
 The MLP operates on each token embedding individually: at this point, there is no communication between tokens; that happens in the `CausalSelfAttention` module. Also, it does not _add_ knowledge to the embedding; it outputs an entirely new embedding, which is then added to the residual stream in the `Block`.
 
 
-## [Transformer block](block.py)
+## [Transformer block](gpt.py)
 
 A transformer "block":
 1. Uses multi-headed attention to pass context between tokens (see _Causal self-attention_, above)

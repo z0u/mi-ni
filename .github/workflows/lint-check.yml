@@ -8,31 +8,115 @@ on:
   workflow_dispatch:
     # Allows manual triggering of the workflow from the GitHub UI
 
+# A verdict is about a commit, so a new push to a PR supersedes the run in flight — it is
+# answering a question nobody is asking any more, and these checks have no side effects to
+# leave half-done. Cancelling it is worth a few runner-minutes per round of an agent's
+# fix-push-wait loop. Keying on the PR number rather than the ref is what keeps that from
+# reaching `main`: a push gets a group of its own (its sha), so every commit there still
+# runs to a completed verdict, which is what a later bisect or red-build question reads.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   check:
     name: Run all checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the publish check diffs against the base branch's merge base
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        # Pinned to a full version rather than a floating major, because from v8 on
+        # astral-sh stopped publishing `@v8`-style tags — a mutable major is a supply
+        # chain the pin can't see, so upstream's contract is now "name the release".
+        # The cost is that this one doesn't drift forward on its own; bumping it is a
+        # manual edit here and in site.yml.
+        uses: astral-sh/setup-uv@v10.0.1
 
       - name: Install dependencies
+        id: install
         run: ./go install
 
+      # Every check below carries the same condition, so one round reports everything
+      # that is wrong rather than the first thing: a run stopping at a misplaced comma
+      # says nothing about the tests, and the fix-push-wait loop repeats per finding.
+      # They are independent — `./go check` runs them in parallel locally for the same
+      # reason — so the only cost is a couple of runner-minutes on a red build.
+      # An install that failed is the exception: with no environment, every check
+      # below it fails for a reason that isn't its own.
       - name: Formatting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ./go format --check
 
       - name: Linting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ./go lint
 
       - name: Type checking
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ./go types
 
       - name: Run tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ./go test -v
 
+      - name: Reports published
+        # A report changed without its pin moving means the merged site would serve the
+        # previous export's figures — a quiet failure, so it gets a loud check. Pure git
+        # plus docs/publish.lock: no store access, no render, and no write token, which
+        # is what keeps CI read-only (see eng/publishing.md). The publish itself belongs
+        # in the session that has a warm store; this only notices when it was skipped.
+        #
+        # Last of the real checks, so the summary reads in order of urgency — a stale
+        # pin is the least of them. Nothing here masks anything: the checks all run.
+        if: >-
+          !cancelled() && steps.install.outcome == 'success'
+          && github.event_name == 'pull_request'
+          && !contains(github.event.pull_request.labels.*.name, 'skip-publish-check')
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
+          stale="$(uv run scripts/unpublished_reports.py "origin/$BASE")"
+          if [[ -z "$stale" ]]; then
+            echo "Every report this branch changed has been republished." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "### Reports changed without a publish"
+            echo
+            echo "Merging would leave the site serving the previous export's figures."
+            sed 's/^/- \`/; s/$/\`/' <<< "$stale"
+            echo
+            echo "Run \`./go publish $(tr '\n' ' ' <<< "$stale" | sed 's/ $//')\` and push the updated \`docs/publish.lock\`."
+            echo "To merge without republishing, add the \`skip-publish-check\` label."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Reports changed without a publish — see the job summary."
+          exit 1
+
+      - name: Doc links
+        # A gate, unlike the two advisory steps below: the tree was clean when this arrived,
+        # so holding it there costs nothing. The failure it exists for is the quiet one — a
+        # renamed heading leaves the link opening the file at the top, so a session following
+        # it reads the wrong section and nothing looks wrong. Relative targets only; an
+        # external URL needs the network and goes stale for reasons outside this repo.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: ./go links
+
       - name: Dead code detection
+        # Advisory: it reports, and a finding never fails the build.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         continue-on-error: true
         run: ./go deadcode
+
+      - name: Cell variable annotations
+        # Also advisory, and for now the stronger reason: the backlog it found on
+        # arrival is ~90 sites across 16 notebooks, and each fix has to be published
+        # with its report. It prints the worklist so a session touching a notebook
+        # can see its own share; it becomes a gate once that list is short.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        continue-on-error: true
+        run: ./go annotations

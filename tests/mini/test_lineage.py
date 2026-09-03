@@ -1,9 +1,6 @@
 """Run-lineage capture: git state, identity, driver env, and the merge/snapshot helpers.
 
-The git tests build a throwaway repo under ``tmp_path`` so they exercise the real
-``git`` plumbing (sha, dirty diff, remote sanitizing) without touching the project
-repo. The identity/driver tests drive off an explicit ``env`` dict so they don't
-depend on the ambient environment.
+The git tests build a throwaway repo under ``tmp_path`` so they exercise the real ``git`` plumbing (sha, dirty diff, remote sanitizing) without touching the project repo. The identity/driver tests drive off an explicit ``env`` dict so they don't depend on the ambient environment.
 """
 
 from __future__ import annotations
@@ -71,16 +68,16 @@ def test_git_lineage_strips_remote_credentials(repo: Path):
     assert lin["remotes"]["origin"] == "https://github.com/z0u/mi-ni"
     assert "ghs_SECRET" not in str(lin)  # the token never lands in the record
 
+    # The sanitizer underneath, over the shapes a remote can take.
+    assert lineage._sanitize_url("http://local_proxy@127.0.0.1:41729/git/z0u/mi-ni") == (
+        "http://127.0.0.1:41729/git/z0u/mi-ni"
+    )
+    assert lineage._sanitize_url("https://user:pass@host/path") == "https://host/path"
+    assert lineage._sanitize_url("git@github.com:z0u/mi-ni.git") == "git@github.com:z0u/mi-ni.git"  # scp-style: no ://
+
 
 def test_git_lineage_none_outside_a_repo(tmp_path: Path):
     assert lineage.git_lineage(tmp_path) is None
-
-
-def test_operators_uses_repo_owner_handle_not_the_git_name(repo: Path):
-    # An agent/CI committer identity is a bot, and a real name/email is PII — so the
-    # operator is the non-PII repo owner from the remote, never user.name/user.email.
-    _git(repo, "remote", "add", "origin", "https://github.com/z0u/mi-ni.git")
-    assert lineage.operators(repo) == [{"handle": "z0u", "source": "git-remote"}]
 
 
 def test_operators_empty_without_a_remote(repo: Path):
@@ -96,27 +93,17 @@ def test_operators_empty_without_a_remote(repo: Path):
     ],
 )
 def test_operators_parses_owner_from_remote_shapes(repo: Path, url: str):
+    # An agent/CI committer identity is a bot, and a real name/email is PII — so the
+    # operator is the non-PII repo owner from the remote, never user.name/user.email.
     _git(repo, "remote", "add", "origin", url)
     assert lineage.operators(repo) == [{"handle": "z0u", "source": "git-remote"}]
-
-
-def test_sanitize_url_variants():
-    assert (
-        lineage._sanitize_url("http://local_proxy@127.0.0.1:41729/git/z0u/mi-ni")
-        == "http://127.0.0.1:41729/git/z0u/mi-ni"
-    )
-    assert lineage._sanitize_url("https://user:pass@host/path") == "https://host/path"
-    assert lineage._sanitize_url("git@github.com:z0u/mi-ni.git") == "git@github.com:z0u/mi-ni.git"  # scp-style: no ://
 
 
 def test_agents_detects_claude_code_non_pii():
     env = {"CLAUDECODE": "1", "CLAUDE_CODE_VERSION": "2.1.42", "CLAUDE_CODE_ENTRYPOINT": "cli"}
     (agent,) = lineage.agents(env)
     assert agent == {"name": "claude-code", "version": "2.1.42", "entrypoint": "cli"}
-
-
-def test_agents_empty_without_markers():
-    assert lineage.agents({"PATH": "/usr/bin"}) == []
+    assert lineage.agents({"PATH": "/usr/bin"}) == []  # no markers → nothing to attribute
 
 
 def test_driver_env_detects_runner_and_omits_secrets():

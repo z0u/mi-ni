@@ -34,13 +34,6 @@ if ! uv run modal token info &>/dev/null; then
 fi
 echo "✅ Modal authenticated"
 
-# WandB — `wandb login` (no key) checks WANDB_API_KEY, the settings file, and
-# ~/.netrc in order and is a no-op if any already has credentials.
-if ! uv run wandb login </dev/null &>/dev/null; then
-    intercept wandb login
-fi
-echo "✅ WandB authenticated"
-
 # Hugging Face — fine-grained token for the artifact store bucket (see the mi-ni
 # storage reference). Reads/writes the project's content-addressed store and
 # serves published figures. `hf` caches the token, and both the store and the

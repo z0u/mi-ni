@@ -1,10 +1,7 @@
 """
 Storage abstraction for experiments.
 
-Provides a portable data directory that works identically across apparatus
-backends. Functions use ``get_data_dir()`` to obtain a filesystem path for
-reading and writing data — the apparatus sets this up automatically via a
-context variable, just like ``emit_progress()``.
+Provides a portable data directory that works identically across apparatus backends. Functions use ``get_data_dir()`` to obtain a filesystem path for reading and writing data — the apparatus sets this up automatically via a context variable, just like ``emit_progress()``.
 
 Example::
 
@@ -48,8 +45,7 @@ def get_data_dir() -> Path:
     """
     Get the data directory for the current job.
 
-    Must be called within an apparatus-mapped function. Raises
-    ``RuntimeError`` if called outside a job context.
+    Must be called within an apparatus-mapped function. Raises ``RuntimeError`` if called outside a job context.
     """
     d = _data_dir.get()
     if d is None:

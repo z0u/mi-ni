@@ -1,18 +1,9 @@
 """
 Make Modal's gRPC client work behind TLS-inspecting proxies.
 
-Modal talks to its control plane over gRPC (``grpclib``), and ``grpclib`` builds
-its SSL context from **certifi's** CA bundle alone — it passes ``cafile=`` to
-``ssl.create_default_context``, which *replaces* the system trust store rather
-than adding to it. In environments that route egress through a TLS-inspecting
-proxy (many corporate networks, and the Claude Code sandbox), the proxy's CA is
-installed in the *system* bundle (``SSL_CERT_FILE`` /
-``/etc/ssl/certs/ca-certificates.crt``) but not in certifi's — so Modal's
-handshake fails with ``CERTIFICATE_VERIFY_FAILED: self-signed certificate in
-certificate chain`` even though ``pip``/``requests`` work fine.
+Modal talks to its control plane over gRPC (``grpclib``), and ``grpclib`` builds its SSL context from **certifi's** CA bundle alone — it passes ``cafile=`` to ``ssl.create_default_context``, which *replaces* the system trust store rather than adding to it. In environments that route egress through a TLS-inspecting proxy (many corporate networks, and the Claude Code sandbox), the proxy's CA is installed in the *system* bundle (``SSL_CERT_FILE`` / ``/etc/ssl/certs/ca-certificates.crt``) but not in certifi's — so Modal's handshake fails with ``CERTIFICATE_VERIFY_FAILED: self-signed certificate in certificate chain`` even though ``pip``/``requests`` work fine.
 
-The fix: build a combined bundle (certifi **plus** the system CAs) and point
-``certifi.where()`` at it.
+The fix: build a combined bundle (certifi **plus** the system CAs) and point ``certifi.where()`` at it.
 """
 
 from __future__ import annotations
@@ -45,8 +36,7 @@ def _system_ca_files() -> list[str]:
 def ensure_grpc_trusts_system_ca() -> None:
     """Point ``certifi.where()`` at a certifi+system combined CA bundle.
 
-    Idempotent and best-effort: any failure leaves certifi untouched. Safe to
-    call before any Modal connection (e.g. from ``ModalApparatus.__init__``).
+    Idempotent and best-effort: any failure leaves certifi untouched. Safe to call before any Modal connection (e.g. from ``ModalApparatus.__init__``).
     """
     global _configured
     if _configured:

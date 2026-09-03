@@ -24,9 +24,7 @@ class Timeline:
     """
     Evolves property values over time.
 
-    Whereas the Dopesheet defines the properties and their keyframes,
-    the Timeline is responsible for interpolating between those keyframes
-    and updating the properties at each step.
+    Whereas the Dopesheet defines the properties and their keyframes, the Timeline is responsible for interpolating between those keyframes and updating the properties at each step.
     """
 
     props: dict[str, DynamicProp]

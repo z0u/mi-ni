@@ -11,6 +11,7 @@ show_usage() {
 	  --format:          run formatters
 	  --typecheck:       run type checkers
 	  --test:            run tests
+	  --links:           check relative doc links and #anchors
 	  -h --help:         show help and exit
 	EOF
 }
@@ -39,10 +40,15 @@ run_tests() {
   ( set -x; uv run --no-sync pytest --quiet "$@" )
 }
 
+run_links() {
+  ( set -x; uv run --no-sync "$(dirname "$0")/check_md_links.py" "$@" )
+}
+
 o_lint=false
 o_format=false
 o_typecheck=false
 o_test=false
+o_links=false
 o_fix=false
 
 while [[ $# -gt 0 ]]; do
@@ -51,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --format)    o_format=true ;;
     --type|--types|--typecheck) o_typecheck=true ;;
     --test|--tests)      o_test=true ;;
+    --link|--links)      o_links=true ;;
     --fix)       o_fix=true ;;
     --help|-h)
       show_usage
@@ -74,6 +81,7 @@ hints[lint]="Try './go lint --fix' or './go check --fix'"
 hints[format]="Try './go format' or './go check --fix'"
 hints[typecheck]='Fix type errors manually'
 hints[test]='Fix test failures manually'
+hints[links]="Repoint the link, or the heading it names; './go links' lists them"
 
 if [ "$o_fix" = 'true' ]; then
   run_fix & pids[fix]=$!
@@ -89,6 +97,9 @@ if [ "$o_typecheck" = 'true' ]; then
 fi
 if [ "$o_test" = 'true' ]; then
   run_tests & pids[test]=$!
+fi
+if [ "$o_links" = 'true' ]; then
+  run_links & pids[links]=$!
 fi
 
 final_exit_code=0
