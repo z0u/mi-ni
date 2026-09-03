@@ -47,7 +47,7 @@ figure.report-figure > figcaption {
 }
 
 /* Colour swatch: a small square tinted via the `--sw` custom property, so each
- * occurrence is just `<span class="sw" style="--sw:#rrggbb">`. See sca.data.colors.swatch. */
+ * occurrence is just `<span class="sw" style="--sw:#rrggbb">`. See the style-fig skill. */
 .sw {
   display: inline-block;
   width: round(0.8em, 1px);

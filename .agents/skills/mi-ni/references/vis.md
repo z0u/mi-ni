@@ -23,13 +23,13 @@ mo.Html(plot_factory())
 
 ## Externalizing figures (reports)
 
-By default a `themed` figure inlines as a `data:` URI — fine to view, heavy for a report (two PNGs per figure, light + dark). To keep the report HTML light, set a **publisher** once in the setup cell and `themed` writes each figure out to a file (keyed by its readable name) referenced by a relative URL instead. Figure cells don't change:
+By default a `themed` figure inlines as a `data:` URI — fine for one figure, heavy for a report (two PNGs each, light + dark), and past a certain weight marimo declines to display the output at all. Set a _publisher_ once in the setup cell and `themed` writes each figure out to a file (keyed by its readable name) referenced by a relative URL instead. Figure cells don't change:
 
 ```py
 from mini.vis import themed
 from mini.reports import use_publisher, report_bundle
 
-use_publisher(report_bundle(__file__))   # assets → this report's bundle dir (_assets/)
+use_publisher(report_bundle(__file__))   # → _assets/ when exporting, public/.mini/ interactively
 
 @themed(alt_text="…", name="loss-curve")  # name → loss-curve-{light,dark}.png
 def _plot(): ...

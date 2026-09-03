@@ -17,16 +17,16 @@ src/mini/
 
 ## Two ways to compute
 
-- **Interactive `Apparatus`** (`app.map`/`app.arun`) — a blocking call inside a notebook; dies with the process. Use for quick, light work you watch finish.
-- **Memoized orchestration** (`Experiment(main=...)`, driven by the `mini` CLI) — detached, durable, pollable across short-lived processes. Use for sweeps, multi-step pipelines, anything slow, and anything an agent runs autonomously.
+- Interactive `Apparatus` (`app.map`/`app.arun`): a blocking call inside a notebook; dies with the process. Use for quick, light work you watch finish.
+- Memoized orchestration (`Experiment(main=...)`, driven by the `mini` CLI): detached, durable, pollable across short-lived processes. Use for sweeps, multi-step pipelines, anything slow, and anything an agent runs autonomously.
 
 ## Authoring, running, monitoring
 
-- **Author** a memoized experiment — the `main(ctx)` DAG, repo layout, and cache-friendly design: [authoring.md](./references/authoring.md). The identity/evidence model behind caching: [memoization.md](./references/memoization.md).
-- **Run & monitor** one from the CLI — the wake-loop, backend routing, wall-clock budget, and how to delegate/schedule a long run: [running.md](./references/running.md).
-- **Fix & recover** — the fix/prune/retry loop, bounded hotfixes, superseded records, and partial `map` failures: [recovery.md](./references/recovery.md).
-- **Store & share large outputs** — return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish artifacts to a URL: [storage.md](./references/storage.md).
-- **Publish a report to the web** — externalize a report's figures and data into a bundle: [reports.md](./references/reports.md); the `themed` figure hook that feeds it: [vis.md](./references/vis.md).
+- Author a memoized experiment: the `main(ctx)` DAG, repo layout, and cache-friendly design, in [authoring.md](./references/authoring.md). The identity/evidence model behind caching is in [memoization.md](./references/memoization.md).
+- Run and monitor one from the CLI: the wake-loop, backend routing, wall-clock budget, and how to delegate or schedule a long run, in [running.md](./references/running.md).
+- Fix and recover: the fix/prune/retry loop, bounded hotfixes, superseded records, and partial `map` failures, in [recovery.md](./references/recovery.md).
+- Store and share large outputs: return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish artifacts to a URL, in [storage.md](./references/storage.md).
+- Publish a report to the web: externalize a report's figures and data into a bundle, in [reports.md](./references/reports.md); the `themed` figure hook that feeds it is in [vis.md](./references/vis.md). Designing the report before the run (preregistration, hypotheses) is a methodological concern, covered by the science skill.
 
 To keep cost down, delegate launching and babysitting to the `experiment-monitor` subagent (it escalates to `experiment-doctor`); see running.md.
 
