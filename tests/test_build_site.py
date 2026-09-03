@@ -26,7 +26,7 @@ def test_strip_index(url, want):
     "heading",
     [
         "Provenance & cost",  # the `&` goes, its two spaces both become hyphens
-        "D2.1: anchoring in a transformer",
+        "Fig 2.1: width in a transformer",
         "Hotfix safety: avoid double-spending",
         "`test_local_apparatus_concurrent` failed on a pristine tree",
         "Keeps_underscores",

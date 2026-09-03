@@ -570,7 +570,7 @@ def _fmt_counts(current: list[dict]) -> str:
 
 # A healthy run is not the same as a run where nothing has failed, so the flags
 # below also cover *deviation from expectation* — the class of trouble that used
-# to need a human to notice (ex-2.1.5: three of five containers running 15–30×
+# to need a human to notice (seen once: three of five containers running 15–30×
 # slow while every liveness check read green).
 _SLOW_FRACTION = 1 / 3  # of the sibling median before a cell counts as an outlier
 _MIN_SIBLINGS = 3  # reporters needed before a median means anything
@@ -603,7 +603,7 @@ def _slow_outlier(rec: dict, rates: dict[str, float]) -> str | None:
 def _timeout_projection(rec: dict, now: float | None = None) -> str | None:
     """Will this task hit its role timeout before it finishes, at its current rate?
 
-    A timeout sized as a multiple of the expected duration is a safety net right up until throughput drops, at which point it turns into a kill switch — and the task is killed near the end, having burned the whole budget (ex-2.1.5 lost a cell at step 7,895 of 7,900). Projecting it is the difference between finding out now and finding out at the timeout.
+    A timeout sized as a multiple of the expected duration is a safety net right up until throughput drops, at which point it turns into a kill switch — and the task is killed near the end, having burned the whole budget (one sweep lost a cell at step 7,895 of 7,900). Projecting it is the difference between finding out now and finding out at the timeout.
     """
     rate, total, timeout_s = rec.get("steps_per_min"), rec.get("total"), rec.get("timeout_s")
     started = rec.get("started_at")

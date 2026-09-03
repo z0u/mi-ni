@@ -13,7 +13,25 @@ readable cold without re-deriving code state.
 
 - **Adopt sca2's `todo/` tree?** sca2 replaced its `todo-*.md` files with one file per item under `todo/{eng,science,style}/`, six-key front matter, indexed by `scripts/todo.py` behind `./go todo` (with `--priority`, `--grep`, and a `--check` lint gate). The shape is worth having in a template; the items aren't. Self-contained: port `todo.py`, the `./go` verb, the lint gate, `test_todo.py`, and migrate this file into `todo/eng/`. Until then, a few ported comments cite sca2's `todo/eng/*.md` by URL.
 
-- **Publish the demo reports once** so `docs/publish.lock` exists. The forgotten-publish gate (pre-push hook and CI's "Reports published" step) is inert until a manifest is written; after the first `./go publish`, it holds every later report edit to a repin. Needs the publish tier configured (`[tool.mini] publish-repo` or `store-bucket`) and the `skip-publish-check` label created on the repo.
+- **Publish the demo reports once**, with `./go publish --all`, so `docs/publish.lock` exists and pins every report. The forgotten-publish gate (pre-push hook and CI's "Reports published" step) is inert until a manifest is written; once one exists, a PR that touches a report with no pin trips the gate, so the first publish has to cover them all. Pins need a git-backed publish tier (`[tool.mini] publish-repo`; the single-bucket default has no history to pin), and the `skip-publish-check` label has to exist on the repo.
+
+## Library findings from the backport review (2026-09-03)
+
+Found while reviewing the ported `src/mini` and inherited from sca2, so any fix belongs in both trees. Ordered by how much they matter.
+
+- **A watchdog abort can be overwritten on Modal.** The stall handler (`abort_stalled` in `src/mini/_taskworker.py`) settles FAILED through `merge_if`, which on Modal is a read-modify-write with no lock. The progress emitter thread is still running, so a merge that read before the FAILED write and lands after it puts the state back to running, and then the process exits. The record eventually settles as "worker vanished" on reap, but the stall diagnosis is orphaned and the monitor agent takes the wrong branch. Fencing the emitter before the terminal write would close it.
+
+- **The interactive Modal path rejects mini's kwargs.** `_build_modal_fn` (`src/mini/modal_apparatus.py`) pops only `startup_timeout`, while the memo path also drops `watchdog`, `watchdog_grace`, and `name`. So `.w(watchdog=600)` followed by `map` raises a TypeError from Modal. Not reachable from the CLI.
+
+- **Non-string `[tool.mini] env` values wedge a local run.** The subprocess spawn (`src/mini/local_apparatus.py`) raises on an int after the record was already claimed RUNNING with no pid, so reap never settles it and only `cancel` clears it. Modal rejects the same config with a clean error; the local backend should validate up front too.
+
+- **Plain `watch` omits the numerics-drift note** that `status` and `watch --json` both carry (`src/mini/__main__.py`).
+
+- **`--watchdog-grace 0` aborts every task before its first emission.** The stamp in `src/mini/_taskworker.py` treats 0 as unset, but the value still reaches the watchdog.
+
+- **Property bodies aren't walked by the memo fingerprint.** `_collect_class` (`src/mini/memo.py`) recurses into plain functions, staticmethods, and classmethods, so a deferred import inside a `property` or `cached_property` leaves the memo key unchanged. The one place the "deferred imports are traced" claim doesn't hold.
+
+- **Unverified: the stall handler does Volume I/O before the hard exit.** If that I/O blocks on a wedged container, the exit never runs. Worth a bounded timeout or an exit-first ordering.
 
 ## Scratch (backported from sca2, 2026-07-14)
 

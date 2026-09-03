@@ -98,7 +98,7 @@ def test_a_longer_fence_can_quote_a_shorter_one(tmp_path: Path):
         # The removed `&` leaves the two spaces that become two hyphens — easy to get wrong.
         ("Provenance & cost", "provenance--cost"),
         ("Hotfix safety: avoid double-spending", "hotfix-safety-avoid-double-spending"),
-        ("D2.3: asymmetry", "d23-asymmetry"),
+        ("Section 2.3: asymmetry", "section-23-asymmetry"),
         ("A `code` span and **bold**", "a-code-span-and-bold"),
         ("A [linked](./x.md) word", "a-linked-word"),
         # Underscores are identifiers here, not emphasis: CommonMark won't open emphasis on an

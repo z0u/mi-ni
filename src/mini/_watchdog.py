@@ -1,7 +1,7 @@
 """
 Worker-side progress watchdog: abort a wedged task instead of letting it burn.
 
-A wedged worker (hung device call, deadlocked thread) can sit on its GPU allocations while making no progress — and backend liveness probes still see a healthy container, so the wedge silently burns its whole role ``timeout`` (seen in ex-2.1.4: 45 minutes at 0.3 % GPU utilization). Frozen *step* progress is the one honest signal: heartbeats can keep beating from a side thread, but a stalled training loop stops advancing ``step``.
+A wedged worker (hung device call, deadlocked thread) can sit on its GPU allocations while making no progress — and backend liveness probes still see a healthy container, so the wedge silently burns its whole role ``timeout`` (seen once: 45 minutes at 0.3 % GPU utilization). Frozen *step* progress is the one honest signal: heartbeats can keep beating from a side thread, but a stalled training loop stops advancing ``step``.
 
 The watchdog turns that silent stall into a fast, retryable failure: if the ``(step, total)`` pair hasn't advanced within ``timeout_s``, it settles the task's record FAILED (with a stack dump of every thread — the closest thing a wedge has to a traceback) and hard-exits the process, releasing the GPU. ``os._exit`` because a thread stuck in a native call never returns to the interpreter, so raising an exception at it could go unheard forever.
 

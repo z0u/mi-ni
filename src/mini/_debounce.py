@@ -82,7 +82,7 @@ class Debouncer:
 class BackgroundEmitter:
     """Deliver the most recent call's arguments to a slow *fn*, without blocking.
 
-    A debouncer runs its leading edge on the calling thread, which is fine when the sink is local and quick. When the sink is a network write — a Modal Queue put, a control-plane record merge — and its latency grows past the debounce interval, *every* call fires the leading edge and the caller degrades to one blocking round-trip per call. A training loop emitting progress each step then runs at the speed of the network rather than the GPU (diagnosed in ex-2.1.5: containers far from the control plane ran 15–30× slow, in order of distance).
+    A debouncer runs its leading edge on the calling thread, which is fine when the sink is local and quick. When the sink is a network write — a Modal Queue put, a control-plane record merge — and its latency grows past the debounce interval, *every* call fires the leading edge and the caller degrades to one blocking round-trip per call. A training loop emitting progress each step then runs at the speed of the network rather than the GPU (seen in one sweep: containers far from the control plane ran 15–30× slow, in order of distance).
 
     So: one slot, latest-wins, drained by a daemon thread. The caller stores its arguments and returns immediately; the thread delivers whatever is in the slot when it gets there and skips whatever was superseded meanwhile. Delivery rate self-limits to the sink's own speed — a slow sink just means coarser progress, which is exactly the right thing to trade away — and *interval* sets a floor on the spacing so a fast sink isn't hammered.
 

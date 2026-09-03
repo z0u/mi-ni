@@ -159,7 +159,7 @@ def _named_refs(fn: Callable) -> list[tuple[str | None, Any]]:
 # Deferred (function-local) imports
 #
 # A task that keeps the driver light by importing inside its body —
-# ``def eval_one(...): from sca.compute.geometry import probe_maps`` — reaches
+# ``def eval_one(...): from experiment.compute.model import load_checkpoint`` — reaches
 # project code the reference walk above cannot see: the module never lands in
 # the fn's globals, so editing it would serve a silent stale hit.
 #
