@@ -33,8 +33,7 @@ Do not get distracted by such things. If the linters say it's fine, it's probabl
 
 ### Typing
 
-Use type hints.
-Use `T | None` instead of `Optional[T]`.
+Use type hints. Use `T | None` instead of `Optional[T]`.
 
 ```diff
 - foo: Optional[int] = None
@@ -55,6 +54,4 @@ uvx --from yq tomlq '.tool.mini' pyproject.toml
 
 Resources (compute, storage, etc.): find out what you can access with `./go auth --check`.
 
-Take care to not leak secrets into the chat transcript. To see which environment
-variables are set (e.g. "is there an `HF_*` token?"), use `compgen -v HF_` (bash
-builtin).
+Take care to not leak secrets into the chat transcript. To see which environment variables are set (e.g. "is there an `HF_*` token?"), use `compgen -v HF_` (bash builtin).

@@ -17,16 +17,13 @@ Use Modal-compatible patterns for distributed processing.
 
 #### Design patterns
 
-**Serialization & pickling**
-Most objects including custom functions and classes can be pickled and executed remotely. Returning large models from remote training functions may be infeasible due to size — instead, write them to persistent volume. After a sweep, consider running a separate function to aggregate results from the volume and return only the final summary or evaluation metrics.
+**Serialization & pickling** Most objects including custom functions and classes can be pickled and executed remotely. Returning large models from remote training functions may be infeasible due to size — instead, write them to persistent volume. After a sweep, consider running a separate function to aggregate results from the volume and return only the final summary or evaluation metrics.
 
 Special objects like database connections, GPU contexts, and file descriptors are often environment-specific and should be created within the remote function, not passed in from local scope.
 
-**Closures & scope**
-Closures work with remote functions, but don't assume that global scope will be available on the remote container. Usually module-level imports work fine, but occasionally you may need to import within the function.
+**Closures & scope** Closures work with remote functions, but don't assume that global scope will be available on the remote container. Usually module-level imports work fine, but occasionally you may need to import within the function.
 
-**Image & environment setup (mostly automatic)**
-You normally don't write any `modal.Image` code. `ModalApparatus` builds the image for you, lazily, on the first spawn/map (read-only commands like `status`/`results` never build it). What it does, so you can rely on it:
+**Image & environment setup (mostly automatic)** You normally don't write any `modal.Image` code. `ModalApparatus` builds the image for you, lazily, on the first spawn/map (read-only commands like `status`/`results` never build it). What it does, so you can rely on it:
 
 - **Pins your deps from `pyproject.toml`.** It freezes the resolved versions (`uv_freeze`, all dependency groups except `local`/`dev`) so the remote matches your lockfile. The `cuda` group is included remotely (e.g. `jax[cuda12]`) while local installs stay CPU-only — so the same code runs CPU locally and picks up the GPU when one is attached.
 - **Ships your source automatically.** It adds the project's top-level `src/` packages via `add_local_python_source(*project_packages())` — so a remote worker can `import experiment...`/`import utils...` with no manual mounting or packaging. New top-level packages under `src/` are discovered automatically.

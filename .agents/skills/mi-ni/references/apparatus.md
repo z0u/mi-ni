@@ -36,8 +36,7 @@ metrics = [x async for x in app.amap(train, [1, 2, 3, 4, 5])]
 await app.volume.download("outputs", f"/data/outputs")
 ```
 
-The apparatus takes care of setting up the environment with Python packages and a volume to write to.
-To change the compute provider, just swap in another `Apparatus`, e.g. `ModalApparatus`.
+The apparatus takes care of setting up the environment with Python packages and a volume to write to. To change the compute provider, just swap in another `Apparatus`, e.g. `ModalApparatus`.
 
 ## Selecting the backend at run time (notebooks)
 

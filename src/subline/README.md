@@ -4,16 +4,13 @@ Visualize metrics as sparklines under text.
 
 ## Styling
 
-The SVG carries its own theme (light/dark aware) via CSS custom properties. To
-restyle without editing the library, pass `css` — appended after the built-in
-styles, so a later rule overrides at equal specificity:
+The SVG carries its own theme (light/dark aware) via CSS custom properties. To restyle without editing the library, pass `css` — appended after the built-in styles, so a later rule overrides at equal specificity:
 
 ```python
 Subline(css="svg { --bg-color: light-dark(#fff, #181c1a); }").plot(text, series)
 ```
 
-Overridable properties include `--bg-color`, `--col-text`, `--col-baseline`,
-`--col-series-1..5`, and `--blend-mode`.
+Overridable properties include `--bg-color`, `--col-text`, `--col-baseline`, `--col-series-1..5`, and `--blend-mode`.
 
 
 ## Citation
