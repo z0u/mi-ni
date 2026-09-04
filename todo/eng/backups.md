@@ -1,6 +1,6 @@
 ---
-status: open
-tags: [archival, versioning, security, needs-design, publishing, storage]
+status: partial
+tags: [archival, versioning, security, publishing, storage]
 opened: 2026-08-12
 bundle: env-hardening
 ---
@@ -46,3 +46,5 @@ Configure automatic indelible backups. This should be done in such a way that a 
 ## Notes
 
 **2026-09-01, z0u** — This sounds complicated. Investigate, design, maybe prototype, but let me review the design before building.
+
+**2026-09-04, Fable** — Built the payload and the runbook: `templates/backup/` (the workflow at its final path, `backup.py`, `RESTORE.md`, `README.md`) and `.agents/skills/backup/SKILL.md`; rationale in `eng/environments.md`. The script is unit-tested against a fake API and was dry-run against the real sources (store 152/152 files, 3.6 MB; pub 57/57 commits). One refinement to the publish leg: the last-replayed sha is kept as `pub/SOURCE_COMMIT` *inside* the backup dataset, so marker and files land in one commit and a source commit that only deleted files still replays as a real commit. Nothing was created on GitHub or Hugging Face: the owning account is the human's call (step 1 of the skill), and the repos, the ruleset, the token, and the first run follow from it. Nothing was tested for deletability, per the note above.

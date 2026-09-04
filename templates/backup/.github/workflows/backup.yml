@@ -1,0 +1,94 @@
+# Nightly backup of a mi-ni project: its GitHub repo, its Hugging Face CAS bucket, and
+# its publish repo. Copied, with the rest of `templates/backup/`, into the backup repo;
+# the `backup` skill in the template is the runbook.
+#
+# This workflow runs in the *backup* repo, from a trust domain the project's day-to-day
+# tokens never reach. It pushes into its own repo with the job's GITHUB_TOKEN (scoped to
+# this repo alone) and needs one secret, HF_TOKEN: read on the two sources, write on
+# the backup dataset, nothing else. It never deletes, and never runs code from the
+# sources — `backup.py` is this repo's own copy.
+name: Backup
+
+on:
+  schedule:
+    - cron: "17 3 * * *"  # nightly, off the hour
+  workflow_dispatch:
+
+# One run at a time, and a queued run waits rather than cancelling: a cancelled copy
+# mid-batch wastes only time, but two runs replaying pub/ at once would race on the marker.
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  # The three sources and the one backup dataset. Edit these four lines when copying.
+  SOURCE_REPO: z0u/mi-ni
+  SOURCE_BUCKET: z0u/mi-ni-store
+  SOURCE_PUBLISH_REPO: z0u/mi-ni-pub
+  BACKUP_DATASET: z0u/mi-ni-backup
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mirror the source repo
+        id: code
+        # Fetch the source's main and tags, then: fast-forward the `mirror` branch (a
+        # rejected push means the source rewrote its history — a warning here, and the
+        # snapshot below still records what was fetched); tag a `snap/<date>` when the
+        # tip moved since the last run; and carry the source's own tags under `source/`.
+        # The repo's ruleset forbids deleting or moving tags and force-pushing branches,
+        # and binds this job's token too, so a snapshot once pushed stays.
+        run: |
+          set -euo pipefail
+          git remote add source "https://github.com/${SOURCE_REPO}.git"
+          git fetch --no-tags source '+refs/heads/main:refs/remotes/source/main' 'refs/tags/*:refs/tags/source/*'
+          tip="$(git rev-parse refs/remotes/source/main)"
+          echo "sha=$tip" >> "$GITHUB_OUTPUT"
+
+          if ! git push origin "$tip:refs/heads/mirror"; then
+            echo "::warning::mirror not fast-forwarded: source main at $tip is not a descendant of the mirror — the source's history was rewritten. Snapshot recorded regardless."
+          fi
+
+          prev="$(jq -r '.code.sha // empty' state/last-run.json 2>/dev/null || true)"
+          if [[ "$tip" != "$prev" ]]; then
+            tag="snap/$(date -u +%F)"
+            git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 && tag="snap/$(date -u +%FT%H%MZ)"
+            git tag "$tag" "$tip"
+            git push origin "refs/tags/$tag"
+            echo "snapshot=$tag" >> "$GITHUB_OUTPUT"
+          fi
+
+          # A source tag that moved is rejected (not forced) — the earlier pointer stands.
+          git push origin 'refs/tags/source/*:refs/tags/source/*' \
+            || echo "::warning::some source tags were not updated (a moved tag stays where the backup first saw it)"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "huggingface_hub[hf_xet]>=1.19"
+
+      - name: Back up the store bucket and the publish repo
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SNAPSHOT: ${{ steps.code.outputs.snapshot }}
+        run: |
+          python backup.py --state state/last-run.json \
+            --code-sha "${{ steps.code.outputs.sha }}" ${SNAPSHOT:+--snapshot "$SNAPSHOT"}
+
+      - name: Record the run
+        # Always, so a failed leg leaves its error in the record — and so every run is
+        # repository activity, which keeps a public repo's schedule from being disabled.
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/last-run.json
+          git commit -q -m "backup $(date -u +%F)" || exit 0
+          git push origin HEAD

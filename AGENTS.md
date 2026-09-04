@@ -13,6 +13,7 @@ src/experiment/  Shared model, data, and training code that the demo notebooks b
 docs/  Experiments and reports (both in Python, as Marimo notebooks) — see docs/README.md for file-type/publishing conventions
 eng/  Decision register — the *why* behind mini's storage/artifacts/publishing/gc internals. eng/README.md indexes it by question; check there before re-deriving infrastructure rationale from scratch.
 scripts/  The tooling behind `./go`: site build, report export and render, link and lint checks
+templates/  Files copied into *other* repos. `templates/backup/` is the nightly backup job (workflow, script, restore note) that the `backup` skill installs in a separate backup repo
 todo/**/*.md  Three sets of backlogs, one file per item: eng (infrastructure and tooling), science (experiment questions and findings), style (text and visuals). `./go todo [...sets]` lists them, `./go todo --priority` is the shortlist to answer "what next", `./go todo --grep PATTERN` searches live items (`--full` prints bodies). Check before starting work that might already be tracked there. todo/README.md carries the schema and the conventions for writing an item or leaving a note; it loads on its own when you touch a file in the tree
 README.md  What this repository is, and how to start a project from it
 ```
