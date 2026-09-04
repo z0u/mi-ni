@@ -5,7 +5,7 @@ opened: 2026-08-30
 ---
 # A tag should be a permalink to the site as it stood
 
-Split out of the `gh-pages` branch-pruning work, which asked for it as a rider and got the pruning done first.
+Split out of [`gh-pages-branch-pruning`](./gh-pages-branch-pruning.md), which asked for it as a rider and got the pruning done first.
 
 We cut a tag when a milestone lands, and it's an indelible release on GitHub. The code at that tag is durable and the report bundles behind it are too (`docs/publish.lock` pins each one to an immutable dataset-repo commit, and the CI build resolves through the pin, so a tag names an exact set of bundles forever). The assembled *site* is the piece that isn't durable: `gh-pages` serves one tree, the tip, and the moment the next report merges there is no URL left for what the site said when the milestone closed.
 

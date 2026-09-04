@@ -5,7 +5,7 @@ opened: 2026-08-13
 ---
 # A report's inputs outside its own directory are invisible to the publish check
 
-Split from the publish-check item that fixed the local half (the check only saw changed notebooks): a report's own directory now counts as part of it (`mini.reports.input_dir`). The remaining case is an input that isn't in that directory — a restyle in `src/mini/vis/*.py`, a change to a shared plotting helper — which every report reads and no report contains. Its figures are baked PNGs in the bundle, so a restyle genuinely dates all of them, and nothing local says so.
+Split from [the publish check only seeing changed notebooks](./publish-check-sees-only-notebooks.md), which fixed the local half: a report's own directory now counts as part of it (`mini.reports.input_dir`). The remaining case is an input that isn't in that directory — a restyle in `src/mini/vis/*.py`, a change to a shared plotting helper — which every report reads and no report contains. Its figures are baked PNGs in the bundle, so a restyle genuinely dates all of them, and nothing local says so.
 
 Two ways to see it, and they differ in what they cost.
 
