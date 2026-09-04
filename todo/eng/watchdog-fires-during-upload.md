@@ -1,0 +1,13 @@
+---
+status: done
+tags: [cli, storage]
+opened: 2026-07-31
+closed: 2026-08-09
+---
+# The watchdog fires during a task's post-loop artifact upload
+
+Four of a downstream sweep's 21 training cells (sca2's ex-2.1.7) aborted with `WatchdogStall` at step 3300/3300 — training had finished, and the stall was `put(workdir / "model")` pushing a checkpoint to the HF store, which took over 300s with eight containers uploading at once. The role's `watchdog` covers the gap between step emissions, so a long tail after the last step reads as a stall no matter how healthy the loop was. Fixed by generalizing `watchdog_grace` from "the head of the task" to any declared span: `Watchdog.phase(label, timeout_s)` widens the threshold for a span and resets the clock at both ends, fronted by `mini.blocking_phase(label, timeout_s=…)` for task code. `Store.put` / `get` / `get_many` declare their own, sized `120s + size / 512 KiB/s`, so that shape needs no experiment-side change. A budget only ever *widens* the threshold, so a phase bounds a span rather than exempting it — a hung upload is still caught, just at its own budget. Erring loose is the cheap direction here: a wedge caught late costs idle time, aborting a healthy task costs the whole re-train. The worker also stamps `phase`/`phase_until` on the record, so `runs.stale_progress` (and the monitor badge) doesn't read a healthy upload as a wedge for as long as it runs. Not done, and the reason the byte-progress option was passed over: neither `huggingface_hub.upload_file` nor the local backend exposes a per-chunk callback, so incremental byte liveness would mean hooking the underlying transfer. A phase is honest about what it knows. Worth revisiting if a callback appears — real bytes/s would let the budget tighten a lot. `status --json` carries `phase`/`phase_until` (a frozen step next to `stale_progress: false` reads as a contradiction without them). Follow-on, done 2026-08-12 with the transfer-only staleness fix above: the *human-readable* status line showed only the frozen step, where it could show the label. It now appends `⋯ put model` in `__main__._memo_line` and `monitor._bar_desc` for as long as the span is live. Not `progress_display.py`, which turned out to be the wrong address — it renders the progress *queue*, and phases are stamped on the record rather than emitted, so it never sees them.
+
+## Notes
+
+**2026-09-04, backport** — Ported from sca2 ([`todo/eng/watchdog-fires-during-upload.md`](https://github.com/z0u/sca2/blob/main/todo/eng/watchdog-fires-during-upload.md) there) as settled: the fix it records is in this tree's code too, and the closing notes are the reasoning that code relies on.
