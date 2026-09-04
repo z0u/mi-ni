@@ -28,6 +28,7 @@ from mini.reports import (
     github_slug,
     insert_base,
     load_pins,
+    publish_lock,
     report_figures,
     report_notebooks,
     rewrite_links,
@@ -284,7 +285,7 @@ def _read_bundle(nb: Path, *, store, pins: dict[str, str], externalizing: bool) 
     # Only a git-backed publish tier can pin; on the single-bucket default the mutable
     # head is all there is, so the nudge would be misleading.
     if revision is None and store.publish_repo is not None:
-        notes.append(f"  ! {key}: not pinned in {PUBLISH_LOCK} — serving the mutable head; `./go publish` to pin")
+        notes.append(f"  ! {key}: not pinned in {publish_lock()} — serving the mutable head; `./go publish` to pin")
     html = store.read_export_html(key, revision=revision)
     if html is None:
         notes.append(f"  ! {key}: no synced export on the bucket — run `./go publish` (skipping)")

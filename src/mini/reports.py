@@ -22,10 +22,13 @@ import json
 import logging
 import os
 import re
+import types
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from mini.store import active_profile
 
 __all__ = [
     "Publisher",
@@ -289,15 +292,31 @@ def is_stale(notebook_file: str | Path, output: Path) -> bool:
 PUBLISH_LOCK = Path("docs") / "publish.lock"
 
 
-def load_pins(project_root: str | Path) -> dict[str, str]:
-    """The pin manifest — export key → publish-tier revision — or ``{}`` if none yet."""
-    path = Path(project_root) / PUBLISH_LOCK
+def publish_lock(profile: str | None | types.EllipsisType = ...) -> Path:
+    """The pin manifest's project-relative path for *profile*: ``...`` (default) means the active one.
+
+    :data:`PUBLISH_LOCK` is the production identity record — the file that says which revision the site serves — so only a publish to the production pair may write it. Under a storage profile (:func:`~mini.store.active_profile`) the pins go to a gitignored ``.mini/publish.<profile>.lock`` instead: a dev publish then changes nothing CI can see, and a dev publish of a report someone meant for production leaves its production pin unmoved, which the unpublished-reports check flags.
+    """
+    if profile is ...:
+        profile = active_profile()
+    return PUBLISH_LOCK if profile is None else Path(".mini") / f"publish.{profile}.lock"
+
+
+def load_pins(project_root: str | Path, *, profile: str | None | types.EllipsisType = ...) -> dict[str, str]:
+    """The pin manifest — export key → publish-tier revision — or ``{}`` if none yet.
+
+    *profile* picks the manifest (:func:`publish_lock`): the active profile's by default, or ``None`` for production's regardless of the environment — what a check of production state must ask for.
+    """
+    path = Path(project_root) / publish_lock(profile)
     return json.loads(path.read_text("utf-8")) if path.exists() else {}
 
 
-def save_pins(project_root: str | Path, pins: dict[str, str]) -> Path:
+def save_pins(
+    project_root: str | Path, pins: dict[str, str], *, profile: str | None | types.EllipsisType = ...
+) -> Path:
     """Write the pin manifest (sorted, one key per line — Git merges stay trivial)."""
-    path = Path(project_root) / PUBLISH_LOCK
+    path = Path(project_root) / publish_lock(profile)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dict(sorted(pins.items())), indent=1) + "\n", "utf-8")
     return path
 

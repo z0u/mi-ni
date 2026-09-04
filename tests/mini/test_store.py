@@ -13,10 +13,12 @@ import pytest
 from mini.store import (
     Artifact,
     LocalStore,
+    active_profile,
     get,
     get_ref,
     get_store,
     producer_context,
+    profiles,
     publish,
     publish_repo,
     put,
@@ -263,6 +265,78 @@ def test_unparseable_config_reads_as_absent(tmp_path: Path, monkeypatch: pytest.
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
     monkeypatch.delenv("MINI_NO_PROJECT_CONFIG", raising=False)
     assert store_bucket() == "ns/committed"
+
+
+# -- profiles: a second storage pair beside production ------------------------------
+
+PROFILED = """
+[tool.mini]
+store-bucket = "ns/prod"
+publish-repo = "ns/prod-pub"
+region = "us-east"
+
+[tool.mini.profiles.dev]
+store-bucket = "ns/dev"
+"""
+
+
+@pytest.fixture
+def profiled_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A project with a production pair and a `dev` profile carrying a bucket only, and a clean env."""
+    (tmp_path / "pyproject.toml").write_text(PROFILED)
+    monkeypatch.chdir(tmp_path)
+    for var in ("MINI_STORE_BUCKET", "MINI_PUBLISH_REPO", "MINI_PROFILE", "MINI_NO_PROJECT_CONFIG"):
+        monkeypatch.delenv(var, raising=False)
+    return tmp_path
+
+
+def test_no_profile_reads_the_base_pair(profiled_project: Path):
+    assert active_profile() is None
+    assert (store_bucket(), publish_repo()) == ("ns/prod", "ns/prod-pub")
+    assert profiles() == ["dev"]
+
+
+def test_profile_replaces_the_storage_pair_and_inherits_the_rest(profiled_project: Path, monkeypatch):
+    """Under a profile the pair is the profile's alone: a key it leaves out is unset, never production's.
+
+    The other keys (`region` here, `app`/`env` in practice) still come from the base table, so switching profile changes where bytes go and nothing about how the experiment runs.
+    """
+    from mini.store import _project_config
+
+    monkeypatch.setenv("MINI_PROFILE", "dev")
+    assert active_profile() == "dev"
+    assert (store_bucket(), publish_repo()) == ("ns/dev", None)
+    assert _project_config() == {"store-bucket": "ns/dev", "region": "us-east"}
+
+
+def test_profile_can_be_named_explicitly_either_way(profiled_project: Path, monkeypatch):
+    """Callers that mean a specific table say so: `None` is the base pair even under a profile."""
+    monkeypatch.setenv("MINI_PROFILE", "dev")
+    assert store_bucket(profile=None) == "ns/prod"
+    monkeypatch.delenv("MINI_PROFILE")
+    assert store_bucket(profile="dev") == "ns/dev"
+
+
+def test_env_overrides_win_over_the_profile(profiled_project: Path, monkeypatch):
+    monkeypatch.setenv("MINI_PROFILE", "dev")
+    monkeypatch.setenv("MINI_STORE_BUCKET", "ns/env")
+    assert store_bucket() == "ns/env"
+
+
+def test_local_config_overlays_the_profile_table_too(profiled_project: Path, monkeypatch):
+    (profiled_project / "mini.local.toml").write_text('[tool.mini.profiles.dev]\npublish-repo = "ns/dev-pub"\n')
+    monkeypatch.setenv("MINI_PROFILE", "dev")
+    assert (store_bucket(), publish_repo()) == ("ns/dev", "ns/dev-pub")
+
+
+def test_unknown_profile_yields_no_pair_and_warns_once(profiled_project: Path, monkeypatch, caplog):
+    """`MINI_PROFILE=staging` with no such table must not fall through to production."""
+    monkeypatch.setenv("MINI_PROFILE", "staging")
+    with caplog.at_level("WARNING", logger="mini.store"):
+        assert (store_bucket(), publish_repo()) == (None, None)
+        assert store_bucket() is None
+    warnings = [r for r in caplog.records if "profiles.staging" in r.getMessage()]
+    assert len(warnings) == 1
 
 
 def test_store_for_threads_publish_repo_into_the_hfstore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

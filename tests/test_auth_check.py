@@ -59,18 +59,25 @@ def test_a_failed_probe_says_why(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("bucket", "repo", "detail"),
+    ("bucket", "repo", "profile", "detail"),
     [
-        ("octocat/data-store", None, "user octocat, bucket octocat/data-store"),
-        ("octocat/data-store", "octocat/pub", "user octocat, bucket octocat/data-store, publish-repo octocat/pub"),
-        (None, None, "user octocat, no store-bucket set"),
+        ("octocat/data-store", None, None, "user octocat, bucket octocat/data-store"),
+        (
+            "octocat/data-store",
+            "octocat/pub",
+            None,
+            "user octocat, bucket octocat/data-store, publish-repo octocat/pub",
+        ),
+        (None, None, None, "user octocat, no store-bucket set"),
+        ("octocat/dev-store", None, "dev", "user octocat, profile dev, bucket octocat/dev-store"),
     ],
-    ids=["publish-tier-off-is-not-shown", "publish-repo-set", "no-bucket"],
+    ids=["publish-tier-off-is-not-shown", "publish-repo-set", "no-bucket", "profile-named-when-active"],
 )
-def test_hf_reports_the_user_and_the_configured_repos(monkeypatch, bucket, repo, detail):
+def test_hf_reports_the_user_and_the_configured_repos(monkeypatch, bucket, repo, profile, detail):
     monkeypatch.setattr(auth_check, "_run", fake_run(0, "user=octocat"))
     monkeypatch.setattr("mini.store.store_bucket", lambda: bucket)
     monkeypatch.setattr("mini.store.publish_repo", lambda: repo)
+    monkeypatch.setattr("mini.store.active_profile", lambda: profile)
     assert asyncio.run(auth_check.check_hf()) == auth_check.Status("Hugging Face", True, detail)
 
 

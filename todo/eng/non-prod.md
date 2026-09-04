@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 tags: [devops, security, publishing, storage]
 opened: 2026-09-04
 bundle: env-hardening
@@ -38,3 +38,7 @@ publish-repo = "z0u/mi-ni-pub-dev"
 **Setup as a skill.** The profile mechanism is library usage, so it goes in the `mi-ni` skill's `references/storage.md` beside `store-bucket`/`publish-repo`; the setup steps (create the two dev repos, add the table, mint a dev-only token for the engineering environments, point the test runner at the profile) go in a short `.agents/skills/storage-envs/SKILL.md` that the backup skill in `backups.md` can cross-link, since the two are set up together.
 
 **Effort.** Config resolution and the two status prints (small), the lock-path switch in `export_reports.py`/`build_site.py` (small), the test wiring (small), the storage skill reference and `docs/README.md`, and two new HF repos. A day's work, most of it in `store.py`. Depends on `publish-tier-hardening.md` being finished, so that the production bucket a dev token cannot write is also one the world cannot read.
+
+## Notes
+
+**2026-09-04, Fable** — Built the mechanism: `MINI_PROFILE` selects `[tool.mini.profiles.<name>]` in `store.py`; `./go publish` writes to `.mini/publish.<profile>.lock` under a profile and `./go preview` reads it; `auth --check` and `publish` print the profile; the Modal secret forwards it; the `hf` tests pick the `dev` profile themselves when one exists. Two changes from the design above, both from friction while building: a profile replaces only the two storage keys and inherits `app`/`env`/`region` (replacing the whole table made the CLI forget its backend), and the tests choose the profile rather than `scripts/test.sh` exporting it. Documented in the `mi-ni` storage reference, the new `storage-envs` skill, and `eng/environments.md`. Left for the human: create the two dev repos, put the `[tool.mini.profiles.dev]` table in this checkout's `mini.local.toml`, mint a dev-only token, and point the engineering environments at it (web environments set the two `MINI_*` names by variable instead).

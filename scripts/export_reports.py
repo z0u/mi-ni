@@ -18,16 +18,17 @@ from clean_docs import clean_html, default_hidden_code  # noqa: E402
 from mini.reports import (  # noqa: E402
     EXPORTING_ENV,
     PROVENANCE_ASSET,
-    PUBLISH_LOCK,
     export_dir,
     export_key,
     is_report_notebook,
     is_stale,
     load_pins,
+    publish_lock,
     report_notebooks,
     save_pins,
     set_provenance,
 )
+from mini.store import active_profile  # noqa: E402
 
 ROOT = Path(__file__).parent.parent.resolve()
 DOCS = ROOT / "docs"
@@ -91,9 +92,9 @@ def publish_one(nb: Path, store) -> str | None:
 
 
 def update_pins(new: dict[str, str]) -> None:
-    """Fold this run's pins into ``docs/publish.lock``, pruning keys with no notebook.
+    """Fold this run's pins into the active manifest (:func:`~mini.reports.publish_lock`), pruning keys with no notebook.
 
-    Pruning uses the *full* report set (not just what was published now), so a partial publish never drops other reports' pins, but a deleted notebook's pin doesn't linger. The manifest must be committed for the pins to take effect — it's the identity half of a publish; the upload was only evidence.
+    Pruning uses the *full* report set (not just what was published now), so a partial publish never drops other reports' pins, but a deleted notebook's pin doesn't linger. The production manifest must be committed for the pins to take effect — it's the identity half of a publish; the upload was only evidence. A profile's manifest is gitignored: dev pins never reach CI.
     """
     live = {export_key(nb) for nb in report_notebooks(DOCS)}
     pins = {k: v for k, v in (load_pins(ROOT) | new).items() if k in live}
@@ -147,14 +148,24 @@ def publish_all(nbs: list[Path]) -> None:
         if (rev := publish_one(nb, store)) is not None:
             pins[export_key(nb)] = rev
     target = store.publish_repo or store.bucket  # exports route to the repo when a publish tier is set (#38)
-    print(f"\nPublished {len(nbs)} report(s) to {target}.")
+    profile = active_profile()
+    where = f"{target} (profile {profile})" if profile else target
+    print(f"\nPublished {len(nbs)} report(s) to {where}.")
     if pins:
         update_pins(pins)
-        print(
-            f"Pinned in {PUBLISH_LOCK}: " + ", ".join(f"{k} @ {v[:12]}" for k, v in sorted(pins.items())) + "\n"
-            "Commit the lock file — the site serves each report at its pinned revision, so\n"
-            "nothing deployed changes until the pin lands on main (PR previews use the branch's)."
-        )
+        pinned = f"Pinned in {publish_lock()}: " + ", ".join(f"{k} @ {v[:12]}" for k, v in sorted(pins.items()))
+        if profile:
+            print(
+                f"{pinned}\n"
+                f"That manifest is gitignored: a publish under profile {profile!r} deploys nothing and moves no\n"
+                "production pin. `./go preview` and a local `./go site` read it; CI never does."
+            )
+        else:
+            print(
+                f"{pinned}\n"
+                "Commit the lock file — the site serves each report at its pinned revision, so\n"
+                "nothing deployed changes until the pin lands on main (PR previews use the branch's)."
+            )
     else:
         print('Trigger the Pages build to update the site (push to main, or run the "Deploy Docs" workflow).')
 

@@ -144,6 +144,16 @@ def test_repinning_clears_it(repo):
     assert flagged(repo) == set()
 
 
+def test_a_publish_under_a_profile_does_not_count(repo, monkeypatch):
+    """A dev publish moves the dev manifest only; the report is still unpublished as far as the site knows."""
+    (repo / "docs" / "ex-1" / "report.py").write_text(_APP + "# edited\n")
+    (repo / ".mini").mkdir()
+    (repo / ".mini" / "publish.dev.lock").write_text(json.dumps({"ex-1": "ccc"}))
+    commit(repo, "edit a report, publish it to dev")
+    monkeypatch.setenv("MINI_PROFILE", "dev")
+    assert flagged(repo) == {"docs/ex-1/report.py"}
+
+
 def test_only_the_unpinned_report_is_flagged(repo):
     (repo / "docs" / "ex-1" / "report.py").write_text(_APP + "# edited\n")
     (repo / "docs" / "overview.py").write_text(_APP + "# edited\n")

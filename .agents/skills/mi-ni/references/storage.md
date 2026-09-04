@@ -106,6 +106,26 @@ With `publish-repo` set, `publish`/report-exports route to that dataset repo (a 
 
 Reports don't call `publish` directly; they go through a report bundle (`use_publisher` + `asset_url`, and the publish/build split): [reports.md](./reports.md).
 
+## Profiles: a dev pair beside production
+
+The two storage keys name production: the bucket the experiments' artifacts live in, and the publish repo the site serves from. Work *on* the storage and publishing machinery — the `hf`-marked integration tests, a change to `sync_export` or `gc --store`, a template user trying the pipeline before they have data — wants real Hugging Face repos that aren't those. A profile is a second pair, selected by name:
+
+```toml
+[tool.mini]
+store-bucket = "your-namespace/your-bucket"
+publish-repo = "your-namespace/your-publish-repo"
+
+[tool.mini.profiles.dev]
+store-bucket = "your-namespace/your-bucket-dev"
+publish-repo = "your-namespace/your-publish-repo-dev"
+```
+
+`MINI_PROFILE=dev` selects the table; unset means the base keys, so a project without profiles sees no change. Under a profile the two storage keys come from the profile table alone: a key it leaves out is unset, never inherited from the base, so a half-filled profile behaves like a project without that key (local store, or single-bucket publishing) rather than reaching production. The other `[tool.mini]` keys (`app`, `env`, `region`) carry over. `MINI_STORE_BUCKET` and `MINI_PUBLISH_REPO` still override everything; `mini.local.toml` overlays a profile table the way it overlays the base keys; `mini run --app modal` forwards `MINI_PROFILE` with the resolved names, so a worker follows its driver. A profile name no file defines warns once and yields no pair. `./go auth --check` prints the active profile beside the bucket.
+
+Under a profile, `./go publish` writes its pins to a gitignored `.mini/publish.<profile>.lock` rather than `publish.lock`, which stays the production record that the site and CI read; `./go preview` reads the active profile's lock. Nothing in a profile is meant to reach production, so there is no promotion step: a dev pair starts empty and can be emptied.
+
+The profile picks names; the token decides what can be written. An environment set aside for engineering work carries a token with write on the dev pair only, so a session that forgets `MINI_PROFILE` fails on its first write instead of succeeding quietly. Creating a pair, adding the table, minting that token, and the environments that set the names by variable rather than by file: the `storage-envs` skill. The reasoning is in [`eng/environments.md`](/eng/environments.md).
+
 ## Checkpoints are different
 
 Mid-step checkpoints (periodic state for crash-resume) are *not* step outputs: they're mutable and superseded, and resume finds "the latest for this step" by a stable name, not a content hash. Keep those on the volume (`get_data_dir()`), not in the CAS.
