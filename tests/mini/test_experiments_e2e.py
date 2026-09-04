@@ -38,6 +38,7 @@ def _local_store_only(monkeypatch: pytest.MonkeyPatch):
     """
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
     monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
+    monkeypatch.setenv("MINI_NO_PROJECT_CONFIG", "1")  # and the pyproject / mini.local.toml fallback, workers included
 
 
 def _drive(exp: Experiment, app: LocalApparatus, timeout: float = 60.0):

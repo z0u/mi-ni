@@ -76,7 +76,7 @@ Set the bucket once in `pyproject.toml` so it travels with the repo (set in one 
 store-bucket = "your-namespace/your-bucket"
 ```
 
-`MINI_STORE_BUCKET` overrides it for a one-off shell or CI. `mini run --app modal` forwards the resolved bucket + token into the worker via a Modal Secret. Bucket I/O needs `*.xethub.hf.co` (and `*.cdn.hf.co` for serving) on the egress allow-list.
+For a checkout whose bucket shouldn't be committed — a fork, or this template — put the same `[tool.mini]` table in a gitignored `mini.local.toml` beside `pyproject.toml` instead; it overlays the committed one. `MINI_STORE_BUCKET` overrides both for a one-off shell or CI. `mini run --app modal` forwards the resolved bucket + token into the worker via a Modal Secret. Bucket I/O needs `*.xethub.hf.co` (and `*.cdn.hf.co` for serving) on the egress allow-list.
 
 Auth: `./go auth` logs into Hugging Face (a fine-grained token with read+write to the bucket). `hf` caches it; the store and the Modal Secret read it from there, so `HF_TOKEN` need not be exported — the bucket name isn't a secret, only the token.
 
