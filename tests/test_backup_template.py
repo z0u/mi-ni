@@ -1,10 +1,12 @@
-"""The backup template's payload script (`templates/backup/backup.py`), against a fake Hugging Face API.
+"""The backup template's payload script (`templates/backup/backup.py`).
 
-The fake keeps the backup dataset as a dict of path → bytes and appends to it on every `upload_folder`, which is all the script relies on: the two never-delete invariants are then checkable as "nothing leaves the dict".
+The code leg runs against real temporary git repos, since what it checks is git's behavior (what a non-fast-forward push does, what a tag refspec without `+` refuses). The two Hugging Face legs run against a fake API that keeps the backup dataset as a dict of path → bytes and appends to it on every `upload_folder`, which is all the script relies on: the never-delete invariant is then checkable as "nothing leaves the dict".
 """
 
 import importlib.util
 import json
+import re
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +28,113 @@ def backup():
     return module
 
 
+# -- git fixtures ----------------------------------------------------------------------
+
+
+def git(*args: str, cwd: Path) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def commit(repo: Path, name: str) -> str:
+    (repo / name).write_text(name + "\n")
+    git("add", ".", cwd=repo)
+    git("commit", "-qm", name, cwd=repo)
+    return git("rev-parse", "HEAD", cwd=repo)
+
+
+@pytest.fixture
+def source(tmp_path: Path) -> Path:
+    """The project being backed up: two commits on `main`, tag `v1` on the first."""
+    root = tmp_path / "source"
+    root.mkdir()
+    git("init", "-q", "-b", "main", cwd=root)
+    git("config", "user.email", "test@example.invalid", cwd=root)
+    git("config", "user.name", "Test", cwd=root)
+    commit(root, "one")
+    git("tag", "v1", cwd=root)
+    commit(root, "two")
+    return root
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """A checkout of the (empty) backup repo, with a bare `origin` standing in for GitHub."""
+    origin = tmp_path / "origin.git"
+    git("init", "-q", "--bare", str(origin), cwd=tmp_path)
+    checkout = tmp_path / "backup-repo"
+    subprocess.run(["git", "clone", "-q", str(origin), str(checkout)], check=True, capture_output=True)
+    return checkout
+
+
+def origin_refs(repo: Path) -> dict[str, str]:
+    out = git("ls-remote", "origin", cwd=repo)
+    return {ref: sha for sha, ref in (line.split("\t") for line in out.splitlines())}
+
+
+# -- code leg --------------------------------------------------------------------------
+
+
+def test_code_first_run_mirrors_snapshots_and_copies_tags(backup, source, repo):
+    tip = git("rev-parse", "main", cwd=source)
+    v1 = git("rev-parse", "v1", cwd=source)
+
+    report = backup.backup_code(str(source), repo, prev_sha=None, dry_run=False)
+
+    refs = origin_refs(repo)
+    assert refs["refs/heads/mirror"] == tip
+    assert refs["refs/tags/source/v1"] == v1
+    assert refs[f"refs/tags/{report.snapshot}"] == tip
+    assert re.fullmatch(r"snap/\d{4}-\d\d-\d\d", report.snapshot)
+    assert report.to_dict() == {"source": str(source), "sha": tip, "snapshot": report.snapshot}
+
+
+def test_code_unchanged_tip_makes_no_snapshot(backup, source, repo):
+    tip = git("rev-parse", "main", cwd=source)
+    first = backup.backup_code(str(source), repo, prev_sha=None, dry_run=False)
+
+    second = backup.backup_code(str(source), repo, prev_sha=tip, dry_run=False)
+
+    assert second.to_dict() == {"source": str(source), "sha": tip}
+    assert [r for r in origin_refs(repo) if r.startswith("refs/tags/snap/")] == [f"refs/tags/{first.snapshot}"]
+
+
+def test_code_rewritten_history_is_refused_reported_and_still_snapshotted(backup, source, repo):
+    old_tip = git("rev-parse", "main", cwd=source)
+    backup.backup_code(str(source), repo, prev_sha=None, dry_run=False)
+    git("reset", "-q", "--hard", "HEAD~1", cwd=source)
+    new_tip = commit(source, "rewritten")
+
+    report = backup.backup_code(str(source), repo, prev_sha=old_tip, dry_run=False)
+
+    refs = origin_refs(repo)
+    assert refs["refs/heads/mirror"] == old_tip  # never forced
+    assert refs[f"refs/tags/{report.snapshot}"] == new_tip  # but the night's tip is recorded
+    assert re.fullmatch(r"snap/\d{4}-\d\d-\d\dT\d{4}Z", report.snapshot)  # same-day collision → time suffix
+    assert any("rewritten" in n for n in report.notes)
+
+
+def test_code_a_moved_source_tag_stays_where_first_seen(backup, source, repo):
+    v1 = git("rev-parse", "v1", cwd=source)
+    backup.backup_code(str(source), repo, prev_sha=None, dry_run=False)
+    git("tag", "-f", "v1", "main", cwd=source)
+
+    report = backup.backup_code(str(source), repo, prev_sha=git("rev-parse", "main", cwd=source), dry_run=False)
+
+    assert origin_refs(repo)["refs/tags/source/v1"] == v1
+    assert any("tags" in n for n in report.notes)
+
+
+def test_code_dry_run_fetches_but_pushes_nothing(backup, source, repo):
+    report = backup.backup_code(str(source), repo, prev_sha=None, dry_run=True)
+
+    assert (report.sha, report.snapshot) == (git("rev-parse", "main", cwd=source), report.snapshot)
+    assert report.snapshot.startswith("snap/")
+    assert origin_refs(repo) == {}
+
+
+# -- Hugging Face fixtures ---------------------------------------------------------------
+
+
 def repo_not_found():
     """huggingface_hub's HTTP errors carry the response they came from (`EntryNotFoundError` is a plain exception)."""
     return RepositoryNotFoundError(
@@ -37,7 +146,7 @@ def entry(path: str, size: int = 1):
     return SimpleNamespace(path=path, size=size, type="file")
 
 
-def commit(sha: str, title: str = "publish"):
+def hf_commit(sha: str, title: str = "publish"):
     return SimpleNamespace(commit_id=sha, title=title)
 
 
@@ -63,7 +172,7 @@ class FakeApi:
 
     # -- publish repo
     def list_repo_commits(self, repo, repo_type):
-        return [commit(sha) for sha, _ in self.history]
+        return [hf_commit(sha) for sha, _ in self.history]
 
     def snapshot_download(self, repo, repo_type, revision, local_dir):
         files = dict(self.history)[revision]
@@ -95,7 +204,6 @@ class FakeApi:
         self, *, repo_id, repo_type, folder_path, path_in_repo, ignore_patterns, commit_message, commit_description=None
     ):
         assert self.backup is not None, "uploading to a dataset that doesn't exist"
-        assert "delete" not in commit_message
         staged = {
             f"{path_in_repo}/{p.relative_to(folder_path)}": p.read_bytes()
             for p in Path(folder_path).rglob("*")
@@ -155,7 +263,7 @@ def test_batches_never_splits_a_file_larger_than_the_limit(backup):
 
 
 def test_pending_commits_replays_oldest_first_after_the_marker(backup):
-    history = [commit("c3"), commit("c2"), commit("c1")]  # newest first, as the API returns it
+    history = [hf_commit("c3"), hf_commit("c2"), hf_commit("c1")]  # newest first, as the API returns it
     assert [c.commit_id for c in backup.pending_commits(history, None)] == ["c1", "c2", "c3"]
     assert [c.commit_id for c in backup.pending_commits(history, "c2")] == ["c3"]
     assert backup.pending_commits(history, "c3") == []
@@ -163,7 +271,7 @@ def test_pending_commits_replays_oldest_first_after_the_marker(backup):
 
 def test_a_marker_missing_from_the_history_means_a_rewrite_and_stops_the_replay(backup):
     with pytest.raises(RuntimeError, match="rewritten"):
-        backup.pending_commits([commit("c2"), commit("c1")], "gone")
+        backup.pending_commits([hf_commit("c2"), hf_commit("c1")], "gone")
 
 
 def test_publish_replays_each_commit_and_keeps_deleted_files(backup, api, tmp_path):
@@ -191,11 +299,10 @@ def test_publish_resumes_from_the_marker_and_defers_past_max_commits(backup, api
 
     report = backup.backup_publish(api, "ns/pub", "ns/backup", tmp_path / "w", max_commits=2, dry_run=False)
 
+    # A commit that only deleted files still lands as a real commit, because the marker changed.
     assert [u["message"] for u in api.uploads] == ["pub: replay c2", "pub: replay c3"]
     assert api.backup["pub/SOURCE_COMMIT"] == b"c3\n"
     assert report.notes == ["1 commit(s) deferred to a later run (--max-commits 2)"]
-    # A commit that only deleted files still lands as a real commit, because the marker changed.
-    assert len(api.uploads) == 2
 
 
 def test_publish_dry_run_counts_without_touching_anything(backup, api, tmp_path):
@@ -211,38 +318,49 @@ def test_publish_dry_run_counts_without_touching_anything(backup, api, tmp_path)
 
 
 @pytest.fixture
-def run(backup, api, tmp_path, monkeypatch):
-    """Run `main()` with the fake API, from a scratch cwd; returns (exit code, state dict)."""
+def run(backup, api, source, repo, tmp_path, monkeypatch):
+    """Run `main()` with the fake API and the temporary git repos, from a scratch cwd; returns (exit code, state dict)."""
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SOURCE_REPO", str(source))
     monkeypatch.setenv("SOURCE_BUCKET", "ns/store")
     monkeypatch.setenv("SOURCE_PUBLISH_REPO", "ns/pub")
     monkeypatch.setenv("BACKUP_DATASET", "ns/backup")
     monkeypatch.setattr("huggingface_hub.HfApi", lambda token=None: api)
 
     def go(*argv: str):
-        monkeypatch.setattr(sys, "argv", ["backup.py", *argv])
+        monkeypatch.setattr(sys, "argv", ["backup.py", "--repo", str(repo), *argv])
         code = backup.main()
         return code, json.loads(Path("state/last-run.json").read_text())
 
     return go
 
 
-def test_main_records_both_legs_and_the_code_leg_findings(api, run):
+def test_main_records_all_three_legs(api, source, run):
     api.bucket = {"cas/1": b"x"}
     api.history = [("c1", {"a": b"a"})]
 
-    code, state = run("--code-sha", "abc", "--snapshot", "snap/2026-09-04")
+    code, state = run()
 
     assert code == 0
     assert state.pop("ran_at").startswith("20")  # an ISO timestamp
+    snapshot = state["code"].pop("snapshot")
+    assert snapshot.startswith("snap/")
     assert state == {
         "backup": "ns/backup",
         "dry_run": False,
-        "code": {"sha": "abc", "snapshot": "snap/2026-09-04"},
+        "code": {"source": str(source), "sha": git("rev-parse", "main", cwd=source)},
         "store": {"source": "ns/store", "seen": 1, "copied": 1, "bytes": 1, "commits": ["b1"]},
         "pub": {"source": "ns/pub", "seen": 1, "copied": 1, "commits": ["b2"]},
     }
     assert not Path(".backup-work").exists()
+
+
+def test_main_reads_the_last_tip_from_the_previous_record(run):
+    run()
+
+    _, state = run()
+
+    assert "snapshot" not in state["code"]  # the tip hadn't moved since the run before
 
 
 def test_main_keeps_going_when_one_leg_fails_and_exits_nonzero(api, run, capsys):
@@ -259,9 +377,9 @@ def test_main_keeps_going_when_one_leg_fails_and_exits_nonzero(api, run, capsys)
     assert "error: pub:" in capsys.readouterr().err
 
 
-def test_main_requires_the_three_names(backup, monkeypatch, tmp_path):
+def test_main_requires_the_four_names(backup, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("SOURCE_BUCKET", raising=False)
+    monkeypatch.delenv("SOURCE_REPO", raising=False)
     monkeypatch.setattr(sys, "argv", ["backup.py"])
-    with pytest.raises(SystemExit, match="SOURCE_BUCKET"):
+    with pytest.raises(SystemExit, match="SOURCE_REPO"):
         backup.main()

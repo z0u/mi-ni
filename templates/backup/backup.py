@@ -1,14 +1,15 @@
 #!/usr/bin/env python
-"""Copy a mi-ni project's Hugging Face storage into one backup dataset repo, never deleting.
+"""Copy a mi-ni project's code and Hugging Face storage into backup repos, never deleting.
 
-This is the payload half of the backup runbook (the ``backup`` skill in the mi-ni template). It runs inside the *backup* repo's nightly GitHub Actions workflow, from a trust domain the project's day-to-day tokens cannot reach, and it copies two Hugging Face sources into one git-backed dataset repo:
+This is the payload half of the backup runbook (the ``backup`` skill in the mi-ni template). It runs inside the *backup* repo's nightly GitHub Actions workflow, from a trust domain the project's day-to-day tokens cannot reach. Three legs:
 
-- ``store/`` mirrors the CAS bucket. The bucket is write-once-by-hash, so every file the backup lacks is the whole delta; ``refs/`` (mutable name → artifact pointers) is refreshed every run, and its earlier versions live on in the backup's history.
+- Code. Fetch the source repo's ``main``, fast-forward this repo's ``mirror`` branch to it, tag ``snap/<date>`` when the tip moved since the last run, and carry the source's own tags under ``source/``. A push that isn't a fast-forward is refused, never forced: the source rewrote its history, which the run reports and the snapshot records regardless.
+- ``store/`` in the backup dataset mirrors the CAS bucket. The bucket is write-once-by-hash, so every file the backup lacks is the whole delta; ``refs/`` (mutable name → artifact pointers) is refreshed every run, and its earlier versions live on in the backup's history.
 - ``pub/`` replays the publish repo's history, oldest commit first, one backup commit per source commit, so every revision a ``publish.lock`` has ever pinned stays recoverable. The head of ``pub/`` is the *union* of every revision replayed: a file the source later deleted is still there, and a restore of one pinned revision reads the backup commit that replayed it.
 
-Two rules keep the copy trustworthy. It never deletes: no ``delete_patterns``, no ``super_squash_history``, nothing removed on either side. And it never runs code from the sources: this file and the workflow live in the backup repo, copied once from the template.
+Two rules keep the copy trustworthy. It never deletes: no ``delete_patterns``, no ``super_squash_history``, no forced push, nothing removed on either side. And it never runs code from the sources: this file and the workflow live in the backup repo, copied once from the template.
 
-Configuration is by environment variable — ``SOURCE_BUCKET``, ``SOURCE_PUBLISH_REPO``, ``BACKUP_DATASET`` (all ``namespace/name``) and ``HF_TOKEN`` (read on the sources, write on the backup, nothing else) — so the workflow file is the one place the names appear. The code leg (mirroring the GitHub repo) is plain git and lives in the workflow; it hands its findings in through ``--code-sha`` / ``--snapshot`` so one ``state/last-run.json`` records the whole run.
+Configuration is by environment variable — ``SOURCE_REPO`` (``owner/name`` on GitHub, or any git URL), ``SOURCE_BUCKET``, ``SOURCE_PUBLISH_REPO``, ``BACKUP_DATASET`` (all ``namespace/name`` on Hugging Face) and ``HF_TOKEN`` (read on the sources, write on the backup, nothing else) — so the workflow file is the one place the names appear. Git pushes use whatever credentials the checkout already has (the job's ``GITHUB_TOKEN``). One ``state/last-run.json`` records the whole run, and the previous run's record is where the code leg reads the last tip from.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -32,11 +34,17 @@ PUB_PREFIX = "pub"
 PUB_MARKER = f"{PUB_PREFIX}/SOURCE_COMMIT"
 # Never uploaded from the working dir: huggingface_hub's own download metadata.
 IGNORE = [".cache/**", ".git/**"]
+MIRROR = "refs/heads/mirror"
+SOURCE_TAGS = "refs/tags/source/*"
+
+
+def _trim(d: dict[str, Any], keep: tuple[str, ...]) -> dict[str, Any]:
+    return {k: v for k, v in d.items() if v not in ([], 0, None) or k in keep}
 
 
 @dataclass
 class LegReport:
-    """What one leg saw and did — the run log, and the delta walk's input next time."""
+    """What one Hugging Face leg saw and did — the run log, and the delta walk's input next time."""
 
     source: str
     seen: int = 0
@@ -46,7 +54,77 @@ class LegReport:
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if v not in ([], 0) or k in ("source", "seen")}
+        return _trim(self.__dict__, ("source", "seen"))
+
+
+@dataclass
+class CodeReport:
+    source: str
+    sha: str
+    snapshot: str | None = None
+    notes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _trim(self.__dict__, ("source", "sha"))
+
+
+def warn(report: LegReport | CodeReport, message: str) -> None:
+    """Record a note and surface it as a GitHub Actions annotation."""
+    report.notes.append(message)
+    print(f"::warning::{message}")
+
+
+# -- code: source repo → mirror branch + snapshot tags ---------------------------------
+
+
+def git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=check)
+
+
+def snapshot_name(repo: Path, now: datetime) -> str:
+    """``snap/<date>``, or a time-suffixed name if that tag already exists on the remote (a second run in one day)."""
+    tag = f"snap/{now:%Y-%m-%d}"
+    if git("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/{tag}", cwd=repo, check=False).returncode == 0:
+        tag = f"snap/{now:%Y-%m-%dT%H%MZ}"
+    return tag
+
+
+def backup_code(
+    source_url: str, repo: Path, *, prev_sha: str | None, branch: str = "main", dry_run: bool
+) -> CodeReport:
+    """Mirror *source_url*'s *branch* into *repo*'s ``origin``: fast-forward ``mirror``, tag a snapshot if the tip moved, copy the source's tags.
+
+    *repo* is a checkout of the backup repo whose ``origin`` is writable (in Actions, the job's own token). Nothing here forces: a mirror or tag push that isn't a fast-forward is refused by git and reported.
+    """
+    if git("remote", "get-url", "source", cwd=repo, check=False).returncode == 0:
+        git("remote", "set-url", "source", source_url, cwd=repo)
+    else:
+        git("remote", "add", "source", source_url, cwd=repo)
+    # The branch is fetched forced, so a rewritten source is *seen* (and snapshotted); the
+    # pushes below are what refuse to let it overwrite anything already recorded.
+    git("fetch", "--no-tags", "source", f"+refs/heads/{branch}:refs/remotes/source/{branch}", cwd=repo)
+    tags = git("fetch", "--no-tags", "source", f"refs/tags/*:{SOURCE_TAGS}", cwd=repo, check=False)
+    tip = git("rev-parse", f"refs/remotes/source/{branch}", cwd=repo).stdout.strip()
+    report = CodeReport(source=source_url, sha=tip)
+    if tags.returncode != 0:
+        warn(report, "some source tags moved since the backup first saw them; the earlier pointers stand")
+    if tip != prev_sha:
+        report.snapshot = snapshot_name(repo, datetime.now(timezone.utc))
+    if dry_run:
+        return report
+
+    if git("push", "origin", f"{tip}:{MIRROR}", cwd=repo, check=False).returncode != 0:
+        warn(
+            report,
+            f"mirror not fast-forwarded: source {branch} at {tip} is not a descendant of the mirror — "
+            "the source's history was rewritten. Snapshot recorded regardless.",
+        )
+    if report.snapshot:
+        git("tag", report.snapshot, tip, cwd=repo)
+        git("push", "origin", f"refs/tags/{report.snapshot}", cwd=repo)
+    if git("push", "origin", f"{SOURCE_TAGS}:{SOURCE_TAGS}", cwd=repo, check=False).returncode != 0:
+        warn(report, "some source tags were not updated (a moved tag stays where the backup first saw it)")
+    return report
 
 
 # -- store bucket → store/ ------------------------------------------------------------
@@ -185,35 +263,56 @@ def backup_publish(api: Any, source: str, dataset: str, work: Path, *, max_commi
 
 def require(name: str) -> str:
     if not (value := os.environ.get(name)):
-        sys.exit(f"{name} is not set — the workflow's env block names the source and backup repos")
+        sys.exit(f"{name} is not set — fill in the workflow's env block")
     return value
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--state", type=Path, default=Path("state/last-run.json"), help="where to write the run record")
+    ap.add_argument(
+        "--state",
+        type=Path,
+        default=Path("state/last-run.json"),
+        help="the run record: read for the last tip, then rewritten",
+    )
+    ap.add_argument(
+        "--repo", type=Path, default=Path("."), help="checkout of the backup repo; its origin receives the code leg"
+    )
     ap.add_argument("--work", type=Path, default=Path(".backup-work"), help="scratch dir for downloads (deleted)")
-    ap.add_argument("--code-sha", default=None, help="the source tip the code leg fetched (recorded only)")
-    ap.add_argument("--snapshot", default=None, help="the snapshot tag the code leg created, if any (recorded only)")
+    ap.add_argument("--source-branch", default="main", help="the source branch to mirror")
     ap.add_argument("--max-commits", type=int, default=200, help="publish-repo commits to replay per run")
     ap.add_argument("--batch-bytes", type=int, default=2 << 30, help="bytes of bucket files per backup commit")
-    ap.add_argument("--dry-run", action="store_true", help="list what would be copied; upload nothing")
+    ap.add_argument("--dry-run", action="store_true", help="list what would be copied; push and upload nothing")
     args = ap.parse_args()
 
     from huggingface_hub import HfApi
 
     api = HfApi(token=os.environ.get("HF_TOKEN"))
-    bucket, pub, dataset = require("SOURCE_BUCKET"), require("SOURCE_PUBLISH_REPO"), require("BACKUP_DATASET")
-    started = datetime.now(timezone.utc)
+    code, bucket, pub, dataset = (
+        require("SOURCE_REPO"),
+        require("SOURCE_BUCKET"),
+        require("SOURCE_PUBLISH_REPO"),
+        require("BACKUP_DATASET"),
+    )
+    prev = json.loads(args.state.read_text()) if args.state.is_file() else {}
+    prev_sha = prev.get("code", {}).get("sha")
     state: dict[str, Any] = {
-        "ran_at": started.isoformat(timespec="seconds"),
+        "ran_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "backup": dataset,
         "dry_run": args.dry_run,
     }
-    if args.code_sha:
-        state["code"] = {"sha": args.code_sha, **({"snapshot": args.snapshot} if args.snapshot else {})}
     errors: list[str] = []
-    for leg, run in (
+    legs = (
+        (
+            "code",
+            lambda: backup_code(
+                code if "://" in code or code.startswith("/") else f"https://github.com/{code}.git",
+                args.repo,
+                prev_sha=prev_sha,
+                branch=args.source_branch,
+                dry_run=args.dry_run,
+            ),
+        ),
         (
             "store",
             lambda: backup_store(api, bucket, dataset, args.work, batch_bytes=args.batch_bytes, dry_run=args.dry_run),
@@ -222,20 +321,22 @@ def main() -> int:
             "pub",
             lambda: backup_publish(api, pub, dataset, args.work, max_commits=args.max_commits, dry_run=args.dry_run),
         ),
-    ):
+    )
+    for leg, run in legs:
         try:
             report = run()
-        except (
-            Exception
-        ) as e:  # keep going: the other leg's copy is still worth taking, and the record says what failed
-            errors.append(f"{leg}: {e}")
-            state[leg] = {"error": str(e)}
+        except Exception as e:  # keep going: the other legs are still worth taking, and the record says what failed
+            detail = e.stderr.strip() if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
+            errors.append(f"{leg}: {detail}")
+            state[leg] = {"error": detail}
             continue
         state[leg] = report.to_dict()
-        print(
-            f"{leg}: {report.copied} of {report.seen} copied, {len(report.commits)} commit(s)"
-            + "".join(f"; {n}" for n in report.notes)
+        summary = (
+            report.sha[:12] + (f", snapshot {report.snapshot}" if report.snapshot else "")
+            if isinstance(report, CodeReport)
+            else f"{report.copied} of {report.seen} copied, {len(report.commits)} commit(s)"
         )
+        print(f"{leg}: {summary}" + "".join(f"; {n}" for n in report.notes))
     if errors:
         state["errors"] = errors
     args.state.parent.mkdir(parents=True, exist_ok=True)
