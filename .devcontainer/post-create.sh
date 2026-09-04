@@ -22,8 +22,6 @@ set -euo pipefail
     # Initialize Python environment.
     uv venv --allow-existing < /dev/null
     ./go install < /dev/null
-
-    npx skills add marimo-team/marimo-pair --yes < /dev/null
 )
 
 echo "Virtual environment created. You may need to restart the Python language server."
