@@ -72,7 +72,9 @@ def unpublished(base: str, root: Path = ROOT) -> list[Path]:
     """
     if not (root / PUBLISH_LOCK).exists():
         return []
-    before, after = pins_at(base, root), load_pins(root)
+    # Production's manifest, whatever storage profile this shell has active: the question is
+    # whether the *site* will serve a stale export, and a dev publish never moves that pin.
+    before, after = pins_at(base, root), load_pins(root, profile=None)
     return [nb for nb in changed_reports(base, root) if after.get(key := export_key(nb)) == before.get(key)]
 
 

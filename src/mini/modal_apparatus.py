@@ -41,6 +41,7 @@ from mini.progress_display import RichProgressDisplay
 from mini.requirements import project_packages, uv_freeze
 from mini.runs import data_root
 from mini.store import (
+    PROFILE_ENV,
     PUBLISH_REPO_ENV,
     STORE_BUCKET_ENV,
     Artifact,
@@ -48,6 +49,7 @@ from mini.store import (
     Store,
     _cas_key,
     _hf_token,
+    active_profile,
     publish_repo,
     store_bucket,
     store_context,
@@ -340,6 +342,8 @@ def _hf_store_secret() -> modal.Secret | None:
     env: dict[str, str | None] = {STORE_BUCKET_ENV: bucket, "HF_TOKEN": token}
     if repo := publish_repo():  # so an in-step publish() targets the same tier as the driver
         env[PUBLISH_REPO_ENV] = repo
+    if profile := active_profile():  # and anything the worker resolves from config reads the driver's profile
+        env[PROFILE_ENV] = profile
     return modal.Secret.from_dict(env)
 
 

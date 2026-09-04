@@ -1,0 +1,83 @@
+# Nightly backup of a mi-ni project: its GitHub repo, its Hugging Face CAS bucket, and
+# its publish repo. Copied, with the rest of `templates/backup/`, into the backup repo;
+# the `backup` skill in the template is the runbook.
+#
+# This workflow runs in the *backup* repo, from a trust domain the project's day-to-day
+# tokens never reach. `backup.py` (this repo's own copy; nothing is run from the sources)
+# pushes into this repo with the job's GITHUB_TOKEN, scoped to this repo alone. It never
+# deletes and never forces.
+#
+# Credentials. The backup dataset is written with a token minted per run from the
+# dataset's trusted publisher (Settings → Trusted Publishers on the Hub, trusting this
+# repo, branch, and workflow file): one hour long, scoped to that one dataset, nothing
+# stored. Or store a fine-grained token with write on the dataset as the HF_TOKEN secret,
+# and the mint step is skipped. Private sources need read-only tokens from the account
+# that owns them, as the SOURCE_HF_TOKEN and SOURCE_GH_TOKEN secrets; public sources
+# need neither. Every stored secret is then read-only.
+name: Backup
+
+on:
+  schedule:
+    - cron: "17 3 * * *"  # nightly, off the hour
+  workflow_dispatch:
+
+# One run at a time, and a queued run waits rather than cancelling: a cancelled copy
+# mid-batch wastes only time, but two runs replaying pub/ at once would race on the marker.
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write  # to prove this job's identity to the Hub when minting the write token
+
+env:
+  # The three sources and the one backup dataset. Uncomment and fill in all four; the
+  # run fails at its first step until they are set.
+  # SOURCE_REPO: owner/project                   # GitHub
+  # SOURCE_BUCKET: namespace/project-store       # Hugging Face bucket
+  # SOURCE_PUBLISH_REPO: namespace/project-pub   # Hugging Face dataset repo
+  # BACKUP_DATASET: namespace/project-backup     # Hugging Face dataset repo (the target)
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      # `secrets` can't be tested in a step's `if`, so the choice is made here.
+      STORED_WRITE_TOKEN: ${{ secrets.HF_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "huggingface_hub[hf_xet]>=1.30"  # the trusted-publisher exchange needs a recent release
+
+      - name: Mint a write token for the backup dataset
+        if: env.STORED_WRITE_TOKEN == 'false' && env.BACKUP_DATASET != ''
+        id: mint
+        env:
+          HF_OIDC_RESOURCE: datasets/${{ env.BACKUP_DATASET }}
+        run: |
+          token="$(hf auth token)"
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      - name: Back up the code, the store bucket, and the publish repo
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN || steps.mint.outputs.token }}
+          SOURCE_HF_TOKEN: ${{ secrets.SOURCE_HF_TOKEN }}  # read on the bucket and publish repo; unset for public sources
+          SOURCE_GH_TOKEN: ${{ secrets.SOURCE_GH_TOKEN }}  # read on the source repo; unset for a public one
+        run: python backup.py --state state/last-run.json
+
+      - name: Record the run
+        # Always, so a failed leg leaves its error in the record — and so every run is
+        # repository activity, which keeps a public repo's schedule from being disabled.
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/last-run.json
+          git commit -q -m "backup $(date -u +%F)" || exit 0
+          git push origin HEAD

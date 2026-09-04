@@ -18,9 +18,9 @@ scratch*
 .mini/
 
 .claude/settings.local.json
-# Per-checkout `[tool.mini]` overrides (bucket, publish repo). Same keys as
-# pyproject.toml, overlaid on it; for settings that shouldn't travel with the
-# repo — see `mini.store.LOCAL_CONFIG`.
+# Per-checkout `[tool.mini]` overrides (bucket, publish repo, and any
+# `[tool.mini.profiles.<name>]` dev pair). Same keys as pyproject.toml, overlaid
+# on it; for settings that shouldn't travel with the repo — see `mini.store.LOCAL_CONFIG`.
 mini.local.toml
 node_modules/
 .claude/worktrees/

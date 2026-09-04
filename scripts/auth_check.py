@@ -74,7 +74,7 @@ async def check_modal() -> Status:
 
 
 async def check_hf() -> Status:
-    from mini.store import publish_repo, store_bucket
+    from mini.store import active_profile, publish_repo, store_bucket
 
     code, out, err = await _run("hf", "auth", "whoami")
     text = out + err
@@ -83,11 +83,13 @@ async def check_hf() -> Status:
     # `hf auth whoami` prints `user=<name>`; fall back to the first plain line.
     match = re.search(r"^\s*user[=:]\s*(\S+)", out, re.MULTILINE | re.IGNORECASE)
     user = match.group(1) if match else next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
-    bucket, repo = store_bucket(), publish_repo()
+    bucket, repo, profile = store_bucket(), publish_repo(), active_profile()
     parts = [
         p
         for p in (
             f"user {user}" if user else "",
+            # Only shown when set — unset is the base (production) pair, the usual case.
+            f"profile {profile}" if profile else "",
             f"bucket {bucket}" if bucket else "no store-bucket set",
             # Only shown when set — the publish tier is opt-in (#38); unset means publish stays in the bucket.
             f"publish-repo {repo}" if repo else "",

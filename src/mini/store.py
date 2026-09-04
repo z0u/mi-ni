@@ -67,8 +67,12 @@ __all__ = [
     "project_store",
     "store_bucket",
     "publish_repo",
+    "active_profile",
+    "profiles",
     "STORE_BUCKET_ENV",
     "PUBLISH_REPO_ENV",
+    "PROFILE_ENV",
+    "PROFILE_KEYS",
     "LOCAL_CONFIG",
     "NO_PROJECT_CONFIG_ENV",
 ]
@@ -81,6 +85,19 @@ STORE_BUCKET_ENV = "MINI_STORE_BUCKET"
 # versioned publish tier — an override for `[tool.mini] publish-repo`. Unset →
 # publish/exports stay in the (durable) bucket, as before (see `publish_repo`).
 PUBLISH_REPO_ENV = "MINI_PUBLISH_REPO"
+
+# Env var naming the active *profile*: a `[tool.mini.profiles.<name>]` table that
+# supplies the storage pair (PROFILE_KEYS) in place of the base keys — a dev bucket
+# and publish repo beside the production ones (see `_project_config`). Unset → the
+# base keys, so a project without profiles is unaffected.
+PROFILE_ENV = "MINI_PROFILE"
+
+# The keys a profile is *for*. Under a profile these come from its table alone —
+# a key the profile leaves out is unset, never inherited from the base table, so a
+# half-written dev profile falls to the local store rather than publishing into
+# production. Every other key (`app`, `env`, `region`) is inherited and may be
+# overridden.
+PROFILE_KEYS = ("store-bucket", "publish-repo")
 
 # A gitignored sibling of `pyproject.toml` carrying the same `[tool.mini]` keys,
 # overlaid on the committed table (see `_project_config`). For a setting that
@@ -516,36 +533,90 @@ def _mini_table(path: Path) -> dict:
         return {}
 
 
-def _project_config() -> dict:
+def _config_files() -> list[Path]:
+    """The project's config files, base first: ``pyproject.toml`` and the :data:`LOCAL_CONFIG` beside it.
+
+    Anchored at the nearest directory up from cwd holding a ``pyproject.toml``; ``[]`` when there is none, or when :data:`NO_PROJECT_CONFIG_ENV` switches the files off.
+    """
+    if os.environ.get(NO_PROJECT_CONFIG_ENV):
+        return []
+    cwd = Path.cwd().resolve()
+    for d in (cwd, *cwd.parents):
+        if (d / "pyproject.toml").exists():
+            return [d / "pyproject.toml", d / LOCAL_CONFIG]
+    return []
+
+
+def active_profile() -> str | None:
+    """The profile ``MINI_PROFILE`` names, or ``None`` for the base configuration."""
+    return os.environ.get(PROFILE_ENV) or None
+
+
+def profiles() -> list[str]:
+    """The profile names the project configures, across both files, sorted."""
+    names: set[str] = set()
+    for f in _config_files():
+        names |= set(_mini_table(f).get("profiles", {}))
+    return sorted(names)
+
+
+_warned_profiles: set[str] = set()
+
+
+def _project_config(profile: str | None | types.EllipsisType = ...) -> dict:
     """``[tool.mini]`` for the nearest project walking up from cwd, or ``{}``.
 
     Two files, both anchored at the directory holding ``pyproject.toml``: the committed table there, overlaid by a gitignored :data:`LOCAL_CONFIG` beside it. The committed one is the project default that *travels with the repo*; the local one is for a value that must not — a fork's own bucket, or a template checkout that can't ship its bucket to everyone who copies it. Env vars still win over both (see :func:`store_bucket`).
 
+    *profile* selects a ``[tool.mini.profiles.<name>]`` table: ``...`` (the default) reads the one :func:`active_profile` names, ``None`` reads the base keys regardless, and a name reads that profile. Under a profile the :data:`PROFILE_KEYS` come from the profile's table alone (overlaid across the two files like the base), while every other key is inherited from the base table unless the profile overrides it. A profile that neither file defines yields no storage pair at all — the local store, with a warning — rather than falling through to production.
+
     Read lazily off the live cwd (like :func:`~mini.runs.data_root`) so a ``chdir`` — or a test in a tmp dir — resolves the right project, and nothing parses TOML at import time. :data:`NO_PROJECT_CONFIG_ENV` skips both files, for a test whose spawned workers must not inherit the checkout's bucket.
     """
-    if os.environ.get(NO_PROJECT_CONFIG_ENV):
+    tables = [_mini_table(f) for f in _config_files()]
+    if not tables:
         return {}
-    cwd = Path.cwd().resolve()
-    for d in (cwd, *cwd.parents):
-        if (d / "pyproject.toml").exists():
-            return _mini_table(d / "pyproject.toml") | _mini_table(d / LOCAL_CONFIG)
-    return {}
+    if profile is ...:
+        profile = active_profile()
+    base: dict = {}
+    for t in tables:
+        base |= t
+    base.pop("profiles", None)
+    if profile is None:
+        return base
+    named = [p for t in tables if isinstance(p := t.get("profiles", {}).get(profile), dict)]
+    if not named:
+        if profile not in _warned_profiles:
+            _warned_profiles.add(profile)
+            log.warning(
+                "%s=%r but no [tool.mini.profiles.%s] table is configured — the storage pair is unset, "
+                "so this session uses the local store. Add the table (see the storage-envs skill) or unset %s.",
+                PROFILE_ENV,
+                profile,
+                profile,
+                PROFILE_ENV,
+            )
+    merged: dict = {k: v for k, v in base.items() if k not in PROFILE_KEYS}
+    for t in named:
+        merged |= t
+    return merged
 
 
-def store_bucket() -> str | None:
+def store_bucket(*, profile: str | None | types.EllipsisType = ...) -> str | None:
     """The configured Hugging Face bucket (``namespace/name``), or ``None`` for local.
 
     Resolution order: the ``MINI_STORE_BUCKET`` env var first (so CI or a one-off shell can override), else ``[tool.mini] store-bucket`` from ``pyproject.toml`` or the gitignored :data:`LOCAL_CONFIG` beside it — so the project's default *travels with the repo* (or, for one that shouldn't, stays out of it), set once and shared by every checkout, Modal worker, and CI run rather than re-set in three places. The bucket name isn't a secret; the token still lives in the env / ``hf`` cache.
+
+    *profile* is passed through to :func:`_project_config`: by default the active one, ``None`` for the base keys, or a name. The env var wins over any profile — it is how an environment configured without files (a CI job, a Claude Code web environment) names its pair.
     """
-    return os.environ.get(STORE_BUCKET_ENV) or _project_config().get("store-bucket")
+    return os.environ.get(STORE_BUCKET_ENV) or _project_config(profile).get("store-bucket")
 
 
-def publish_repo() -> str | None:
+def publish_repo(*, profile: str | None | types.EllipsisType = ...) -> str | None:
     """The configured Hugging Face *dataset repo* for the publish tier, or ``None``.
 
-    When set, :meth:`~mini.hf_store.HFStore.publish` and the report-export methods target this public, git-backed dataset repo instead of the durable bucket — so the CAS bucket can be private (persisting an artifact never makes its bytes world-readable) and published views get real history (a citation pins to a commit sha). Unset → publish/exports stay in the bucket, the single-store default. Resolution mirrors :func:`store_bucket` (``MINI_PUBLISH_REPO`` env first, else ``[tool.mini] publish-repo`` from ``pyproject.toml`` or :data:`LOCAL_CONFIG`); the repo id isn't a secret.
+    When set, :meth:`~mini.hf_store.HFStore.publish` and the report-export methods target this public, git-backed dataset repo instead of the durable bucket — so the CAS bucket can be private (persisting an artifact never makes its bytes world-readable) and published views get real history (a citation pins to a commit sha). Unset → publish/exports stay in the bucket, the single-store default. Resolution mirrors :func:`store_bucket` (``MINI_PUBLISH_REPO`` env first, else ``[tool.mini] publish-repo`` from ``pyproject.toml`` or :data:`LOCAL_CONFIG`, under the same *profile* rules); the repo id isn't a secret.
     """
-    return os.environ.get(PUBLISH_REPO_ENV) or _project_config().get("publish-repo")
+    return os.environ.get(PUBLISH_REPO_ENV) or _project_config(profile).get("publish-repo")
 
 
 def _hf_token() -> str | None:

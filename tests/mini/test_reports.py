@@ -233,6 +233,22 @@ def test_pins_round_trip_sorted_and_diffable(tmp_path):
     assert text.endswith("\n")
 
 
+def test_a_profile_keeps_its_pins_out_of_the_production_manifest(tmp_path, monkeypatch):
+    """Under `MINI_PROFILE=dev` the pins go to a gitignored `.mini/` file; production's stays untouched and reachable."""
+    from pathlib import Path
+
+    from mini.reports import publish_lock
+
+    (tmp_path / "docs").mkdir()
+    save_pins(tmp_path, {"alpha": "a" * 40})  # a production pin, before any profile
+    monkeypatch.setenv("MINI_PROFILE", "dev")
+    assert publish_lock() == Path(".mini/publish.dev.lock")
+    save_pins(tmp_path, {"alpha": "d" * 40})
+    assert (tmp_path / ".mini" / "publish.dev.lock").exists()
+    assert load_pins(tmp_path) == {"alpha": "d" * 40}  # the active manifest
+    assert load_pins(tmp_path, profile=None) == {"alpha": "a" * 40}  # production, asked for by name
+
+
 # Marimo renders its banner client-side, so the export only carries an empty shell; our
 # bar is injected into that, not matched against existing banner markup.
 _EXPORT_HTML = '<html><head><meta charset="utf-8" /></head><body><div id="root"></div></body></html>'
