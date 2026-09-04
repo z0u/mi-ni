@@ -80,6 +80,10 @@ pages = [
 # per-shell with MINI_PUBLISH_REPO. See eng/publishing.md and issue #38.
 # publish-repo = "your-namespace/your-publish-repo"
 
+# Either key can instead go in a gitignored `mini.local.toml` beside this file,
+# under the same `[tool.mini]` table — for a checkout whose bucket shouldn't be
+# committed. Resolution: env var, then mini.local.toml, then here.
+
 # Environment every task worker gets, on both backends. It has to be here rather
 # than set from inside a task: a Modal container is reused across tasks, and XLA
 # parses XLA_FLAGS once when its backend comes up, so an in-process setting takes

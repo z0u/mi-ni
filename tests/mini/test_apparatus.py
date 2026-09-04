@@ -213,6 +213,7 @@ def test_memo_worker_mounts_hf_cache(monkeypatch):
 
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
     monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
+    monkeypatch.setenv("MINI_NO_PROJECT_CONFIG", "1")  # and the pyproject / mini.local.toml fallback, workers included
     secrets_made: list[dict] = []
     monkeypatch.setattr("modal.Secret.from_dict", lambda d: secrets_made.append(d) or ("secret", d))
 

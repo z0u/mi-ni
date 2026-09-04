@@ -507,6 +507,7 @@ def test_lineage_detects_upstreams_from_resolved_refs(tmp_path: Path, monkeypatc
     # to the real shared store, and a publish-repo alone builds a CAS-less store.
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
     monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
+    monkeypatch.setenv("MINI_NO_PROJECT_CONFIG", "1")  # and the pyproject / mini.local.toml fallback, workers included
     (tmp_path / "prep.py").write_text(
         textwrap.dedent("""
         from mini import Experiment

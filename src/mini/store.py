@@ -69,6 +69,8 @@ __all__ = [
     "publish_repo",
     "STORE_BUCKET_ENV",
     "PUBLISH_REPO_ENV",
+    "LOCAL_CONFIG",
+    "NO_PROJECT_CONFIG_ENV",
 ]
 
 # Env var naming the project's Hugging Face bucket — an *override* for the
@@ -79,6 +81,17 @@ STORE_BUCKET_ENV = "MINI_STORE_BUCKET"
 # versioned publish tier — an override for `[tool.mini] publish-repo`. Unset →
 # publish/exports stay in the (durable) bucket, as before (see `publish_repo`).
 PUBLISH_REPO_ENV = "MINI_PUBLISH_REPO"
+
+# A gitignored sibling of `pyproject.toml` carrying the same `[tool.mini]` keys,
+# overlaid on the committed table (see `_project_config`). For a setting that
+# shouldn't travel with the repo — the bucket of a fork, or of a template that
+# can't hand its own bucket to every project copied from it.
+LOCAL_CONFIG = "mini.local.toml"
+
+# Set to ignore both config files, leaving only the env vars. The escape hatch for
+# a test that must not see the checkout's real bucket: unlike a monkeypatch, an env
+# var crosses into the worker processes a test spawns (see `_project_config`).
+NO_PROJECT_CONFIG_ENV = "MINI_NO_PROJECT_CONFIG"
 
 _CHUNK = 1 << 20  # 1 MiB streaming-hash chunk
 
@@ -495,26 +508,34 @@ def store_root_for(data_dir: Path | str) -> Path:
     return Path(data_dir).parent / "store"
 
 
-def _project_config() -> dict:
-    """``[tool.mini]`` from the nearest ``pyproject.toml`` walking up from cwd, or ``{}``.
+def _mini_table(path: Path) -> dict:
+    """``[tool.mini]`` from one TOML file — ``{}`` if it is absent or unreadable."""
+    try:
+        return tomllib.loads(path.read_text()).get("tool", {}).get("mini", {})
+    except OSError, tomllib.TOMLDecodeError:
+        return {}
 
-    Read lazily off the live cwd (like :func:`~mini.runs.data_root`) so a ``chdir`` — or a test in a tmp dir — resolves the right project, and nothing parses TOML at import time.
+
+def _project_config() -> dict:
+    """``[tool.mini]`` for the nearest project walking up from cwd, or ``{}``.
+
+    Two files, both anchored at the directory holding ``pyproject.toml``: the committed table there, overlaid by a gitignored :data:`LOCAL_CONFIG` beside it. The committed one is the project default that *travels with the repo*; the local one is for a value that must not — a fork's own bucket, or a template checkout that can't ship its bucket to everyone who copies it. Env vars still win over both (see :func:`store_bucket`).
+
+    Read lazily off the live cwd (like :func:`~mini.runs.data_root`) so a ``chdir`` — or a test in a tmp dir — resolves the right project, and nothing parses TOML at import time. :data:`NO_PROJECT_CONFIG_ENV` skips both files, for a test whose spawned workers must not inherit the checkout's bucket.
     """
+    if os.environ.get(NO_PROJECT_CONFIG_ENV):
+        return {}
     cwd = Path.cwd().resolve()
     for d in (cwd, *cwd.parents):
-        pp = d / "pyproject.toml"
-        if pp.exists():
-            try:
-                return tomllib.loads(pp.read_text()).get("tool", {}).get("mini", {})
-            except OSError, tomllib.TOMLDecodeError:
-                return {}
+        if (d / "pyproject.toml").exists():
+            return _mini_table(d / "pyproject.toml") | _mini_table(d / LOCAL_CONFIG)
     return {}
 
 
 def store_bucket() -> str | None:
     """The configured Hugging Face bucket (``namespace/name``), or ``None`` for local.
 
-    Resolution order: the ``MINI_STORE_BUCKET`` env var first (so CI or a one-off shell can override), else ``[tool.mini] store-bucket`` in ``pyproject.toml`` — so the project's default *travels with the repo*, set once and shared by every checkout, Modal worker, and CI run rather than re-set in three places. The bucket name isn't a secret; the token still lives in the env / ``hf`` cache.
+    Resolution order: the ``MINI_STORE_BUCKET`` env var first (so CI or a one-off shell can override), else ``[tool.mini] store-bucket`` from ``pyproject.toml`` or the gitignored :data:`LOCAL_CONFIG` beside it — so the project's default *travels with the repo* (or, for one that shouldn't, stays out of it), set once and shared by every checkout, Modal worker, and CI run rather than re-set in three places. The bucket name isn't a secret; the token still lives in the env / ``hf`` cache.
     """
     return os.environ.get(STORE_BUCKET_ENV) or _project_config().get("store-bucket")
 
@@ -522,7 +543,7 @@ def store_bucket() -> str | None:
 def publish_repo() -> str | None:
     """The configured Hugging Face *dataset repo* for the publish tier, or ``None``.
 
-    When set, :meth:`~mini.hf_store.HFStore.publish` and the report-export methods target this public, git-backed dataset repo instead of the durable bucket — so the CAS bucket can be private (persisting an artifact never makes its bytes world-readable) and published views get real history (a citation pins to a commit sha). Unset → publish/exports stay in the bucket, the single-store default. Resolution mirrors :func:`store_bucket` (``MINI_PUBLISH_REPO`` env first, else ``[tool.mini] publish-repo``); the repo id isn't a secret.
+    When set, :meth:`~mini.hf_store.HFStore.publish` and the report-export methods target this public, git-backed dataset repo instead of the durable bucket — so the CAS bucket can be private (persisting an artifact never makes its bytes world-readable) and published views get real history (a citation pins to a commit sha). Unset → publish/exports stay in the bucket, the single-store default. Resolution mirrors :func:`store_bucket` (``MINI_PUBLISH_REPO`` env first, else ``[tool.mini] publish-repo`` from ``pyproject.toml`` or :data:`LOCAL_CONFIG`); the repo id isn't a secret.
     """
     return os.environ.get(PUBLISH_REPO_ENV) or _project_config().get("publish-repo")
 

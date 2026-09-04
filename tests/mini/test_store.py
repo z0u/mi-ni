@@ -227,6 +227,44 @@ def test_config_reads_pyproject_unless_the_env_overrides_it(
     assert read() == expected
 
 
+def test_local_config_overlays_pyproject_and_yields_to_the_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A gitignored `mini.local.toml` carries a bucket that shouldn't be committed — a fork's, or a template's.
+
+    It sits between the two existing sources: it beats the committed table (that's the point) and loses to the env var (a one-off shell or CI still wins).
+    """
+    (tmp_path / "pyproject.toml").write_text('[tool.mini]\nstore-bucket = "ns/committed"\npublish-repo = "ns/pub"\n')
+    (tmp_path / "mini.local.toml").write_text('[tool.mini]\nstore-bucket = "ns/local"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
+    monkeypatch.delenv("MINI_NO_PROJECT_CONFIG", raising=False)
+    assert store_bucket() == "ns/local"
+    assert publish_repo() == "ns/pub"  # keys the local file doesn't mention still come from pyproject
+    monkeypatch.setenv("MINI_STORE_BUCKET", "ns/env")
+    assert store_bucket() == "ns/env"
+
+
+def test_no_project_config_switches_both_files_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The hermetic-test escape hatch: an env var, so it reaches the workers a test spawns."""
+    (tmp_path / "pyproject.toml").write_text('[tool.mini]\nstore-bucket = "ns/committed"\n')
+    (tmp_path / "mini.local.toml").write_text('[tool.mini]\npublish-repo = "ns/local"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
+    monkeypatch.setenv("MINI_NO_PROJECT_CONFIG", "1")
+    assert store_bucket() is None and publish_repo() is None
+
+
+def test_unparseable_config_reads_as_absent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A half-typed local file shouldn't take the whole project down with it."""
+    (tmp_path / "pyproject.toml").write_text('[tool.mini]\nstore-bucket = "ns/committed"\n')
+    (tmp_path / "mini.local.toml").write_text("[tool.mini\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
+    monkeypatch.delenv("MINI_NO_PROJECT_CONFIG", raising=False)
+    assert store_bucket() == "ns/committed"
+
+
 def test_store_for_threads_publish_repo_into_the_hfstore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from mini.hf_store import HFStore
 
