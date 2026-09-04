@@ -226,7 +226,7 @@ def test_store_copies_only_what_the_backup_lacks_plus_every_ref(backup, api, tmp
     api.bucket = {"cas/aa/1": b"one", "cas/bb/2": b"two", "refs/run/x": b"ptr"}
     api.backup = {"store/cas/aa/1": b"one", "store/refs/run/x": b"old"}
 
-    report = backup.backup_store(api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=1 << 20, dry_run=False)
+    report = backup.backup_store(api, api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=1 << 20, dry_run=False)
 
     assert sorted(api.downloaded) == ["cas/bb/2", "refs/run/x"]
     assert api.backup == {"store/cas/aa/1": b"one", "store/cas/bb/2": b"two", "store/refs/run/x": b"ptr"}
@@ -238,7 +238,7 @@ def test_store_dry_run_sizes_the_copy_and_uploads_nothing(backup, api, tmp_path)
     api.bucket = {"cas/aa/1": b"12345"}
     api.backup = None  # not created yet
 
-    report = backup.backup_store(api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=1 << 20, dry_run=True)
+    report = backup.backup_store(api, api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=1 << 20, dry_run=True)
 
     assert (report.copied, report.bytes) == (1, 5)
     assert api.uploads == [] and api.downloaded == []
@@ -247,7 +247,7 @@ def test_store_dry_run_sizes_the_copy_and_uploads_nothing(backup, api, tmp_path)
 def test_store_splits_a_large_delta_into_one_commit_per_batch(backup, api, tmp_path):
     api.bucket = {f"cas/{i}": bytes(3) for i in range(5)}
 
-    report = backup.backup_store(api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=7, dry_run=False)
+    report = backup.backup_store(api, api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=7, dry_run=False)
 
     assert [len(u["files"]) for u in api.uploads] == [2, 2, 1]
     assert report.commits == ["b1", "b2", "b3"]
@@ -280,7 +280,7 @@ def test_publish_replays_each_commit_and_keeps_deleted_files(backup, api, tmp_pa
         ("c1", {"exports/a/index.html": b"a1", "old.txt": b"gone"}),
     ]
 
-    report = backup.backup_publish(api, "ns/pub", "ns/backup", tmp_path / "w", max_commits=200, dry_run=False)
+    report = backup.backup_publish(api, api, "ns/pub", "ns/backup", tmp_path / "w", max_commits=200, dry_run=False)
 
     assert [u["message"] for u in api.uploads] == ["pub: replay c1", "pub: replay c2"]
     assert api.uploads[0]["description"] == "ns/pub — publish"
@@ -297,7 +297,7 @@ def test_publish_resumes_from_the_marker_and_defers_past_max_commits(backup, api
     api.history = [("c4", {}), ("c3", {}), ("c2", {}), ("c1", {})]
     api.backup = {"pub/SOURCE_COMMIT": b"c1\n"}
 
-    report = backup.backup_publish(api, "ns/pub", "ns/backup", tmp_path / "w", max_commits=2, dry_run=False)
+    report = backup.backup_publish(api, api, "ns/pub", "ns/backup", tmp_path / "w", max_commits=2, dry_run=False)
 
     # A commit that only deleted files still lands as a real commit, because the marker changed.
     assert [u["message"] for u in api.uploads] == ["pub: replay c2", "pub: replay c3"]
@@ -309,7 +309,7 @@ def test_publish_dry_run_counts_without_touching_anything(backup, api, tmp_path)
     api.history = [("c1", {"x": b"x"})]
     api.backup = None
 
-    report = backup.backup_publish(api, "ns/pub", "ns/backup", tmp_path / "w", max_commits=200, dry_run=True)
+    report = backup.backup_publish(api, api, "ns/pub", "ns/backup", tmp_path / "w", max_commits=200, dry_run=True)
 
     assert (report.seen, report.copied, api.uploads) == (1, 1, [])
 
@@ -318,14 +318,22 @@ def test_publish_dry_run_counts_without_touching_anything(backup, api, tmp_path)
 
 
 @pytest.fixture
-def run(backup, api, source, repo, tmp_path, monkeypatch):
+def hf_tokens() -> list:
+    """What each `HfApi(...)` was given, in construction order: the source client, then the backup client."""
+    return []
+
+
+@pytest.fixture
+def run(backup, api, source, repo, tmp_path, monkeypatch, hf_tokens):
     """Run `main()` with the fake API and the temporary git repos, from a scratch cwd; returns (exit code, state dict)."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SOURCE_REPO", str(source))
     monkeypatch.setenv("SOURCE_BUCKET", "ns/store")
     monkeypatch.setenv("SOURCE_PUBLISH_REPO", "ns/pub")
     monkeypatch.setenv("BACKUP_DATASET", "ns/backup")
-    monkeypatch.setattr("huggingface_hub.HfApi", lambda token=None: api)
+    monkeypatch.setenv("HF_TOKEN", "t-write")
+    monkeypatch.delenv("SOURCE_HF_TOKEN", raising=False)
+    monkeypatch.setattr("huggingface_hub.HfApi", lambda token=None: (hf_tokens.append(token), api)[1])
 
     def go(*argv: str):
         monkeypatch.setattr(sys, "argv", ["backup.py", "--repo", str(repo), *argv])
@@ -383,3 +391,44 @@ def test_main_requires_the_four_names(backup, monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", ["backup.py"])
     with pytest.raises(SystemExit, match="SOURCE_REPO"):
         backup.main()
+
+
+# -- credentials -------------------------------------------------------------------
+
+
+def test_main_reads_the_sources_anonymously_and_writes_with_the_write_token(run, hf_tokens):
+    run()
+
+    assert hf_tokens == [False, "t-write"]  # source client, backup client; False is anonymous, never a fallback
+
+
+def test_main_reads_private_sources_with_their_own_read_token(run, hf_tokens, monkeypatch):
+    monkeypatch.setenv("SOURCE_HF_TOKEN", "t-read")
+
+    run()
+
+    assert hf_tokens == ["t-read", "t-write"]
+
+
+def test_main_needs_a_write_token_unless_dry_run(run, monkeypatch):
+    monkeypatch.delenv("HF_TOKEN")
+
+    with pytest.raises(SystemExit, match="HF_TOKEN"):
+        run()
+    code, state = run("--dry-run")
+
+    assert (code, state["dry_run"]) == (0, True)
+
+
+def test_auth_env_sends_the_token_as_a_header_for_that_host_only(backup):
+    env = backup.auth_env("https://github.test/owner/project.git", "tok")
+
+    assert env == {
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "http.https://github.test/.extraheader",
+        "GIT_CONFIG_VALUE_0": "",  # resets the checkout's own header for the host first
+        "GIT_CONFIG_KEY_1": "http.https://github.test/.extraheader",
+        "GIT_CONFIG_VALUE_1": "AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46dG9r",  # base64 of x-access-token:tok
+    }
+    assert backup.auth_env("https://github.test/owner/project.git", None) == {}
+    assert backup.auth_env("/local/path", "tok") == {}

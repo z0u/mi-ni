@@ -9,12 +9,15 @@ This is the payload half of the backup runbook (the ``backup`` skill in the mi-n
 
 Two rules keep the copy trustworthy. It never deletes: no ``delete_patterns``, no ``super_squash_history``, no forced push, nothing removed on either side. And it never runs code from the sources: this file and the workflow live in the backup repo, copied once from the template.
 
-Configuration is by environment variable — ``SOURCE_REPO`` (``owner/name`` on GitHub, or any git URL), ``SOURCE_BUCKET``, ``SOURCE_PUBLISH_REPO``, ``BACKUP_DATASET`` (all ``namespace/name`` on Hugging Face) and ``HF_TOKEN`` (read on the sources, write on the backup, nothing else) — so the workflow file is the one place the names appear. Git pushes use whatever credentials the checkout already has (the job's ``GITHUB_TOKEN``). One ``state/last-run.json`` records the whole run, and the previous run's record is where the code leg reads the last tip from.
+Configuration is by environment variable — ``SOURCE_REPO`` (``owner/name`` on GitHub, or any git URL), ``SOURCE_BUCKET``, ``SOURCE_PUBLISH_REPO``, ``BACKUP_DATASET`` (all ``namespace/name`` on Hugging Face) — so the workflow file is the one place the names appear.
+
+Credentials come in two kinds, because the sources and the backup belong to different accounts and no one token spans both. The sources are read with ``SOURCE_HF_TOKEN`` (the bucket and publish repo) and ``SOURCE_GH_TOKEN`` (the repo), both read-only and both unset for public sources, where reads are anonymous. The backup dataset is written with ``HF_TOKEN``, which the workflow mints per run from the dataset's trusted publisher or takes from a stored secret. The source clients never fall back to ``HF_TOKEN``, so the write credential is only ever sent to the backup. Git pushes use whatever credentials the checkout already has (the job's ``GITHUB_TOKEN``). One ``state/last-run.json`` records the whole run, and the previous run's record is where the code leg reads the last tip from.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import shutil
@@ -77,8 +80,31 @@ def warn(report: LegReport | CodeReport, message: str) -> None:
 # -- code: source repo → mirror branch + snapshot tags ---------------------------------
 
 
-def git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=check)
+def git(
+    *args: str, cwd: Path, check: bool = True, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=check, env={**os.environ, **(env or {})}
+    )
+
+
+def auth_env(url: str, token: str | None) -> dict[str, str]:
+    """Environment that makes git send *token* on requests to *url*'s host, for one command only.
+
+    The token travels as an ``AUTHORIZATION`` header set through ``GIT_CONFIG_*``, so it never appears in a URL, a command line, or an error message. The empty first value resets any header the checkout already configured for that host (``actions/checkout`` stores the job's token that way), because a request with two ``AUTHORIZATION`` headers is refused. Only the source fetches get this environment; pushes to ``origin`` keep the checkout's own credential. Empty for a token-less or non-HTTP source.
+    """
+    if not token or not url.startswith(("http://", "https://")):
+        return {}
+    scheme, _, host = url.partition("://")
+    key = f"http.{scheme}://{host.split('/', 1)[0]}/.extraheader"
+    cred = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return {
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": key,
+        "GIT_CONFIG_VALUE_0": "",
+        "GIT_CONFIG_KEY_1": key,
+        "GIT_CONFIG_VALUE_1": f"AUTHORIZATION: basic {cred}",
+    }
 
 
 def snapshot_name(repo: Path, now: datetime) -> str:
@@ -90,20 +116,27 @@ def snapshot_name(repo: Path, now: datetime) -> str:
 
 
 def backup_code(
-    source_url: str, repo: Path, *, prev_sha: str | None, branch: str = "main", dry_run: bool
+    source_url: str,
+    repo: Path,
+    *,
+    prev_sha: str | None,
+    branch: str = "main",
+    dry_run: bool,
+    token: str | None = None,
 ) -> CodeReport:
     """Mirror *source_url*'s *branch* into *repo*'s ``origin``: fast-forward ``mirror``, tag a snapshot if the tip moved, copy the source's tags.
 
-    *repo* is a checkout of the backup repo whose ``origin`` is writable (in Actions, the job's own token). Nothing here forces: a mirror or tag push that isn't a fast-forward is refused by git and reported.
+    *repo* is a checkout of the backup repo whose ``origin`` is writable (in Actions, the job's own token). *token* is read access to a private source, sent on the fetches only. Nothing here forces: a mirror or tag push that isn't a fast-forward is refused by git and reported.
     """
     if git("remote", "get-url", "source", cwd=repo, check=False).returncode == 0:
         git("remote", "set-url", "source", source_url, cwd=repo)
     else:
         git("remote", "add", "source", source_url, cwd=repo)
+    auth = auth_env(source_url, token)
     # The branch is fetched forced, so a rewritten source is *seen* (and snapshotted); the
     # pushes below are what refuse to let it overwrite anything already recorded.
-    git("fetch", "--no-tags", "source", f"+refs/heads/{branch}:refs/remotes/source/{branch}", cwd=repo)
-    tags = git("fetch", "--no-tags", "source", f"refs/tags/*:{SOURCE_TAGS}", cwd=repo, check=False)
+    git("fetch", "--no-tags", "source", f"+refs/heads/{branch}:refs/remotes/source/{branch}", cwd=repo, env=auth)
+    tags = git("fetch", "--no-tags", "source", f"refs/tags/*:{SOURCE_TAGS}", cwd=repo, check=False, env=auth)
     tip = git("rev-parse", f"refs/remotes/source/{branch}", cwd=repo).stdout.strip()
     report = CodeReport(source=source_url, sha=tip)
     if tags.returncode != 0:
@@ -163,11 +196,14 @@ def batches(entries: list[Any], limit: int) -> Iterable[list[Any]]:
         yield batch
 
 
-def backup_store(api: Any, bucket: str, dataset: str, work: Path, *, batch_bytes: int, dry_run: bool) -> LegReport:
+def backup_store(
+    source_api: Any, backup_api: Any, bucket: str, dataset: str, work: Path, *, batch_bytes: int, dry_run: bool
+) -> LegReport:
+    """Copy the bucket's delta into ``store/``. *source_api* reads the bucket; *backup_api* reads and writes the dataset."""
     report = LegReport(source=bucket)
-    entries = [e for e in api.list_bucket_tree(bucket, recursive=True) if getattr(e, "type", None) == "file"]
+    entries = [e for e in source_api.list_bucket_tree(bucket, recursive=True) if getattr(e, "type", None) == "file"]
     report.seen = len(entries)
-    delta = store_delta(entries, backup_files(api, dataset, STORE_PREFIX))
+    delta = store_delta(entries, backup_files(backup_api, dataset, STORE_PREFIX))
     report.copied, report.bytes = len(delta), sum(e.size for e in delta)
     if dry_run or not delta:
         return report
@@ -179,8 +215,8 @@ def backup_store(api: Any, bucket: str, dataset: str, work: Path, *, batch_bytes
             dest = stage / e.path
             dest.parent.mkdir(parents=True, exist_ok=True)
             files.append((e, str(dest)))
-        api.download_bucket_files(bucket, files=files, raise_on_missing_files=True)
-        info = api.upload_folder(
+        source_api.download_bucket_files(bucket, files=files, raise_on_missing_files=True)
+        info = backup_api.upload_folder(
             repo_id=dataset,
             repo_type="dataset",
             folder_path=str(stage),
@@ -224,11 +260,14 @@ def pending_commits(history: list[Any], marker: str | None) -> list[Any]:
     return oldest_first[ids.index(marker) + 1 :]
 
 
-def backup_publish(api: Any, source: str, dataset: str, work: Path, *, max_commits: int, dry_run: bool) -> LegReport:
+def backup_publish(
+    source_api: Any, backup_api: Any, source: str, dataset: str, work: Path, *, max_commits: int, dry_run: bool
+) -> LegReport:
+    """Replay the publish repo's history into ``pub/``. *source_api* reads the publish repo; *backup_api* the dataset."""
     report = LegReport(source=source)
-    history = api.list_repo_commits(source, repo_type="dataset")
+    history = source_api.list_repo_commits(source, repo_type="dataset")
     report.seen = len(history)
-    todo = pending_commits(history, last_replayed(api, dataset))
+    todo = pending_commits(history, last_replayed(backup_api, dataset))
     if len(todo) > max_commits:
         report.notes.append(
             f"{len(todo) - max_commits} commit(s) deferred to a later run (--max-commits {max_commits})"
@@ -242,9 +281,9 @@ def backup_publish(api: Any, source: str, dataset: str, work: Path, *, max_commi
         # One local dir across revisions, so the upload of each is only what changed —
         # and so a file the source deleted stays (the union head; see the module doc).
         stage.mkdir(parents=True, exist_ok=True)  # a revision with no files still gets its marker
-        api.snapshot_download(source, repo_type="dataset", revision=commit.commit_id, local_dir=str(stage))
+        source_api.snapshot_download(source, repo_type="dataset", revision=commit.commit_id, local_dir=str(stage))
         (stage / Path(PUB_MARKER).name).write_text(commit.commit_id + "\n")
-        info = api.upload_folder(
+        info = backup_api.upload_folder(
             repo_id=dataset,
             repo_type="dataset",
             folder_path=str(stage),
@@ -287,13 +326,19 @@ def main() -> int:
 
     from huggingface_hub import HfApi
 
-    api = HfApi(token=os.environ.get("HF_TOKEN"))
     code, bucket, pub, dataset = (
         require("SOURCE_REPO"),
         require("SOURCE_BUCKET"),
         require("SOURCE_PUBLISH_REPO"),
         require("BACKUP_DATASET"),
     )
+    write_token = os.environ.get("HF_TOKEN")
+    if not write_token and not args.dry_run:
+        sys.exit("HF_TOKEN is not set — the workflow mints it per run (trusted publisher) or takes it from a secret")
+    # ``token=False`` is anonymous. ``None`` would fall back to HF_TOKEN, sending the backup's
+    # write credential to the sources; the read clients must never do that.
+    source_api = HfApi(token=os.environ.get("SOURCE_HF_TOKEN") or False)
+    backup_api = HfApi(token=write_token or False)
     prev = json.loads(args.state.read_text()) if args.state.is_file() else {}
     prev_sha = prev.get("code", {}).get("sha")
     state: dict[str, Any] = {
@@ -311,15 +356,32 @@ def main() -> int:
                 prev_sha=prev_sha,
                 branch=args.source_branch,
                 dry_run=args.dry_run,
+                token=os.environ.get("SOURCE_GH_TOKEN"),
             ),
         ),
         (
             "store",
-            lambda: backup_store(api, bucket, dataset, args.work, batch_bytes=args.batch_bytes, dry_run=args.dry_run),
+            lambda: backup_store(
+                source_api,
+                backup_api,
+                bucket,
+                dataset,
+                args.work,
+                batch_bytes=args.batch_bytes,
+                dry_run=args.dry_run,
+            ),
         ),
         (
             "pub",
-            lambda: backup_publish(api, pub, dataset, args.work, max_commits=args.max_commits, dry_run=args.dry_run),
+            lambda: backup_publish(
+                source_api,
+                backup_api,
+                pub,
+                dataset,
+                args.work,
+                max_commits=args.max_commits,
+                dry_run=args.dry_run,
+            ),
         ),
     )
     for leg, run in legs:
