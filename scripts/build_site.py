@@ -109,7 +109,7 @@ def _resolve_publish_store():
 # mode (no base) rendered links stay relative so offline navigation still works.
 #
 # A root-absolute target (``/eng/gc.md``) is the house style for a cross-tree link
-# (see https://github.com/z0u/sca2/blob/main/todo/eng/markdown-link-check.md): GitHub and VS Code both read it against
+# (see ``todo/eng/markdown-link-check.md``): GitHub and VS Code both read it against
 # the repo root, so the resolver does too, rebasing it onto ``docs/`` to take the same
 # paths below as a relative one. ``_ANCHORED`` therefore matches only what is already
 # absolute or in-page, the same set ``mini.reports`` leaves alone.

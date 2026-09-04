@@ -118,7 +118,7 @@ class Publisher:
     # path under ``link``. Interactive only, and a workaround: marimo's ``public/`` route
     # resolves a URL against whichever notebook a service worker names in a header, and
     # that worker holds one notebook per browser — so with two reports open, only the
-    # first one's figures resolve (https://github.com/z0u/sca2/blob/main/todo/eng/marimo-public-serving-is-per-browser.md). A
+    # first one's figures resolve (todo/eng/marimo-public-serving-is-per-browser.md). A
     # virtual file is looked up by name in the kernel's own registry, with no notebook in
     # the path, so every open report resolves. Falls back to the ``link`` path when
     # there's no kernel to ask.
@@ -376,7 +376,7 @@ def public_dir(notebook_file: str | Path) -> Path:
 
     The counterpart to :func:`export_dir` for a live ``marimo edit`` session. Marimo serves a notebook's ``public/`` over its dev server (as ``public/<path>``), so a relative URL under it works there much as ``_assets/`` does beside an exported ``index.html`` — and nothing outside ``public/`` is reachable at all. The per-notebook ``<stem>`` subdir keeps two notebooks sharing a directory from writing over each other.
 
-    One caveat, and it's why a render's URL no longer points here: the dev server resolves ``public/<path>`` against whichever notebook a service worker names in an ``X-Notebook-Id`` header, rather than against the page the request came from. That worker is one per browser origin and latches onto the first notebook that loads, so with two reports open only the first one's figures resolve. :class:`Publisher` still writes the files here — readable names on disk, and the bytes marimo reads — and serves them through the kernel instead (its ``virtualize`` flag, and :func:`_virtual_url`). See https://github.com/z0u/sca2/blob/main/todo/eng/marimo-public-serving-is-per-browser.md.
+    One caveat, and it's why a render's URL no longer points here: the dev server resolves ``public/<path>`` against whichever notebook a service worker names in an ``X-Notebook-Id`` header, rather than against the page the request came from. That worker is one per browser origin and latches onto the first notebook that loads, so with two reports open only the first one's figures resolve. :class:`Publisher` still writes the files here — readable names on disk, and the bytes marimo reads — and serves them through the kernel instead (its ``virtualize`` flag, and :func:`_virtual_url`). See ``todo/eng/marimo-public-serving-is-per-browser.md``.
 
     Scratch, not a bundle: it's regenerated on every render and gitignored, so deleting it costs a re-run and nothing more.
     """

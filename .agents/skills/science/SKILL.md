@@ -76,7 +76,7 @@ Say "survey" in the first clause of the tl;dr and label it the same way in `docs
 
 - Choose a measurement site by a criterion independent of the statistic you're judging.
 - Ablate before you search, and **bracket rather than survey** when the ablation needs a value you haven't found yet. Removing a schedule means running a constant instead, and which constant you pick can decide the answer. Rather than matching on one invariant (area, maximum, or endpoint — each defensible, each a different condition), choose flat levels that straddle the schedule's own range. If the schedule beats every constant in its range, no constant substitutes for the shape, whatever the optimum turns out to be; if one wins, the schedule dimensions go away and you have a better operating point too. Report the matching invariants for every arm instead of matching on one, so the results can say which was the active ingredient. Each dimension deleted this way is much cheaper than searching it.
-- (more in [/todo.md](/todo.md))
+- (more in [`todo/science/`](/todo/science/README.md))
 
 ## Collaborating on a report
 

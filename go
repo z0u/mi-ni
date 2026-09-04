@@ -11,7 +11,7 @@ is_marimo_notebook() {
 }
 
 show_usage() {
-    echo "usage: $SELF [-h] {install,auth,check,open,render,preview,publish,site,worktrees} ..."
+    echo "usage: $SELF [-h] {install,auth,check,open,render,preview,publish,site,todo,worktrees} ..."
 }
 
 show_help() {
@@ -46,6 +46,9 @@ show_help() {
 		                       (for CI; read-only, never runs a notebook)
 		  strays  [...paths]:  Marimo cells that end on a docstring, which publishes it as
 		                       the cell's output (default: docs/; also runs inside lint)
+		  todo    [...sets] [--tag T] [--status S] [--bundle B] [--priority] [--grep RE] [--full]
+		          [--tags] [--json] [--check]:
+		                       list or search backlog items from todo/[set/]
 		  worktrees [--prune] [--dry-run]:
 		                       list agent worktrees; --prune removes the clean, landed ones
 
@@ -186,6 +189,10 @@ case "${1:-}" in
     site)
         shift
         uv run "$SCRIPT_DIR/build_site.py" --externalize "$@"
+        ;;
+    todo)
+        shift
+        uv run "$SCRIPT_DIR/todo.py" "$@"
         ;;
     worktrees|worktree|wt)
         shift
