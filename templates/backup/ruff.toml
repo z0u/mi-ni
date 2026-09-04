@@ -1,0 +1,7 @@
+# `backup.py` is the recovery tool: it may have to run years from now, on whatever
+# interpreter is to hand, and the workflow pins the runner below this project's own
+# floor to keep that portability exercised. Without this file ruff infers its target
+# from `requires-python = ">=3.14"` and rewrites `except (A, B):` into the bare PEP 758
+# form — valid here, a SyntaxError on the runner. Formatting is otherwise inherited.
+extend = "../../pyproject.toml"
+target-version = "py312"

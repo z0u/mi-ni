@@ -46,10 +46,14 @@ jobs:
       # `secrets` can't be tested in a step's `if`, so the choice is made here.
       STORED_WRITE_TOKEN: ${{ secrets.HF_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
+          # Deliberately below the project's own floor: `backup.py` is the recovery
+          # tool, and may have to run years from now on whatever interpreter is to
+          # hand. Pinning the runner lower keeps that portability exercised — a
+          # 3.14-only construct would otherwise reach the template unnoticed.
           python-version: "3.12"
 
       - run: pip install "huggingface_hub[hf_xet]>=1.30"  # the trusted-publisher exchange needs a recent release
@@ -74,10 +78,13 @@ jobs:
       - name: Record the run
         # Always, so a failed leg leaves its error in the record — and so every run is
         # repository activity, which keeps a public repo's schedule from being disabled.
+        # `-A state/` rather than the file: a run that fails before `backup.py` writes it
+        # (a credential problem, say) would otherwise die here on an unmatched pathspec,
+        # adding a spurious second red step that buries the real error.
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add state/last-run.json
+          git add -A state/
           git commit -q -m "backup $(date -u +%F)" || exit 0
           git push origin HEAD

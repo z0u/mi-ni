@@ -173,7 +173,7 @@ def backup_files(api: Any, dataset: str, prefix: str) -> set[str]:
     try:
         entries = api.list_repo_tree(dataset, path_in_repo=prefix, recursive=True, repo_type="dataset")
         return {e.path[len(prefix) + 1 :] for e in entries if getattr(e, "type", None) == "file"}
-    except EntryNotFoundError, RepositoryNotFoundError:
+    except (EntryNotFoundError, RepositoryNotFoundError):
         return set()
 
 
@@ -238,7 +238,7 @@ def last_replayed(api: Any, dataset: str) -> str | None:
 
     try:
         path = api.hf_hub_download(dataset, PUB_MARKER, repo_type="dataset")
-    except EntryNotFoundError, RepositoryNotFoundError:
+    except (EntryNotFoundError, RepositoryNotFoundError):
         return None
     return Path(path).read_text().strip() or None
 

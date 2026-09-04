@@ -3,6 +3,7 @@
 The code leg runs against real temporary git repos, since what it checks is git's behavior (what a non-fast-forward push does, what a tag refspec without `+` refuses). The two Hugging Face legs run against a fake API that keeps the backup dataset as a dict of path → bytes and appends to it on every `upload_folder`, which is all the script relies on: the never-delete invariant is then checkable as "nothing leaves the dict".
 """
 
+import ast
 import importlib.util
 import json
 import re
@@ -16,6 +17,7 @@ import pytest
 from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 
 SCRIPT = Path(__file__).parents[1] / "templates" / "backup" / "backup.py"
+WORKFLOW = SCRIPT.parent / ".github" / "workflows" / "backup.yml"
 
 
 @pytest.fixture(scope="module")
@@ -432,3 +434,16 @@ def test_auth_env_sends_the_token_as_a_header_for_that_host_only(backup):
     }
     assert backup.auth_env("https://github.test/owner/project.git", None) == {}
     assert backup.auth_env("/local/path", "tok") == {}
+
+
+def test_script_parses_at_the_python_the_workflow_pins():
+    """`backup.py` is the recovery tool, so it must not outrun the interpreter that runs it.
+
+    The tests themselves run on this project's Python, which is newer than the runner's — so a
+    construct valid only here would otherwise reach the template unnoticed. `feature_version`
+    re-parses the source as the pinned version would see it, and the pin is read from the
+    workflow so the two cannot drift apart.
+    """
+    pin = re.search(r'python-version:\s*"(\d+)\.(\d+)"', WORKFLOW.read_text())
+    assert pin, "the workflow no longer pins python-version"
+    ast.parse(SCRIPT.read_text(), feature_version=(int(pin[1]), int(pin[2])))
