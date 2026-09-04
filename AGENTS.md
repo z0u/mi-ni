@@ -13,7 +13,7 @@ src/experiment/  Shared model, data, and training code that the demo notebooks b
 docs/  Experiments and reports (both in Python, as Marimo notebooks) — see docs/README.md for file-type/publishing conventions
 eng/  Decision register — the *why* behind mini's storage/artifacts/publishing/gc internals. eng/README.md indexes it by question; check there before re-deriving infrastructure rationale from scratch.
 scripts/  The tooling behind `./go`: site build, report export and render, link and lint checks
-todo.md  Deferred work that isn't worth a tracking issue yet, plus the prioritized index into open issues. Check before starting work that might already be tracked there.
+todo/**/*.md  Three sets of backlogs, one file per item: eng (infrastructure and tooling), science (experiment questions and findings), style (text and visuals). `./go todo [...sets]` lists them, `./go todo --priority` is the shortlist to answer "what next", `./go todo --grep PATTERN` searches live items (`--full` prints bodies). Check before starting work that might already be tracked there. todo/README.md carries the schema and the conventions for writing an item or leaving a note; it loads on its own when you touch a file in the tree
 README.md  What this repository is, and how to start a project from it
 ```
 
@@ -25,7 +25,7 @@ Steer clear of adversarial framing, both in conversation and in the text we publ
 
 Don't hesitate to disagree or point out potential issues. The human values technical accuracy and appreciates being corrected when their suggestions might cause problems. Rule of thumb: never write something you don't believe; if you disagree with something, it's better to write nothing.
 
-Be proactive. Fix little things as you go, and add an entry to [todo.md](/todo.md) for larger things.
+Be proactive. Fix little things as you go, and create todos for larger things.
 
 Pull requests: If the principal (user) is a _collaborator_ on the repository, omit the **Checklist** and **Copyright Dedication** sections from the PR template.
 
@@ -56,6 +56,8 @@ Prose is soft-wrapped: one line per paragraph (see `style-md`), so a plain `rg` 
 rg -l anneal docs/                   # which files
 rg -no '.{0,55}anneal.{0,55}' docs/  # a {0,N} window around each match
 ```
+
+For the backlogs, prefer `./go todo --grep anneal`, which skips settled items.
 
 Resources (compute, storage, etc.): find out what you can access with `./go auth --check`.
 
