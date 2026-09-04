@@ -229,7 +229,7 @@ class ModalRecordStore(RecordStore):
 
         The saved round-trip isn't the only gain: it also halves the gap between checking the fence and acting on it (one write, not a read plus a write), so a superseded worker has less room to land a merge it no longer owns.
 
-        Not atomic, and can't be made so here. ``put(skip_if_exists=)`` — the primitive ``write_if`` uses — arbitrates who *creates* a key, not who replaces a value; compare-and-swap on top of it means a lock, at 4+ round-trips on the hottest write in the system, and no per-key TTL to release one a dead worker still holds. For progress fields the residual race is cosmetic (the next update overwrites them); the terminal write is the one that matters, and that's better handled on the read side — see todo.md.
+        Not atomic, and can't be made so here. ``put(skip_if_exists=)`` — the primitive ``write_if`` uses — arbitrates who *creates* a key, not who replaces a value; compare-and-swap on top of it means a lock, at 4+ round-trips on the hottest write in the system, and no per-key TTL to release one a dead worker still holds. For progress fields the residual race is cosmetic (the next update overwrites them); the terminal write is the one that matters, and that's better handled on the read side — see todo-eng.
         """
         cur = self._d.get(key)
         if (cur or {}).get("gen") != gen:
