@@ -13,8 +13,6 @@ readable cold without re-deriving code state.
 
 - **Adopt sca2's `todo/` tree?** sca2 replaced its `todo-*.md` files with one file per item under `todo/{eng,science,style}/`, six-key front matter, indexed by `scripts/todo.py` behind `./go todo` (with `--priority`, `--grep`, and a `--check` lint gate). The shape is worth having in a template; the items aren't. Self-contained: port `todo.py`, the `./go` verb, the lint gate, `test_todo.py`, and migrate this file into `todo/eng/`. Until then, a few ported comments cite sca2's `todo/eng/*.md` by URL.
 
-- **Publish the demo reports once**, with `./go publish --all`, so `docs/publish.lock` exists and pins every report. The forgotten-publish gate (pre-push hook and CI's "Reports published" step) is inert until a manifest is written; once one exists, a PR that touches a report with no pin trips the gate, so the first publish has to cover them all. Pins need a git-backed publish tier (`[tool.mini] publish-repo`; the single-bucket default has no history to pin), and the `skip-publish-check` label has to exist on the repo.
-
 ## Library findings from the backport review (2026-09-03)
 
 Found while reviewing the ported `src/mini` and inherited from sca2, so any fix belongs in both trees. Ordered by how much they matter.
