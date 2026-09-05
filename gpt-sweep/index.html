@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <base href="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/64cb487dd9f31a923e9a1f415ff6f2272fadbe85/exports/gpt-sweep/" />
+    <meta name="color-scheme" content="light dark" /><script>/* mini:default-hidden-code */(function(){try{var u=new URL(window.location.href);if(!u.searchParams.has("show-code")){u.searchParams.set("show-code","false");window.history.replaceState(null,"",u.toString());}}catch(e){}})();</script>
+    <meta charset="utf-8" />
+    <link rel="icon" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/favicon.ico" />
+    <!-- Preload is necessary because we show these images when we disconnect from the server,
+    but at that point we cannot load these images from the server -->
+    <link rel="preload" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/gradient-yHQUC_QB.png" as="image" />
+    <link rel="preload" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/noise-60BoTA8O.png" as="image" />
+    <!-- Preload the fonts -->
+    <link rel="preload" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/Lora-VariableFont_wght-CZceb_kH.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link rel="preload" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/PTSans-Regular-Bam3NpBI.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link rel="preload" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/PTSans-Bold-C_DwAp7Z.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link rel="preload" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/FiraMono-Regular-CEsLFVD9.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link rel="preload" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/FiraMono-Medium-D5MAsWEG.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link rel="preload" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/FiraMono-Bold-C6PDArdf.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="a marimo app" />
+    <link rel="apple-touch-icon" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/apple-touch-icon.png" />
+    <link rel="manifest" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/manifest.json" />
+
+    <script data-marimo="true">
+      function __resizeIframe(obj) {
+        const scrollbarHeight = 20; // Max between windows, mac, and linux
+
+        function setHeight() {
+          // Guard against race condition where iframe isn't ready
+          if (!obj.contentWindow?.document?.documentElement) {
+            return;
+          }
+          const element = obj.contentWindow.document.documentElement;
+          // If there is no vertical scrollbar, we don't need to resize the iframe
+          if (element.scrollHeight === element.clientHeight) {
+            return;
+          }
+
+          // Create a new height that includes the scrollbar height if it's visible
+          const hasHorizontalScrollbar = element.scrollWidth > element.clientWidth;
+          const newHeight = element.scrollHeight + (hasHorizontalScrollbar ? scrollbarHeight : 0);
+
+          // Only update the height if it's different from the current height
+          if (obj.style.height !== `${newHeight}px`) {
+            obj.style.height = `${newHeight}px`;
+          }
+        }
+
+        // Resize the iframe to the height of the content and bottom scrollbar height
+        setHeight();
+
+        // Resize the iframe when the content changes
+        const resizeObserver = new ResizeObserver((_entries) => {
+          setHeight();
+        });
+        // Only observe if iframe content is ready
+        if (obj.contentWindow?.document?.body) {
+          resizeObserver.observe(obj.contentWindow.document.body);
+        }
+      }
+    </script>
+    <marimo-filename hidden>report.py</marimo-filename>
+    <!-- TODO(Trevor): Legacy, required by VS Code plugin. Remove when plugin is updated (see marimo/server/_templates/template.py) -->
+    <marimo-version data-version="{{ version }}" hidden></marimo-version>
+    <marimo-user-config data-config="{{ user_config }}" hidden></marimo-user-config>
+    <marimo-server-token data-token="{{ server_token }}" hidden></marimo-server-token>
+    <!-- /TODO -->
+    <title>report</title>
+    <script type="module" crossorigin crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/index-awsLWRjZ.js"></script>
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/preload-helper-BPPi7vOr.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/chunk-LvLJmgfZ.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/react-Bj1aDYRI.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/compiler-runtime-B3qBwwSJ.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/jsx-runtime-BqBOg78p.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useEventListener-DvoEXWke.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/defaultLocale-BLUna9fQ.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/precisionRound-Cl9k9ZmS.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/defaultLocale-DzliDDTm.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/vega-loader.browser-C8wT63Va.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/utils-DCL4n9wx.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/clsx-Dz_KRrWq.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/cn-DCUzRj2J.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/badge-j3NGjqhR.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/button-BbCh-29a.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/react-dom-CSu739Rf.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/fullscreen-eipL3i3Y.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/menu-items-DcP01QzW.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-BdyjRhEt.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/createLucideIcon-D5guW7EU.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/check-BH35Ndha.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/x-C-6liIBr.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/select-DZcFyKFQ.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/tooltip-DTV9tlSr.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/use-toast-IPAtJGea.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useEvent-D91BmmQi.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/invariant-BUdrueMv.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/isObject-DvLSfCY5.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/_baseFor-DKD1r8uL.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/merge-_9WLTEyt.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/zod-H_cgTO0M.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/utils-CvI-39U6.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/Deferred-CP7vq682.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/uuid-e9lSomwA.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/DeferredRequestRegistry-CNldVcrP.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/constants-DMpttj8Q.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/session-0B5NBztP.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/config-ClMcu_sV.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/requests-DIwGYs0l.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useLifecycle-DieWOfXE.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useNonce-DfoVjkkH.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useTheme-CI2eq4XN.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/arrays-DYDL-3-i.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/strings-wdPMRf6Z.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/once-DRroIaBz.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/capabilities-A_KhFcGV.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/createReducer-CI9qeK_X.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/paths-D5zczhUD.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-BrR4M-k3.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-HlsDto3K.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-CHcznzB-.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-B1U1kGCR.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-ChF5Ln9c.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-CpTFpfm_.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-CBSMxaO_.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-CPczQFlJ.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dist-C9ZB41s2.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/stex-BGrE-q7N.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/toDate-B5A0DFEz.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/purify.es-B9KxLTTS.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/cjs-BRGiG41H.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/isSymbol-BT6B8Bon.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/now-CsYTPAhW.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/debounce-DhnxH9Rh.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/database-zap-kIkTfzTX.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/main-B0OX4z33.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/cells-BsaJrRWi.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/ErrorBoundary-DyYDV0HI.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/kbd-CTUAEnEx.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useInstallPackage-DUF4IRRI.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/alert-dialog-BqFLkbUc.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dialog-DzC_QCtT.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useDebounce-7xZwVnnu.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/numbers-C3BAdHZE.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/SSRProvider-CkFAAHXw.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/context-QkTujrKn.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useNumberFormatter-ByUv-u9o.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/usePress-DQ_tAz5W.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/input-C3Hrdlqq.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/ImperativeModal-B3Th7k4R.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/cell-link-B1pHtGWp.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/multi-map-CUuNtzHt.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/alert-yTS3WpF4.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/chevron-right-CG5QYXYk.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dropdown-menu-CR7cnzLX.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/links-D1JoyKTt.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useRunCells-BiCBGyeW.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/copy-LK56fFow.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/copy-BwrPA9zQ.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/copy-icon-OjtDb4gO.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/RenderHTML-ChwPJgPd.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/datasource-DjDpJnbt.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/state-D-2KaAHK.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/package-Tv6ztuzw.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/sparkles-lWUAsPhp.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/MarimoErrorOutput-B0h5OVW9.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/spinner-Bhir8k53.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/html-to-image-BWL3Ct4n.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/focus-q38vUCl-.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useAsyncData-bgszE9F0.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/LazyAnyLanguageCodeMirror-BEvXb3VX.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/micromark-factory-space-BygYYKhs.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/chunk-5FQGJX7Z-D9iBG0F7.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/markdown-renderer-CU5Lbyax.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/command-KARR7KMq.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/field-zLmMOSA4.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/popover-Bz_0Vkyf.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/errors-vr57w7Ul.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/download-DT8gf0PL.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/table-BGPSHfig.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useIframeCapabilities-CcI1zSdn.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/error-banner-LdWZDbqd.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/formats-b7Sf6DAK.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/en-US-Cb8rIK52.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/isValid-CklTTytn.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/dates-CTxr0EqQ.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/maps-n3GaPJwv.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/extends-BiFDv3jB.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/emotion-is-prop-valid.esm-C59xfSYt.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useDateFormatter-ICIDGgHf.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/react-icons.esm-BNzu6e7h.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/RSPContexts-CdN1NyAt.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/table-6NxtGaCm.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/ellipsis-KAhMaCIV.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/external-link-BTNxSavU.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/message-circle-CWm2KnSx.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/plus-BgB18UzY.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/trash-2-rVklqqFF.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/react-resizable-panels.browser.esm-CV8-hvjx.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/JsonOutput-BJaeXQim.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/chart-no-axes-column-nqk474t8.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/square-function-uY_yJr5g.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/spec-CPQR_o92.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/ellipsis-vertical-CkwWkOQL.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/refresh-cw-DHwG4Mac.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/tree-actions-BM_EJr3E.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/components-BzBUxUz0.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/column-preview-BPismotx.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/icons-Ol38nIbL.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/radio-group-DlVSuZ_1.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/floating-outline-BN9sAcQ0.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/objectWithoutPropertiesLoose-DfWeGRFv.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/esm-CqWdmSnV.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/readonly-python-code-D3_kHsDx.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/file-headphone-BrQspHac.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/file-BrdxGLRX.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/image-DQHXdEQn.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/file-icons-BiMOJy0r.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/switch-BiU_sAcn.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/events-CPoJAfgx.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/globals-7JnRMGd4.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/share-DMwTZOTH.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/blob-Bgnx1kuY.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/memoize-Tp7rARFe.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/get-C-qh_et5.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/_baseSet-CxV9N1bc.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/state-BTTshiKq.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/label-xHqFtfdz.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/textarea-DwltG8V6.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/refresh-ccw-C-n2VFP5.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/form-BtBTvVVd.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/renderShortcut-CcFk3m01.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useBoolean-Bp18o6XG.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/useDeepCompareMemoize-zUHU--0D.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/types-W8WWuumF.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/semaphore-FlZezxaf.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/fileToBase64-DZfwJMrG.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/pathUtils-CJjndqMI.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/prop-types-DaaA-ptl.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/es-DGgq-Wes.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/hasIn-DiS_ryrS.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/flatten-Dl4V1ub3.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/pick-DqWUNly1.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/code-xml-CZN6vNxu.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/house-mGK3v0Mm.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/square-B5xWCt0a.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/triangle-alert-D2p96PEF.js">
+    <link rel="modulepreload" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/bundle.esm-DjhGJy4I.js">
+    <link rel="stylesheet" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/cells-jmgGt1lS.css">
+    <link rel="stylesheet" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/markdown-renderer-DdDKmWlR.css">
+    <link rel="stylesheet" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/JsonOutput-B7vuddcd.css">
+    <link rel="stylesheet" crossorigin crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.9/dist/assets/index-BIw7BKLH.css">
+  
+<script data-marimo="true">
+    Object.defineProperty(window, "__MARIMO_STATIC__", {
+        value: Object.freeze({
+            files: Object.freeze({}),
+            modelNotifications: Object.freeze([]),
+        }),
+        writable: false,
+        configurable: false,
+    });
+</script>
+
+<script data-marimo="true">
+    Object.defineProperty(window, "__MARIMO_EXPORT_CONTEXT__", {
+        value: Object.freeze({
+            trusted: true,
+            notebookCode: "import marimo\n\n__generated_with = \"0.23.9\"\napp = marimo.App(\n    width=\"medium\",\n    css_file=\"../report.css\",\n    auto_download=[\"html\"],\n)\n\nwith app.setup(hide_code=True):\n    import json\n    import tempfile\n    from pathlib import Path\n\n    import marimo as mo  # noqa: F401\n    import matplotlib.pyplot as plt\n    import numpy as np\n\n    from mini.reports import report_bundle, use_publisher\n    from mini.store import project_store\n    from mini.vis import light_dark, themed\n\n    # Externalize every themed figure to a file beside the exported HTML, referenced\n    # by a relative URL \u2014 keeps the report light, and `build_site` repoints those URLs\n    # at the bucket (one \u003Cbase\u003E tag) when publishing. No publisher \u2192 figures inline.\n    use_publisher(report_bundle(__file__))\n\n    # Sweep axes (kept in sync with experiment.py), and per-arch plot colours.\n    LRS = [\"3e-3\", \"1e-2\", \"4e-2\"]\n    ARCHS = [\"baseline\", \"nGPT\", \"nGPT (scalar)\"]\n    ARCH_COLORS = {\"baseline\": \"tab:gray\", \"nGPT\": \"tab:red\", \"nGPT (scalar)\": \"tab:green\"}\n\n    # The residual-bug ablation: the scalar-gate nGPT across widths, in three\n    # recipes. In reading order \u2014 the additive step with a fixed gate (exposes the\n    # bug), the additive step with our learnable width-scaled gate (masks it), and\n    # the normalized-LERP fix.\n    WIDTHS = [32, 64, 128]\n    RESID = [\n        (\"fixed\", \"additive, fixed \u03b1 (bug)\"),\n        (\"add\", \"additive, learnable \u03b1\"),\n        (\"norm\", \"normalized LERP (fix)\"),\n    ]\n\n    def resid_colors() -\u003E dict[str, str]:\n        return dict(\n            fixed=light_dark(\"#d1495b\", \"#e06c7d\"),  # red \u2014 the bug, exposed\n            add=light_dark(\"#8d99ae\", \"#a7b1c2\"),  # grey \u2014 additive, masked by the gate\n            norm=light_dark(\"#1b998b\", \"#2ec4b6\"),  # teal \u2014 the fix\n        )\n\n    # The experiment publishes its curves to the project-scoped store under this\n    # name (see experiment.py); we resolve them by name at export time, so no data\n    # file is committed to Git. The store is the HF bucket when configured, else local.\n    CURVES_REF = \"reports/gpt-sweep/curves\"\n\n    def load_curves() -\u003E dict[str, list[float]]:\n        \"\"\"Resolve `{key: [val_loss per epoch]}` from the store, or `{}` if unpublished.\"\"\"\n        store = project_store()\n        art = store.get_ref(CURVES_REF)\n        if art is None:\n            return {}\n        with tempfile.TemporaryDirectory() as d:\n            return json.loads(store.get(art, Path(d) / \"curves.json\").read_text())\n\n    def plateau(curves: dict[str, list[float]], key: str) -\u003E float:\n        \"\"\"Converged loss: mean of the last 10 epochs (per-epoch eval noise is ~\u00b10.08).\"\"\"\n        return float(np.mean(curves[key][-10:]))\n\n\n@app.cell(hide_code=True)\ndef _():\n    mo.md(r\"\"\"\n    # Architecture sweep: GPT versus nGPT\n\n    A controlled comparison of the baseline LayerNorm GPT against\n    [nGPT](https://arxiv.org/abs/2410.01131), and a second sweep that pins down a\n    geometry bug in our simplified nGPT residual \u2014 found, and fixed in one line.\n\n    This is a **report**: it reads results the experiment already produced and\n    renders them. The experiment itself is [`experiment.py`](./experiment.py), an\n    importable `main(ctx)` DAG (one data-prep step, then a fifteen-cell GPU sweep)\n    run from the CLI on Modal L4s (the `train` role binds the GPU + timeout):\n\n    ```bash\n    bin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 15\n    ```\n\n    On completion the experiment publishes its val-loss curves to the project\n    store under a stable name, and this report resolves them by that name when it\n    renders \u2014 so the data lives in the durable store (the HF bucket), not in Git.\n    \"\"\")\n    return\n\n\n@app.cell(hide_code=True)\ndef _():\n    curves = load_curves()\n    return (curves,)\n\n\n@app.cell(hide_code=True)\ndef _(curves):\n    mo.stop(\n        not curves,\n        mo.md(\n            \"No results yet \u2014 run the experiment (it publishes its curves to the store on completion):\\n\\n\"\n            \"```bash\\nbin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 15\\n```\"\n        ),\n    )\n    flat = {(a, lr): v for a in ARCHS for lr in LRS if (v := curves.get(f\"{a}|{lr}\"))}\n    best_arch, best_lr = min(flat, key=lambda k: min(flat[k]))\n    mo.md(\n        f\"**Best run:** {best_arch} at peak LR {best_lr} \u2014 val_loss \"\n        f\"**{min(flat[(best_arch, best_lr)]):.2f}** over {len(flat)} architecture\u00d7LR cells.\"\n    )\n    return\n\n\n@app.cell(hide_code=True)\ndef _():\n    mo.md(r\"\"\"\n    ## Does normalization help? nGPT versus the LayerNorm baseline\n\n    nGPT added a fair amount of machinery, so it's worth checking how it compares\n    against the baseline. The two architectures don't want the same learning rate:\n    normalization rescales the effective gradients, which shifts nGPT's useful LR\n    band upward. To isolate the architecture, we sweep both across the same three\n    peak learning rates, with the same warmup-then-cosine schedule, on the same\n    data. The only difference within each panel is LayerNorm versus the hypersphere.\n\n    - **baseline** \u2014 standard pre-norm transformer (LayerNorm + additive residual).\n    - **nGPT** \u2014 normalized transformer as published (per-channel eigen learning rates).\n    - **nGPT (scalar)** \u2014 a single learnable scalar gate per sub-module instead of\n      per-channel weights.\n\n    Both nGPT arms use the corrected normalized-LERP residual (see the next\n    section); at this width the correction is invisible, so this is a clean\n    architecture comparison.\n    \"\"\")\n    return\n\n\n@app.cell(hide_code=True)\ndef _(curves):\n    mo.stop(not curves)\n\n    @themed(\n        alt_text=\"Three panels, one per peak learning rate. Each plots validation loss versus epoch \"\n        \"for the baseline, nGPT, and nGPT (scalar) architectures, with the minimum of each curve marked. \"\n        \"At the lowest learning rate the baseline edges ahead; at higher rates the two nGPT variants reach \"\n        \"slightly lower loss and track each other almost exactly.\"\n    )\n    def plot() -\u003E plt.Figure:\n        fig, axes = plt.subplots(1, 3, figsize=(12, 3.6), sharey=True)\n        for ax, lr in zip(axes, LRS, strict=True):\n            for arch in ARCHS:\n                ys = curves.get(f\"{arch}|{lr}\")\n                if not ys:\n                    continue\n                ax.plot(range(1, len(ys) + 1), ys, color=ARCH_COLORS[arch], lw=1.5, label=arch)\n                best = min(range(len(ys)), key=ys.__getitem__)\n                ax.scatter([best + 1], [ys[best]], color=ARCH_COLORS[arch], s=18, zorder=5)\n            ax.set_title(f\"peak LR = {lr}\")\n            ax.set_xlabel(\"epoch\")\n            ax.grid(alpha=0.3)\n        axes[0].set_ylabel(\"val_loss\")\n        axes[0].legend()\n        fig.tight_layout()\n        return fig\n\n    mo.Html(plot())\n    return\n\n\n@app.cell(hide_code=True)\ndef _(curves):\n    mo.stop(not curves)\n\n    def _cell(arch: str, lr: str) -\u003E str:\n        ys = curves.get(f\"{arch}|{lr}\")\n        return f\"{min(ys):.2f}\" if ys else \"\u2014\"\n\n    # Bold the best (lowest) architecture in each LR column.\n    def _row(lr: str) -\u003E str:\n        vals = {a: min(curves[f\"{a}|{lr}\"]) for a in ARCHS if curves.get(f\"{a}|{lr}\")}\n        best = min(vals, key=lambda a: vals[a]) if vals else None\n        cells = \" | \".join(f\"**{_cell(a, lr)}**\" if a == best else _cell(a, lr) for a in ARCHS)\n        return f\"| {lr} | {cells} |\"\n\n    table = \"\\n\".join(\n        [\"| peak LR | baseline | nGPT | nGPT (scalar) |\", \"| --- | --- | --- | --- |\", *(_row(lr) for lr in LRS)]\n    )\n    mo.md(f\"\"\"\n    Best (minimum) validation loss per cell:\n\n    {table}\n\n    Two things stand out. **nGPT needs a higher learning rate to pay off** \u2014 at the\n    lowest rate it trails the baseline, but given enough LR it reaches a slightly\n    lower loss. And the **scalar-gate simplification matches the full per-channel\n    variant** almost exactly: the per-channel granularity buys nothing at this scale.\n\n    The paper's headline \"trains several times faster\" and its stability advantages\n    don't reproduce at this toy scale \u2014 the LayerNorm baseline never threatens to\n    diverge \u2014 so at this scale nGPT is a small but real improvement in final loss.\n    The load-bearing piece is the scalar gate on the *normalized* residual (see the\n    [model notes](../../src/experiment/model/README.md)); the rest of nGPT's\n    machinery is optional here.\n    \"\"\")\n    return\n\n\n@app.cell(hide_code=True)\ndef _():\n    mo.md(r\"\"\"\n    ## The residual bug: a width-gated failure the gate was hiding\n\n    The nGPT residual should step toward the sub-module's **normalized** output,\n    `h \u2190 Norm(h + \u03b1\u00b7(Norm(sub(h)) \u2212 h))`, which makes `\u03b1` a true interpolation\n    fraction. We had simplified it to a raw additive step, `h \u2190 Norm(h + \u03b1\u00b7sub(h))`,\n    on the assumption that `sub(h)` has norm \u2248 1. It doesn't: the MLP scales its\n    pre-activations by a \u221an_embd baseline (to keep GELU in range), so\n    `\u2016MLP(h)\u2016 \u221d \u221an_embd`. The *effective* rotation is `\u03b1\u00b7\u2016sub(h)\u2016`, which **grows\n    with width** \u2014 a fixed `\u03b1` can't control it.\n\n    Whether that bites depends on the gate. Our `\u03b1` is *learnable* and\n    reparametrized by \u221an_embd, so it can shrink as width grows and quietly absorb\n    the error \u2014 which is why the sweep above (all width 32) saw nothing. To separate\n    the geometry from the gate, we sweep width {32, 64, 128} (with `n_ff = 4\u00b7n_embd`,\n    so the MLP grows too) at depth 12 and LR 1e-2, in three recipes: the additive\n    step with a **fixed** `\u03b1 = 1/n_layer` (exposes the bug), the additive step with\n    our **learnable** `\u03b1` (masks it), and the **normalized LERP** (removes it).\n    \"\"\")\n    return\n\n\n@app.cell(hide_code=True)\ndef _(curves):\n    mo.stop(not curves or not any(f\"width|fixed|{w}\" in curves for w in WIDTHS))\n    fixed_128 = plateau(curves, \"width|fixed|128\")\n    norm_128 = plateau(curves, \"width|norm|128\")\n    norm_spread = max(plateau(curves, f\"width|norm|{w}\") for w in WIDTHS) - min(\n        plateau(curves, f\"width|norm|{w}\") for w in WIDTHS\n    )\n    mo.md(\n        f\"**A fixed gate exposes the bug; the fix removes it.** With a fixed step size the additive \"\n        f\"residual falls apart as width grows \u2014 converged loss climbs to **{fixed_128:.2f}** nats/char \"\n        f\"at width 128. The normalized-LERP fix reaches **{norm_128:.2f}** there, flat across all three \"\n        f\"widths (spread just {norm_spread:.02f} nats/char). Same learning rate, same everything else; \"\n        f\"one line of geometry.\"\n    )\n    return\n\n\n@app.cell(hide_code=True)\ndef _(curves):\n    mo.stop(not curves or not any(f\"width|fixed|{w}\" in curves for w in WIDTHS))\n\n    @themed(\n        name=\"width-gating\",\n        alt_text=(\n            \"Two panels sharing a y-axis. Left, converged validation loss against width (32, 64, 128 on a \"\n            \"log axis) for three residual recipes. The additive step with a fixed gate (red) starts near \"\n            \"1.5 at width 32 and climbs steeply to about 3.1 at width 128; the additive step with a \"\n            \"learnable gate (grey) and the normalized-LERP fix (teal) both stay flat and low near 1.35 at \"\n            \"every width. Right, validation loss against epoch at width 128: the fixed-gate recipe falls \"\n            \"during warmup then rises and sticks near 3.1, while the learnable-gate and normalized recipes \"\n            \"fall smoothly together to about 1.34.\"\n        ),\n    )\n    def _plot() -\u003E plt.Figure:\n        colors = resid_colors()\n        fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(9.5, 3.6), sharey=True)\n\n        # Left: converged loss vs width.\n        for arm, label in RESID:\n            ys = [plateau(curves, f\"width|{arm}|{w}\") for w in WIDTHS]\n            lw = 2.6 if arm in (\"fixed\", \"norm\") else 1.8\n            ax_l.plot(WIDTHS, ys, \"o-\", color=colors[arm], lw=lw, label=label)\n        ax_l.set(xlabel=\"width (n_embd)\", ylabel=\"converged val_loss (nats/char)\", xscale=\"log\")\n        ax_l.set_xticks(WIDTHS, [str(w) for w in WIDTHS])\n        ax_l.minorticks_off()\n        ax_l.grid(alpha=0.3)\n        ax_l.legend(fontsize=8)\n\n        # Right: convergence at the failing width 128.\n        for arm, label in RESID:\n            ys = curves[f\"width|{arm}|128\"]\n            lw = 2.0 if arm in (\"fixed\", \"norm\") else 1.4\n            ax_r.plot(range(1, len(ys) + 1), ys, color=colors[arm], lw=lw, label=label)\n        ax_r.axvline(10, color=\"#8888\", lw=1, ls=\":\", label=\"end of LR warmup\")\n        ax_r.set(title=\"width 128\", xlabel=\"epoch\")\n        ax_r.grid(alpha=0.3)\n        ax_r.legend(fontsize=8)\n        fig.tight_layout()\n        return fig\n\n    mo.Html(_plot())\n    return\n\n\n@app.cell(hide_code=True)\ndef _(curves):\n    mo.stop(not curves or not any(f\"width|fixed|{w}\" in curves for w in WIDTHS))\n    _f = {w: plateau(curves, f\"width|fixed|{w}\") for w in WIDTHS}\n    _a = {w: plateau(curves, f\"width|add|{w}\") for w in WIDTHS}\n    _n = {w: plateau(curves, f\"width|norm|{w}\") for w in WIDTHS}\n    mo.md(f\"\"\"\n    With a **fixed** step the additive residual is fine narrow and breaks wide:\n    {_f[32]:.2f} \u2192 {_f[64]:.2f} \u2192 {_f[128]:.2f} nats/char across widths 32 / 64 / 128.\n    At width 128 it never really trains \u2014 the hidden state over-rotates through every\n    layer until the token's identity is lost. That's the failure the normalized\n    residual exists to prevent.\n\n    Two things rescue it, for different reasons. Our **learnable** `\u03b1` masks the bug\n    ({_a[32]:.2f} \u2192 {_a[64]:.2f} \u2192 {_a[128]:.2f}): reparametrized by \u221an_embd, it\n    shrinks as width grows and happens to cancel the `\u2016sub(h)\u2016` growth \u2014 but that's\n    the gate laundering a geometry error, not a correct residual. The **normalized\n    LERP** removes the error at the source ({_n[32]:.2f} \u2192 {_n[64]:.2f} \u2192 {_n[128]:.2f}):\n    normalizing `sub(h)` makes `\u03b1` a true interpolation fraction, so the per-layer\n    rotation is \u2248 `\u03b1` regardless of width or gate.\n\n    This is why the correction matters even though the architecture sweep couldn't\n    see it: the scalar-gate nGPT we ship is only safe because *something* controls the\n    residual geometry, and the normalized LERP does it by construction rather than by\n    luck. The additive forms survive as `config.normalize_sublayer=False` (with\n    `learnable_alpha=False` for the fixed gate), kept solely to reproduce this failure;\n    the normalized LERP is the default. See the\n    [model notes](../../src/experiment/model/README.md) for the geometry.\n    \"\"\")\n    return\n\n\n@app.cell(hide_code=True)\ndef _():\n    mo.md(r\"\"\"\n    ## References\n\n    Loshchilov, I., Hsieh, C.-P., Sun, S., \u0026 Ginsburg, B. (2024). nGPT: Normalized\n    transformer with representation learning on the hypersphere. _arXiv_.\n    https://arxiv.org/abs/2410.01131\n\n    Karpathy, A. (2022). nanoGPT [Computer software]. GitHub.\n    https://github.com/karpathy/nanoGPT\n    \"\"\")\n    return\n\n\nif __name__ == \"__main__\":\n    app.run()\n",
+        }),
+        writable: false,
+        configurable: false,
+    });
+</script>
+<style title='marimo-custom'>/* Shared report styles.
+ *
+ * Single source of truth for cross-report presentation polish. Applied two ways
+ * (see eng/ and mini.reports.set_report_styles):
+ *   - baked into each export via `marimo.App(css_file="…/report.css")`, so authors
+ *     see it live in edit mode and it ships in the raw bundle;
+ *   - re-injected from *this* file at site-build time, so central edits here update
+ *     every published report without re-exporting the notebooks.
+ * Keep it small and selector-scoped; it layers on top of Marimo's own CSS. */
+
+/* Centre figures that don't fill the content column. `themed` (mini.vis.nb) emits a
+ * <figure class="mini-themed-figure-<hash>"> wrapping the light/dark <img> pair; the
+ * visible one is display:block, so margin-inline:auto centres it. */
+.markdown figure,
+ figure[class*="mini-themed-figure"] {
+  text-align: center;
+}
+.markdown figure img,
+figure[class*="mini-themed-figure"] img {
+  margin-inline: auto;
+}
+
+/* A figure composed of independent sub-figures — a multi-panel plot split into separate
+ * images so each keeps its own size and the row reflows to a stack on a narrow viewport,
+ * rather than all panels shrinking together. The group caption is the outer <figcaption>. */
+figure:has(> figure) {
+  margin-inline: 0;
+  text-align: center;
+  text-wrap: balance;
+}
+figure:has(> figure) > figure {
+  display: inline-block;
+  vertical-align: top;
+  margin: 0 0.5em;
+}
+
+/* Captions on authored figures — a sub-figure group (above) or a table / other HTML-SVG
+ * body wrapped by mini.vis.figure_html with class="report-figure" — get the same muted
+ * italic look `themed` bakes into image captions, so every report caption reads alike. */
+figure:has(> figure) > figcaption,
+figure.report-figure > figcaption {
+  margin-top: 0.6em;
+  font-size: 0.9em;
+  font-style: italic;
+  opacity: 0.75;
+  text-wrap: balance;
+}
+
+/* Colour swatch: a small square tinted via the `--sw` custom property, so each
+ * occurrence is just `<span class="sw" style="--sw:#rrggbb">`. See the style-fig skill. */
+.sw {
+  display: inline-block;
+  width: round(0.8em, 1px);
+  height: round(0.8em, 1px);
+  border-radius: 2px;
+  margin-inline: 0.5ch;
+  border: 1px solid #8886;
+  background: var(--sw);
+}
+.sw-ghost {
+  --sw: transparent;
+  border-color: transparent;
+}
+/* Variants that let a swatch stand for a mark in a figure: a round dot, and an open
+ * (unfilled) one, matching the filled/open scatter marks the reports draw. */
+.sw-dot {
+  border-radius: 50%;
+  width: round(0.6em, 1px);
+  height: round(0.6em, 1px);
+}
+.sw-open {
+  background: none;
+  border-color: var(--sw);
+}
+/* A swatch whose colour is themed: it carries a `--sw-light` / `--sw-dark` pair instead of
+ * a single `--sw`, so the square tracks the same pair a `light_dark` figure uses. The two
+ * hexes ride in separate properties because the element's own `style=` would outrank any
+ * rule that tried to reassign `--sw` directly. Theme detection mirrors the themed-figure
+ * CSS in mini.vis.nb: an explicit theme on <body>
+    <nav data-mini-banner style="position:absolute;top:.5rem;left:.5rem;z-index:2147483647;display:flex;gap:.75rem;align-items:center;padding:.3rem .65rem;font-size:.8125rem;line-height:1.4;font-family:system-ui,sans-serif;border-radius:.375rem;background:color-mix(in srgb, Canvas 80%, transparent);border:1px solid color-mix(in srgb, CanvasText 18%, transparent);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);"><a href="https://z0u.github.io/mi-ni/" style="color:inherit;text-decoration:underline">&larr; Index</a><a href="https://github.com/z0u/mi-ni/blob/main/docs/gpt-sweep/report.py" style="color:inherit;text-decoration:underline">Source</a></nav>
+    <script>(function(){var t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.body.classList.add(t,t+"-theme");document.body.dataset.theme=t;})();</script> wins, and the OS preference applies only
+ * where <body> states none. */
+.sw-themed {
+  --sw: var(--sw-light);
+}
+body[data-theme="dark"] .sw-themed,
+body.dark .sw-themed,
+body.dark-theme .sw-themed {
+  --sw: var(--sw-dark);
+}
+@media (prefers-color-scheme: dark) {
+  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme)
+    .sw-themed {
+    --sw: var(--sw-dark);
+  }
+}
+
+/* Authored report tables. Headings left-align with their columns by default; annotate
+ * numeric columns (header and cells) with class="num" to right-align on tabular figures. */
+.report-table th {
+  text-align: left;
+}
+.report-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.report-table :is(th, td):not(:first-child) {
+  padding-left: 2ex;
+}
+
+/* A spread quoted beside the value it belongs to (±half-range over seeds), and rows that
+ * are context rather than measurement — an external reference, a row of nulls. Both recede
+ * so the eye lands on the measured numbers first. */
+.report-table .range {
+  opacity: 0.6;
+  font-size: 0.85em;
+}
+.report-table tr.ref :is(th, td) {
+  opacity: 0.65;
+}
+
+/* Wide tables (e.g. the per-seed completions grid) scroll horizontally inside their own
+ * box rather than wrapping cell contents — which detaches a swatch from its word — or
+ * forcing the whole page to scroll sideways. .report-table-scroll is not needed for
+ * tables in Markdown. */
+.report-table-scroll {
+  overflow-x: auto;
+}
+.markdown table.report-table,
+.report-table-scroll .report-table {
+  white-space: nowrap;
+}
+
+/* Make details elements usable. My default they are styled as admonitions, which are
+ * designed to be eye-catching and is the opposite of what a details element should do.
+ */
+.markdown details {
+  border-width: 0;
+  border-radius: 0;
+  box-shadow: 4px 0px 0px 0px color-mix(in srgb, var(--border), transparent 0%) inset;
+  transition: 0.3s;
+
+  > summary {
+    transition: 0.3s;
+    &:before {
+      border-color: currentColor;
+    }
+    &:after {
+      content: "…";
+      visibility: hidden;
+    }
+  }
+  > summary + * {
+    margin-top: 0px;
+  }
+}
+.markdown details:not(:open) {
+  background: transparent;
+  box-shadow: 4px 0px 0px 0px transparent inset;
+
+  > summary {
+    padding: 0;
+    opacity: 0.7;
+    &:after {
+      visibility: visible;
+    }
+  }
+}
+
+.output .footnote {
+  >ol>li {
+    font-size: 0.9em;
+    transition: 0.3s;
+    opacity: 0.5;
+    &:hover {
+      opacity: 1;
+    }
+  }
+  .footnote-backref {
+    transition: 0.3s;
+    opacity: 0.5;
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+</style>    <style>[class~="min-w-[400px]"]{min-width:0!important}
+    [data-testid="watermark"]{display:none!important}</style>
+    <style>[data-testid="static-notebook-banner"]{display:none!important}[class~="min-w-[400px]"]{padding-top:3rem}
+    @media print{[data-mini-banner]{display:none}}</style>
+    <style>
+/* Shared report styles.
+ *
+ * Single source of truth for cross-report presentation polish. Applied two ways
+ * (see eng/ and mini.reports.set_report_styles):
+ *   - baked into each export via `marimo.App(css_file="…/report.css")`, so authors
+ *     see it live in edit mode and it ships in the raw bundle;
+ *   - re-injected from *this* file at site-build time, so central edits here update
+ *     every published report without re-exporting the notebooks.
+ * Keep it small and selector-scoped; it layers on top of Marimo's own CSS. */
+
+/* Centre figures that don't fill the content column. `themed` (mini.vis.nb) emits a
+ * <figure class="mini-themed-figure-<hash>"> wrapping the light/dark <img> pair; the
+ * visible one is display:block, so margin-inline:auto centres it. */
+.markdown figure,
+ figure[class*="mini-themed-figure"] {
+  text-align: center;
+}
+.markdown figure img,
+figure[class*="mini-themed-figure"] img {
+  margin-inline: auto;
+}
+
+/* A figure composed of independent sub-figures — a multi-panel plot split into separate
+ * images so each keeps its own size and the row reflows to a stack on a narrow viewport,
+ * rather than all panels shrinking together. The group caption is the outer <figcaption>. */
+figure:has(> figure) {
+  margin-inline: 0;
+  text-align: center;
+  text-wrap: balance;
+}
+figure:has(> figure) > figure {
+  display: inline-block;
+  vertical-align: top;
+  margin: 0 0.5em;
+}
+
+/* Captions on authored figures — a sub-figure group (above) or a table / other HTML-SVG
+ * body wrapped by mini.vis.figure_html with class="report-figure" — get the same muted
+ * italic look `themed` bakes into image captions, so every report caption reads alike. */
+figure:has(> figure) > figcaption,
+figure.report-figure > figcaption {
+  margin-top: 0.6em;
+  font-size: 0.9em;
+  font-style: italic;
+  opacity: 0.75;
+  text-wrap: balance;
+}
+
+/* Colour swatch: a small square tinted via the `--sw` custom property, so each
+ * occurrence is just `<span class="sw" style="--sw:#rrggbb">`. See the style-fig skill. */
+.sw {
+  display: inline-block;
+  width: round(0.8em, 1px);
+  height: round(0.8em, 1px);
+  border-radius: 2px;
+  margin-inline: 0.5ch;
+  border: 1px solid #8886;
+  background: var(--sw);
+}
+.sw-ghost {
+  --sw: transparent;
+  border-color: transparent;
+}
+/* Variants that let a swatch stand for a mark in a figure: a round dot, and an open
+ * (unfilled) one, matching the filled/open scatter marks the reports draw. */
+.sw-dot {
+  border-radius: 50%;
+  width: round(0.6em, 1px);
+  height: round(0.6em, 1px);
+}
+.sw-open {
+  background: none;
+  border-color: var(--sw);
+}
+/* A swatch whose colour is themed: it carries a `--sw-light` / `--sw-dark` pair instead of
+ * a single `--sw`, so the square tracks the same pair a `light_dark` figure uses. The two
+ * hexes ride in separate properties because the element's own `style=` would outrank any
+ * rule that tried to reassign `--sw` directly. Theme detection mirrors the themed-figure
+ * CSS in mini.vis.nb: an explicit theme on <body> wins, and the OS preference applies only
+ * where <body> states none. */
+.sw-themed {
+  --sw: var(--sw-light);
+}
+body[data-theme="dark"] .sw-themed,
+body.dark .sw-themed,
+body.dark-theme .sw-themed {
+  --sw: var(--sw-dark);
+}
+@media (prefers-color-scheme: dark) {
+  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme)
+    .sw-themed {
+    --sw: var(--sw-dark);
+  }
+}
+
+/* Authored report tables. Headings left-align with their columns by default; annotate
+ * numeric columns (header and cells) with class="num" to right-align on tabular figures. */
+.report-table th {
+  text-align: left;
+}
+.report-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.report-table :is(th, td):not(:first-child) {
+  padding-left: 2ex;
+}
+
+/* A spread quoted beside the value it belongs to (±half-range over seeds), and rows that
+ * are context rather than measurement — an external reference, a row of nulls. Both recede
+ * so the eye lands on the measured numbers first. */
+.report-table .range {
+  opacity: 0.6;
+  font-size: 0.85em;
+}
+.report-table tr.ref :is(th, td) {
+  opacity: 0.65;
+}
+
+/* Wide tables (e.g. the per-seed completions grid) scroll horizontally inside their own
+ * box rather than wrapping cell contents — which detaches a swatch from its word — or
+ * forcing the whole page to scroll sideways. .report-table-scroll is not needed for
+ * tables in Markdown. */
+.report-table-scroll {
+  overflow-x: auto;
+}
+.markdown table.report-table,
+.report-table-scroll .report-table {
+  white-space: nowrap;
+}
+
+/* Make details elements usable. My default they are styled as admonitions, which are
+ * designed to be eye-catching and is the opposite of what a details element should do.
+ */
+.markdown details {
+  border-width: 0;
+  border-radius: 0;
+  box-shadow: 4px 0px 0px 0px color-mix(in srgb, var(--border), transparent 0%) inset;
+  transition: 0.3s;
+
+  > summary {
+    transition: 0.3s;
+    &:before {
+      border-color: currentColor;
+    }
+    &:after {
+      content: "…";
+      visibility: hidden;
+    }
+  }
+  > summary + * {
+    margin-top: 0px;
+  }
+}
+.markdown details:not(:open) {
+  background: transparent;
+  box-shadow: 4px 0px 0px 0px transparent inset;
+
+  > summary {
+    padding: 0;
+    opacity: 0.7;
+    &:after {
+      visibility: visible;
+    }
+  }
+}
+
+.output .footnote {
+  >ol>li {
+    font-size: 0.9em;
+    transition: 0.3s;
+    opacity: 0.5;
+    &:hover {
+      opacity: 1;
+    }
+  }
+  .footnote-backref {
+    transition: 0.3s;
+    opacity: 0.5;
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+    </style>
+</head>
+  <body>
+    <div id="root"></div>
+    <!-- This is a portal for the data editor to render in -->
+    <div id="portal" data-testid="glide-portal" style="position: fixed; left: 0; top: 0; z-index: 9999"></div>
+    <script data-marimo="true">
+      Object.defineProperty(window, "__MARIMO_MOUNT_CONFIG__", {
+        value: Object.freeze({
+            "filename": "report.py",
+            "cwd": "",
+            "lspWorkspace": null,
+            "mode": "read",
+            "version": "0.23.9",
+            "serverToken": "static",
+            "config": {"ai": {"custom_providers": {}, "enabled": true, "models": {"custom_models": [], "displayed_models": []}}, "completion": {"activate_on_typing": true, "auto_close_pairs": true, "copilot": false, "signature_hint_on_typing": false}, "diagnostics": {"sql_linter": true}, "display": {"cell_output": "below", "code_editor_font_size": 14, "dataframes": "rich", "default_table_max_columns": 50, "default_table_page_size": 10, "default_width": "medium", "reference_highlighting": true, "theme": "system"}, "formatting": {"line_length": 79}, "keymap": {"overrides": {}, "preset": "default"}, "language_servers": {"pylsp": {"enable_flake8": false, "enable_mypy": true, "enable_pydocstyle": false, "enable_pyflakes": false, "enable_pylint": false, "enable_ruff": true, "enabled": false}}, "mcp": {"mcpServers": {}, "presets": []}, "package_management": {"manager": "uv"}, "runtime": {"auto_instantiate": false, "auto_reload": "off", "default_csv_encoding": "utf-8", "default_sql_output": "auto", "on_cell_change": "autorun", "output_max_bytes": 8000000, "reactive_tests": true, "show_tracebacks": false, "std_stream_max_bytes": 1000000, "watcher_on_save": "lazy"}, "save": {"autosave": "after_delay", "autosave_delay": 1000, "format_on_save": false}, "server": {"browser": "default", "follow_symlink": false}, "snippets": {"custom_paths": [], "include_default_snippets": true}},
+            "configOverrides": {},
+            "appConfig": {"auto_download": ["html"], "css_file": "../report.css", "sql_output": "auto", "width": "medium"},
+            "view": {"showAppCode": true},
+            "notebook": {"cells": [{"code": "import json\nimport tempfile\nfrom pathlib import Path\n\nimport marimo as mo  # noqa: F401\nimport matplotlib.pyplot as plt\nimport numpy as np\n\nfrom mini.reports import report_bundle, use_publisher\nfrom mini.store import project_store\nfrom mini.vis import light_dark, themed\n\n# Externalize every themed figure to a file beside the exported HTML, referenced\n# by a relative URL \u2014 keeps the report light, and `build_site` repoints those URLs\n# at the bucket (one \u003Cbase\u003E tag) when publishing. No publisher \u2192 figures inline.\nuse_publisher(report_bundle(__file__))\n\n# Sweep axes (kept in sync with experiment.py), and per-arch plot colours.\nLRS = [\"3e-3\", \"1e-2\", \"4e-2\"]\nARCHS = [\"baseline\", \"nGPT\", \"nGPT (scalar)\"]\nARCH_COLORS = {\"baseline\": \"tab:gray\", \"nGPT\": \"tab:red\", \"nGPT (scalar)\": \"tab:green\"}\n\n# The residual-bug ablation: the scalar-gate nGPT across widths, in three\n# recipes. In reading order \u2014 the additive step with a fixed gate (exposes the\n# bug), the additive step with our learnable width-scaled gate (masks it), and\n# the normalized-LERP fix.\nWIDTHS = [32, 64, 128]\nRESID = [\n    (\"fixed\", \"additive, fixed \u03b1 (bug)\"),\n    (\"add\", \"additive, learnable \u03b1\"),\n    (\"norm\", \"normalized LERP (fix)\"),\n]\n\ndef resid_colors() -\u003E dict[str, str]:\n    return dict(\n        fixed=light_dark(\"#d1495b\", \"#e06c7d\"),  # red \u2014 the bug, exposed\n        add=light_dark(\"#8d99ae\", \"#a7b1c2\"),  # grey \u2014 additive, masked by the gate\n        norm=light_dark(\"#1b998b\", \"#2ec4b6\"),  # teal \u2014 the fix\n    )\n\n# The experiment publishes its curves to the project-scoped store under this\n# name (see experiment.py); we resolve them by name at export time, so no data\n# file is committed to Git. The store is the HF bucket when configured, else local.\nCURVES_REF = \"reports/gpt-sweep/curves\"\n\ndef load_curves() -\u003E dict[str, list[float]]:\n    \"\"\"Resolve `{key: [val_loss per epoch]}` from the store, or `{}` if unpublished.\"\"\"\n    store = project_store()\n    art = store.get_ref(CURVES_REF)\n    if art is None:\n        return {}\n    with tempfile.TemporaryDirectory() as d:\n        return json.loads(store.get(art, Path(d) / \"curves.json\").read_text())\n\ndef plateau(curves: dict[str, list[float]], key: str) -\u003E float:\n    \"\"\"Converged loss: mean of the last 10 epochs (per-epoch eval noise is ~\u00b10.08).\"\"\"\n    return float(np.mean(curves[key][-10:]))", "code_hash": "9abc47c0b05760c9883970b77033ceab", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "setup", "name": "setup"}, {"code": "mo.md(r\"\"\"\n# Architecture sweep: GPT versus nGPT\n\nA controlled comparison of the baseline LayerNorm GPT against\n[nGPT](https://arxiv.org/abs/2410.01131), and a second sweep that pins down a\ngeometry bug in our simplified nGPT residual \u2014 found, and fixed in one line.\n\nThis is a **report**: it reads results the experiment already produced and\nrenders them. The experiment itself is [`experiment.py`](./experiment.py), an\nimportable `main(ctx)` DAG (one data-prep step, then a fifteen-cell GPU sweep)\nrun from the CLI on Modal L4s (the `train` role binds the GPU + timeout):\n\n```bash\nbin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 15\n```\n\nOn completion the experiment publishes its val-loss curves to the project\nstore under a stable name, and this report resolves them by that name when it\nrenders \u2014 so the data lives in the durable store (the HF bucket), not in Git.\n\"\"\")", "code_hash": "5541fae32d2a9de56c7e91c184cd511a", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "Hbol", "name": "_"}, {"code": "curves = load_curves()", "code_hash": "5abd50344e1ee4bd36710ba3a8947d87", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "MJUe", "name": "_"}, {"code": "mo.stop(\n    not curves,\n    mo.md(\n        \"No results yet \u2014 run the experiment (it publishes its curves to the store on completion):\\n\\n\"\n        \"```bash\\nbin/mini run docs/gpt-sweep/experiment.py --app modal --max-containers 15\\n```\"\n    ),\n)\nflat = {(a, lr): v for a in ARCHS for lr in LRS if (v := curves.get(f\"{a}|{lr}\"))}\nbest_arch, best_lr = min(flat, key=lambda k: min(flat[k]))\nmo.md(\n    f\"**Best run:** {best_arch} at peak LR {best_lr} \u2014 val_loss \"\n    f\"**{min(flat[(best_arch, best_lr)]):.2f}** over {len(flat)} architecture\u00d7LR cells.\"\n)", "code_hash": "7f78792b042621e8d672f9a9b4cc49e4", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "vblA", "name": "_"}, {"code": "mo.md(r\"\"\"\n## Does normalization help? nGPT versus the LayerNorm baseline\n\nnGPT added a fair amount of machinery, so it's worth checking how it compares\nagainst the baseline. The two architectures don't want the same learning rate:\nnormalization rescales the effective gradients, which shifts nGPT's useful LR\nband upward. To isolate the architecture, we sweep both across the same three\npeak learning rates, with the same warmup-then-cosine schedule, on the same\ndata. The only difference within each panel is LayerNorm versus the hypersphere.\n\n- **baseline** \u2014 standard pre-norm transformer (LayerNorm + additive residual).\n- **nGPT** \u2014 normalized transformer as published (per-channel eigen learning rates).\n- **nGPT (scalar)** \u2014 a single learnable scalar gate per sub-module instead of\n  per-channel weights.\n\nBoth nGPT arms use the corrected normalized-LERP residual (see the next\nsection); at this width the correction is invisible, so this is a clean\narchitecture comparison.\n\"\"\")", "code_hash": "6485c3b952896be72c1f1d818ac22808", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "bkHC", "name": "_"}, {"code": "mo.stop(not curves)\n\n@themed(\n    alt_text=\"Three panels, one per peak learning rate. Each plots validation loss versus epoch \"\n    \"for the baseline, nGPT, and nGPT (scalar) architectures, with the minimum of each curve marked. \"\n    \"At the lowest learning rate the baseline edges ahead; at higher rates the two nGPT variants reach \"\n    \"slightly lower loss and track each other almost exactly.\"\n)\ndef plot() -\u003E plt.Figure:\n    fig, axes = plt.subplots(1, 3, figsize=(12, 3.6), sharey=True)\n    for ax, lr in zip(axes, LRS, strict=True):\n        for arch in ARCHS:\n            ys = curves.get(f\"{arch}|{lr}\")\n            if not ys:\n                continue\n            ax.plot(range(1, len(ys) + 1), ys, color=ARCH_COLORS[arch], lw=1.5, label=arch)\n            best = min(range(len(ys)), key=ys.__getitem__)\n            ax.scatter([best + 1], [ys[best]], color=ARCH_COLORS[arch], s=18, zorder=5)\n        ax.set_title(f\"peak LR = {lr}\")\n        ax.set_xlabel(\"epoch\")\n        ax.grid(alpha=0.3)\n    axes[0].set_ylabel(\"val_loss\")\n    axes[0].legend()\n    fig.tight_layout()\n    return fig\n\nmo.Html(plot())", "code_hash": "f7f1eaec4f4fc0821458b254705371fb", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "lEQa", "name": "_"}, {"code": "mo.stop(not curves)\n\ndef _cell(arch: str, lr: str) -\u003E str:\n    ys = curves.get(f\"{arch}|{lr}\")\n    return f\"{min(ys):.2f}\" if ys else \"\u2014\"\n\n# Bold the best (lowest) architecture in each LR column.\ndef _row(lr: str) -\u003E str:\n    vals = {a: min(curves[f\"{a}|{lr}\"]) for a in ARCHS if curves.get(f\"{a}|{lr}\")}\n    best = min(vals, key=lambda a: vals[a]) if vals else None\n    cells = \" | \".join(f\"**{_cell(a, lr)}**\" if a == best else _cell(a, lr) for a in ARCHS)\n    return f\"| {lr} | {cells} |\"\n\ntable = \"\\n\".join(\n    [\"| peak LR | baseline | nGPT | nGPT (scalar) |\", \"| --- | --- | --- | --- |\", *(_row(lr) for lr in LRS)]\n)\nmo.md(f\"\"\"\nBest (minimum) validation loss per cell:\n\n{table}\n\nTwo things stand out. **nGPT needs a higher learning rate to pay off** \u2014 at the\nlowest rate it trails the baseline, but given enough LR it reaches a slightly\nlower loss. And the **scalar-gate simplification matches the full per-channel\nvariant** almost exactly: the per-channel granularity buys nothing at this scale.\n\nThe paper's headline \"trains several times faster\" and its stability advantages\ndon't reproduce at this toy scale \u2014 the LayerNorm baseline never threatens to\ndiverge \u2014 so at this scale nGPT is a small but real improvement in final loss.\nThe load-bearing piece is the scalar gate on the *normalized* residual (see the\n[model notes](../../src/experiment/model/README.md)); the rest of nGPT's\nmachinery is optional here.\n\"\"\")", "code_hash": "12460da284842d53395093c4cdf58f41", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "PKri", "name": "_"}, {"code": "mo.md(r\"\"\"\n## The residual bug: a width-gated failure the gate was hiding\n\nThe nGPT residual should step toward the sub-module's **normalized** output,\n`h \u2190 Norm(h + \u03b1\u00b7(Norm(sub(h)) \u2212 h))`, which makes `\u03b1` a true interpolation\nfraction. We had simplified it to a raw additive step, `h \u2190 Norm(h + \u03b1\u00b7sub(h))`,\non the assumption that `sub(h)` has norm \u2248 1. It doesn't: the MLP scales its\npre-activations by a \u221an_embd baseline (to keep GELU in range), so\n`\u2016MLP(h)\u2016 \u221d \u221an_embd`. The *effective* rotation is `\u03b1\u00b7\u2016sub(h)\u2016`, which **grows\nwith width** \u2014 a fixed `\u03b1` can't control it.\n\nWhether that bites depends on the gate. Our `\u03b1` is *learnable* and\nreparametrized by \u221an_embd, so it can shrink as width grows and quietly absorb\nthe error \u2014 which is why the sweep above (all width 32) saw nothing. To separate\nthe geometry from the gate, we sweep width {32, 64, 128} (with `n_ff = 4\u00b7n_embd`,\nso the MLP grows too) at depth 12 and LR 1e-2, in three recipes: the additive\nstep with a **fixed** `\u03b1 = 1/n_layer` (exposes the bug), the additive step with\nour **learnable** `\u03b1` (masks it), and the **normalized LERP** (removes it).\n\"\"\")", "code_hash": "b139bab4ea5272b2b4c361cf25fbcab1", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "Xref", "name": "_"}, {"code": "mo.stop(not curves or not any(f\"width|fixed|{w}\" in curves for w in WIDTHS))\nfixed_128 = plateau(curves, \"width|fixed|128\")\nnorm_128 = plateau(curves, \"width|norm|128\")\nnorm_spread = max(plateau(curves, f\"width|norm|{w}\") for w in WIDTHS) - min(\n    plateau(curves, f\"width|norm|{w}\") for w in WIDTHS\n)\nmo.md(\n    f\"**A fixed gate exposes the bug; the fix removes it.** With a fixed step size the additive \"\n    f\"residual falls apart as width grows \u2014 converged loss climbs to **{fixed_128:.2f}** nats/char \"\n    f\"at width 128. The normalized-LERP fix reaches **{norm_128:.2f}** there, flat across all three \"\n    f\"widths (spread just {norm_spread:.02f} nats/char). Same learning rate, same everything else; \"\n    f\"one line of geometry.\"\n)", "code_hash": "b61de538b1542275d3ef18dc04c9b32b", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "SFPL", "name": "_"}, {"code": "mo.stop(not curves or not any(f\"width|fixed|{w}\" in curves for w in WIDTHS))\n\n@themed(\n    name=\"width-gating\",\n    alt_text=(\n        \"Two panels sharing a y-axis. Left, converged validation loss against width (32, 64, 128 on a \"\n        \"log axis) for three residual recipes. The additive step with a fixed gate (red) starts near \"\n        \"1.5 at width 32 and climbs steeply to about 3.1 at width 128; the additive step with a \"\n        \"learnable gate (grey) and the normalized-LERP fix (teal) both stay flat and low near 1.35 at \"\n        \"every width. Right, validation loss against epoch at width 128: the fixed-gate recipe falls \"\n        \"during warmup then rises and sticks near 3.1, while the learnable-gate and normalized recipes \"\n        \"fall smoothly together to about 1.34.\"\n    ),\n)\ndef _plot() -\u003E plt.Figure:\n    colors = resid_colors()\n    fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(9.5, 3.6), sharey=True)\n\n    # Left: converged loss vs width.\n    for arm, label in RESID:\n        ys = [plateau(curves, f\"width|{arm}|{w}\") for w in WIDTHS]\n        lw = 2.6 if arm in (\"fixed\", \"norm\") else 1.8\n        ax_l.plot(WIDTHS, ys, \"o-\", color=colors[arm], lw=lw, label=label)\n    ax_l.set(xlabel=\"width (n_embd)\", ylabel=\"converged val_loss (nats/char)\", xscale=\"log\")\n    ax_l.set_xticks(WIDTHS, [str(w) for w in WIDTHS])\n    ax_l.minorticks_off()\n    ax_l.grid(alpha=0.3)\n    ax_l.legend(fontsize=8)\n\n    # Right: convergence at the failing width 128.\n    for arm, label in RESID:\n        ys = curves[f\"width|{arm}|128\"]\n        lw = 2.0 if arm in (\"fixed\", \"norm\") else 1.4\n        ax_r.plot(range(1, len(ys) + 1), ys, color=colors[arm], lw=lw, label=label)\n    ax_r.axvline(10, color=\"#8888\", lw=1, ls=\":\", label=\"end of LR warmup\")\n    ax_r.set(title=\"width 128\", xlabel=\"epoch\")\n    ax_r.grid(alpha=0.3)\n    ax_r.legend(fontsize=8)\n    fig.tight_layout()\n    return fig\n\nmo.Html(_plot())", "code_hash": "5749f0f789894c23c8f7a178c3c9693d", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "BYtC", "name": "_"}, {"code": "mo.stop(not curves or not any(f\"width|fixed|{w}\" in curves for w in WIDTHS))\n_f = {w: plateau(curves, f\"width|fixed|{w}\") for w in WIDTHS}\n_a = {w: plateau(curves, f\"width|add|{w}\") for w in WIDTHS}\n_n = {w: plateau(curves, f\"width|norm|{w}\") for w in WIDTHS}\nmo.md(f\"\"\"\nWith a **fixed** step the additive residual is fine narrow and breaks wide:\n{_f[32]:.2f} \u2192 {_f[64]:.2f} \u2192 {_f[128]:.2f} nats/char across widths 32 / 64 / 128.\nAt width 128 it never really trains \u2014 the hidden state over-rotates through every\nlayer until the token's identity is lost. That's the failure the normalized\nresidual exists to prevent.\n\nTwo things rescue it, for different reasons. Our **learnable** `\u03b1` masks the bug\n({_a[32]:.2f} \u2192 {_a[64]:.2f} \u2192 {_a[128]:.2f}): reparametrized by \u221an_embd, it\nshrinks as width grows and happens to cancel the `\u2016sub(h)\u2016` growth \u2014 but that's\nthe gate laundering a geometry error, not a correct residual. The **normalized\nLERP** removes the error at the source ({_n[32]:.2f} \u2192 {_n[64]:.2f} \u2192 {_n[128]:.2f}):\nnormalizing `sub(h)` makes `\u03b1` a true interpolation fraction, so the per-layer\nrotation is \u2248 `\u03b1` regardless of width or gate.\n\nThis is why the correction matters even though the architecture sweep couldn't\nsee it: the scalar-gate nGPT we ship is only safe because *something* controls the\nresidual geometry, and the normalized LERP does it by construction rather than by\nluck. The additive forms survive as `config.normalize_sublayer=False` (with\n`learnable_alpha=False` for the fixed gate), kept solely to reproduce this failure;\nthe normalized LERP is the default. See the\n[model notes](../../src/experiment/model/README.md) for the geometry.\n\"\"\")", "code_hash": "c30b4410a1e59e2a23d54301910c28cc", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "RGSE", "name": "_"}, {"code": "mo.md(r\"\"\"\n## References\n\nLoshchilov, I., Hsieh, C.-P., Sun, S., \u0026 Ginsburg, B. (2024). nGPT: Normalized\ntransformer with representation learning on the hypersphere. _arXiv_.\nhttps://arxiv.org/abs/2410.01131\n\nKarpathy, A. (2022). nanoGPT [Computer software]. GitHub.\nhttps://github.com/karpathy/nanoGPT\n\"\"\")", "code_hash": "09feab034c0dd2f377f17f6c96037284", "config": {"column": null, "disabled": false, "hide_code": true}, "id": "Kclp", "name": "_"}], "metadata": {"marimo_version": "0.23.9"}, "version": "1"},
+            "session": {"cells": [{"code_hash": "9abc47c0b05760c9883970b77033ceab", "console": [], "id": "setup", "outputs": [{"data": {"text/plain": ""}, "type": "data"}]}, {"code_hash": "5541fae32d2a9de56c7e91c184cd511a", "console": [], "id": "Hbol", "outputs": [{"data": {"text/markdown": "\u003Cspan class=\"markdown prose dark:prose-invert contents\"\u003E\u003Ch1 id=\"architecture-sweep-gpt-versus-ngpt\"\u003EArchitecture sweep: GPT versus nGPT\u003C/h1\u003E\n\u003Cspan class=\"paragraph\"\u003EA controlled comparison of the baseline LayerNorm GPT against\n\u003Ca href=\"https://arxiv.org/abs/2410.01131\" rel=\"noopener noreferrer\" target=\"_blank\"\u003EnGPT\u003C/a\u003E, and a second sweep that pins down a\ngeometry bug in our simplified nGPT residual \u2014 found, and fixed in one line.\u003C/span\u003E\n\u003Cspan class=\"paragraph\"\u003EThis is a \u003Cstrong\u003Ereport\u003C/strong\u003E: it reads results the experiment already produced and\nrenders them. The experiment itself is \u003Ca href=\"https://github.com/z0u/mi-ni/blob/main/docs/gpt-sweep/experiment.py\"\u003E\u003Ccode\u003Eexperiment.py\u003C/code\u003E\u003C/a\u003E, an\nimportable \u003Ccode\u003Emain(ctx)\u003C/code\u003E DAG (one data-prep step, then a fifteen-cell GPU sweep)\nrun from the CLI on Modal L4s (the \u003Ccode\u003Etrain\u003C/code\u003E role binds the GPU + timeout):\u003C/span\u003E\n\u003Cdiv class=\"language-bash codehilite\"\u003E\u003Cpre\u003E\u003Cspan\u003E\u003C/span\u003E\u003Ccode\u003Ebin/mini\u003Cspan class=\"w\"\u003E \u003C/span\u003Erun\u003Cspan class=\"w\"\u003E \u003C/span\u003Edocs/gpt-sweep/experiment.py\u003Cspan class=\"w\"\u003E \u003C/span\u003E--app\u003Cspan class=\"w\"\u003E \u003C/span\u003Emodal\u003Cspan class=\"w\"\u003E \u003C/span\u003E--max-containers\u003Cspan class=\"w\"\u003E \u003C/span\u003E\u003Cspan class=\"m\"\u003E15\u003C/span\u003E\n\u003C/code\u003E\u003C/pre\u003E\u003C/div\u003E\n\u003Cspan class=\"paragraph\"\u003EOn completion the experiment publishes its val-loss curves to the project\nstore under a stable name, and this report resolves them by that name when it\nrenders \u2014 so the data lives in the durable store (the HF bucket), not in Git.\u003C/span\u003E\u003C/span\u003E"}, "type": "data"}]}, {"code_hash": "5abd50344e1ee4bd36710ba3a8947d87", "console": [], "id": "MJUe", "outputs": [{"data": {"text/plain": ""}, "type": "data"}]}, {"code_hash": "7f78792b042621e8d672f9a9b4cc49e4", "console": [], "id": "vblA", "outputs": [{"data": {"text/markdown": "\u003Cspan class=\"markdown prose dark:prose-invert contents\"\u003E\u003Cspan class=\"paragraph\"\u003E\u003Cstrong\u003EBest run:\u003C/strong\u003E nGPT (scalar) at peak LR 4e-2 \u2014 val_loss \u003Cstrong\u003E1.27\u003C/strong\u003E over 9 architecture\u00d7LR cells.\u003C/span\u003E\u003C/span\u003E"}, "type": "data"}]}, {"code_hash": "6485c3b952896be72c1f1d818ac22808", "console": [], "id": "bkHC", "outputs": [{"data": {"text/markdown": "\u003Cspan class=\"markdown prose dark:prose-invert contents\"\u003E\u003Ch2 id=\"does-normalization-help-ngpt-versus-the-layernorm-baseline\"\u003EDoes normalization help? nGPT versus the LayerNorm baseline\u003C/h2\u003E\n\u003Cspan class=\"paragraph\"\u003EnGPT added a fair amount of machinery, so it's worth checking how it compares\nagainst the baseline. The two architectures don't want the same learning rate:\nnormalization rescales the effective gradients, which shifts nGPT's useful LR\nband upward. To isolate the architecture, we sweep both across the same three\npeak learning rates, with the same warmup-then-cosine schedule, on the same\ndata. The only difference within each panel is LayerNorm versus the hypersphere.\u003C/span\u003E\n\u003Cul\u003E\n\u003Cli\u003E\u003Cstrong\u003Ebaseline\u003C/strong\u003E \u2014 standard pre-norm transformer (LayerNorm + additive residual).\u003C/li\u003E\n\u003Cli\u003E\u003Cstrong\u003EnGPT\u003C/strong\u003E \u2014 normalized transformer as published (per-channel eigen learning rates).\u003C/li\u003E\n\u003Cli\u003E\u003Cstrong\u003EnGPT (scalar)\u003C/strong\u003E \u2014 a single learnable scalar gate per sub-module instead of\n  per-channel weights.\u003C/li\u003E\n\u003C/ul\u003E\n\u003Cspan class=\"paragraph\"\u003EBoth nGPT arms use the corrected normalized-LERP residual (see the next\nsection); at this width the correction is invisible, so this is a clean\narchitecture comparison.\u003C/span\u003E\u003C/span\u003E"}, "type": "data"}]}, {"code_hash": "f7f1eaec4f4fc0821458b254705371fb", "console": [{"mimetype": "text/plain", "name": "stderr", "text": "/tmp/marimo_19132/__marimo__cell_lEQa_.py:24: UserWarning: The figure layout has changed to tight\n  fig.tight_layout()\n/tmp/marimo_19132/__marimo__cell_lEQa_.py:24: UserWarning: The figure layout has changed to tight\n  fig.tight_layout()\n", "type": "stream"}], "id": "lEQa", "outputs": [{"data": {"text/html": "\n\u003Cstyle\u003E\n.mini-themed-figure-0f3850ab36e9 {\n    .mini-themed-img-dark {\n        display: none;\n    }\n\n    .mini-themed-img-light {\n        display: block;\n    }\n}\n\nbody[data-theme='dark'],\nbody.dark,\nbody.dark-theme {\n    .mini-themed-figure-0f3850ab36e9 {\n        .mini-themed-img-dark {\n            display: block;\n        }\n\n        .mini-themed-img-light {\n            display: none;\n        }\n    }\n}\n\n@media (prefers-color-scheme: dark) {\n    body:not([data-theme=\"dark\"]):not([data-theme=\"light\"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme) {\n        .mini-themed-figure-0f3850ab36e9 {\n            .mini-themed-img-dark {\n                display: block;\n            }\n\n            .mini-themed-img-light {\n                display: none;\n            }\n        }\n    }\n}\n\n.mini-themed-figure-0f3850ab36e9 \u003E figcaption {\n    margin-top: 0.6em;\n    font-size: 0.9em;\n    font-style: italic;\n    opacity: 0.75;\n    text-wrap: balance;\n}\n\u003C/style\u003E\n\u003Cfigure class=\"mini-themed-figure-0f3850ab36e9\"\u003E\n\u003Cimg class=\"mini-themed-img-light\" src=\"_assets/plot-light.png\" alt=\"Three panels, one per peak learning rate. Each plots validation loss versus epoch for the baseline, nGPT, and nGPT (scalar) architectures, with the minimum of each curve marked. At the lowest learning rate the baseline edges ahead; at higher rates the two nGPT variants reach slightly lower loss and track each other almost exactly.\" width=\"1136\" height=\"330\" style=\"max-width: 100%; height: auto;\" data-asset-name=\"plot\" /\u003E\n\u003Cimg class=\"mini-themed-img-dark\" src=\"_assets/plot-dark.png\" alt=\"Three panels, one per peak learning rate. Each plots validation loss versus epoch for the baseline, nGPT, and nGPT (scalar) architectures, with the minimum of each curve marked. At the lowest learning rate the baseline edges ahead; at higher rates the two nGPT variants reach slightly lower loss and track each other almost exactly.\" width=\"1136\" height=\"330\" style=\"max-width: 100%; height: auto;\" data-asset-name=\"plot\" /\u003E\n\u003C/figure\u003E"}, "type": "data"}]}, {"code_hash": "12460da284842d53395093c4cdf58f41", "console": [], "id": "PKri", "outputs": [{"data": {"text/markdown": "\u003Cspan class=\"markdown prose dark:prose-invert contents\"\u003E\u003Cspan class=\"paragraph\"\u003EBest (minimum) validation loss per cell:\u003C/span\u003E\n\u003Ctable\u003E\n\u003Cthead\u003E\n\u003Ctr\u003E\n\u003Cth\u003Epeak LR\u003C/th\u003E\n\u003Cth\u003Ebaseline\u003C/th\u003E\n\u003Cth\u003EnGPT\u003C/th\u003E\n\u003Cth\u003EnGPT (scalar)\u003C/th\u003E\n\u003C/tr\u003E\n\u003C/thead\u003E\n\u003Ctbody\u003E\n\u003Ctr\u003E\n\u003Ctd\u003E3e-3\u003C/td\u003E\n\u003Ctd\u003E\u003Cstrong\u003E1.60\u003C/strong\u003E\u003C/td\u003E\n\u003Ctd\u003E1.67\u003C/td\u003E\n\u003Ctd\u003E1.68\u003C/td\u003E\n\u003C/tr\u003E\n\u003Ctr\u003E\n\u003Ctd\u003E1e-2\u003C/td\u003E\n\u003Ctd\u003E1.37\u003C/td\u003E\n\u003Ctd\u003E1.34\u003C/td\u003E\n\u003Ctd\u003E\u003Cstrong\u003E1.33\u003C/strong\u003E\u003C/td\u003E\n\u003C/tr\u003E\n\u003Ctr\u003E\n\u003Ctd\u003E4e-2\u003C/td\u003E\n\u003Ctd\u003E1.39\u003C/td\u003E\n\u003Ctd\u003E1.27\u003C/td\u003E\n\u003Ctd\u003E\u003Cstrong\u003E1.27\u003C/strong\u003E\u003C/td\u003E\n\u003C/tr\u003E\n\u003C/tbody\u003E\n\u003C/table\u003E\n\u003Cspan class=\"paragraph\"\u003ETwo things stand out. \u003Cstrong\u003EnGPT needs a higher learning rate to pay off\u003C/strong\u003E \u2014 at the\nlowest rate it trails the baseline, but given enough LR it reaches a slightly\nlower loss. And the \u003Cstrong\u003Escalar-gate simplification matches the full per-channel\nvariant\u003C/strong\u003E almost exactly: the per-channel granularity buys nothing at this scale.\u003C/span\u003E\n\u003Cspan class=\"paragraph\"\u003EThe paper's headline \"trains several times faster\" and its stability advantages\ndon't reproduce at this toy scale \u2014 the LayerNorm baseline never threatens to\ndiverge \u2014 so at this scale nGPT is a small but real improvement in final loss.\nThe load-bearing piece is the scalar gate on the \u003Cem\u003Enormalized\u003C/em\u003E residual (see the\n\u003Ca href=\"https://github.com/z0u/mi-ni/blob/main/src/experiment/model/README.md\"\u003Emodel notes\u003C/a\u003E); the rest of nGPT's\nmachinery is optional here.\u003C/span\u003E\u003C/span\u003E"}, "type": "data"}]}, {"code_hash": "b139bab4ea5272b2b4c361cf25fbcab1", "console": [], "id": "Xref", "outputs": [{"data": {"text/markdown": "\u003Cspan class=\"markdown prose dark:prose-invert contents\"\u003E\u003Ch2 id=\"the-residual-bug-a-width-gated-failure-the-gate-was-hiding\"\u003EThe residual bug: a width-gated failure the gate was hiding\u003C/h2\u003E\n\u003Cspan class=\"paragraph\"\u003EThe nGPT residual should step toward the sub-module's \u003Cstrong\u003Enormalized\u003C/strong\u003E output,\n\u003Ccode\u003Eh \u2190 Norm(h + \u03b1\u00b7(Norm(sub(h)) \u2212 h))\u003C/code\u003E, which makes \u003Ccode\u003E\u03b1\u003C/code\u003E a true interpolation\nfraction. We had simplified it to a raw additive step, \u003Ccode\u003Eh \u2190 Norm(h + \u03b1\u00b7sub(h))\u003C/code\u003E,\non the assumption that \u003Ccode\u003Esub(h)\u003C/code\u003E has norm \u2248 1. It doesn't: the MLP scales its\npre-activations by a \u221an_embd baseline (to keep GELU in range), so\n\u003Ccode\u003E\u2016MLP(h)\u2016 \u221d \u221an_embd\u003C/code\u003E. The \u003Cem\u003Eeffective\u003C/em\u003E rotation is \u003Ccode\u003E\u03b1\u00b7\u2016sub(h)\u2016\u003C/code\u003E, which \u003Cstrong\u003Egrows\nwith width\u003C/strong\u003E \u2014 a fixed \u003Ccode\u003E\u03b1\u003C/code\u003E can't control it.\u003C/span\u003E\n\u003Cspan class=\"paragraph\"\u003EWhether that bites depends on the gate. Our \u003Ccode\u003E\u03b1\u003C/code\u003E is \u003Cem\u003Elearnable\u003C/em\u003E and\nreparametrized by \u221an_embd, so it can shrink as width grows and quietly absorb\nthe error \u2014 which is why the sweep above (all width 32) saw nothing. To separate\nthe geometry from the gate, we sweep width {32, 64, 128} (with \u003Ccode\u003En_ff = 4\u00b7n_embd\u003C/code\u003E,\nso the MLP grows too) at depth 12 and LR 1e-2, in three recipes: the additive\nstep with a \u003Cstrong\u003Efixed\u003C/strong\u003E \u003Ccode\u003E\u03b1 = 1/n_layer\u003C/code\u003E (exposes the bug), the additive step with\nour \u003Cstrong\u003Elearnable\u003C/strong\u003E \u003Ccode\u003E\u03b1\u003C/code\u003E (masks it), and the \u003Cstrong\u003Enormalized LERP\u003C/strong\u003E (removes it).\u003C/span\u003E\u003C/span\u003E"}, "type": "data"}]}, {"code_hash": "b61de538b1542275d3ef18dc04c9b32b", "console": [], "id": "SFPL", "outputs": [{"data": {"text/markdown": "\u003Cspan class=\"markdown prose dark:prose-invert contents\"\u003E\u003Cspan class=\"paragraph\"\u003E\u003Cstrong\u003EA fixed gate exposes the bug; the fix removes it.\u003C/strong\u003E With a fixed step size the additive residual falls apart as width grows \u2014 converged loss climbs to \u003Cstrong\u003E3.14\u003C/strong\u003E nats/char at width 128. The normalized-LERP fix reaches \u003Cstrong\u003E1.34\u003C/strong\u003E there, flat across all three widths (spread just 0.11 nats/char). Same learning rate, same everything else; one line of geometry.\u003C/span\u003E\u003C/span\u003E"}, "type": "data"}]}, {"code_hash": "5749f0f789894c23c8f7a178c3c9693d", "console": [{"mimetype": "text/plain", "name": "stderr", "text": "/tmp/marimo_19132/__marimo__cell_BYtC_.py:39: UserWarning: The figure layout has changed to tight\n  fig.tight_layout()\n/tmp/marimo_19132/__marimo__cell_BYtC_.py:39: UserWarning: The figure layout has changed to tight\n  fig.tight_layout()\n", "type": "stream"}], "id": "BYtC", "outputs": [{"data": {"text/html": "\n\u003Cstyle\u003E\n.mini-themed-figure-2037da02253c {\n    .mini-themed-img-dark {\n        display: none;\n    }\n\n    .mini-themed-img-light {\n        display: block;\n    }\n}\n\nbody[data-theme='dark'],\nbody.dark,\nbody.dark-theme {\n    .mini-themed-figure-2037da02253c {\n        .mini-themed-img-dark {\n            display: block;\n        }\n\n        .mini-themed-img-light {\n            display: none;\n        }\n    }\n}\n\n@media (prefers-color-scheme: dark) {\n    body:not([data-theme=\"dark\"]):not([data-theme=\"light\"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme) {\n        .mini-themed-figure-2037da02253c {\n            .mini-themed-img-dark {\n                display: block;\n            }\n\n            .mini-themed-img-light {\n                display: none;\n            }\n        }\n    }\n}\n\n.mini-themed-figure-2037da02253c \u003E figcaption {\n    margin-top: 0.6em;\n    font-size: 0.9em;\n    font-style: italic;\n    opacity: 0.75;\n    text-wrap: balance;\n}\n\u003C/style\u003E\n\u003Cfigure class=\"mini-themed-figure-2037da02253c\"\u003E\n\u003Cimg class=\"mini-themed-img-light\" src=\"_assets/width-gating-light.png\" alt=\"Two panels sharing a y-axis. Left, converged validation loss against width (32, 64, 128 on a log axis) for three residual recipes. The additive step with a fixed gate (red) starts near 1.5 at width 32 and climbs steeply to about 3.1 at width 128; the additive step with a learnable gate (grey) and the normalized-LERP fix (teal) both stay flat and low near 1.35 at every width. Right, validation loss against epoch at width 128: the fixed-gate recipe falls during warmup then rises and sticks near 3.1, while the learnable-gate and normalized recipes fall smoothly together to about 1.34.\" width=\"896\" height=\"330\" style=\"max-width: 100%; height: auto;\" data-asset-name=\"width-gating\" /\u003E\n\u003Cimg class=\"mini-themed-img-dark\" src=\"_assets/width-gating-dark.png\" alt=\"Two panels sharing a y-axis. Left, converged validation loss against width (32, 64, 128 on a log axis) for three residual recipes. The additive step with a fixed gate (red) starts near 1.5 at width 32 and climbs steeply to about 3.1 at width 128; the additive step with a learnable gate (grey) and the normalized-LERP fix (teal) both stay flat and low near 1.35 at every width. Right, validation loss against epoch at width 128: the fixed-gate recipe falls during warmup then rises and sticks near 3.1, while the learnable-gate and normalized recipes fall smoothly together to about 1.34.\" width=\"896\" height=\"330\" style=\"max-width: 100%; height: auto;\" data-asset-name=\"width-gating\" /\u003E\n\u003C/figure\u003E"}, "type": "data"}]}, {"code_hash": "c30b4410a1e59e2a23d54301910c28cc", "console": [], "id": "RGSE", "outputs": [{"data": {"text/markdown": "\u003Cspan class=\"markdown prose dark:prose-invert contents\"\u003E\u003Cspan class=\"paragraph\"\u003EWith a \u003Cstrong\u003Efixed\u003C/strong\u003E step the additive residual is fine narrow and breaks wide:\n1.51 \u2192 1.72 \u2192 3.14 nats/char across widths 32 / 64 / 128.\nAt width 128 it never really trains \u2014 the hidden state over-rotates through every\nlayer until the token's identity is lost. That's the failure the normalized\nresidual exists to prevent.\u003C/span\u003E\n\u003Cspan class=\"paragraph\"\u003ETwo things rescue it, for different reasons. Our \u003Cstrong\u003Elearnable\u003C/strong\u003E \u003Ccode\u003E\u03b1\u003C/code\u003E masks the bug\n(1.48 \u2192 1.36 \u2192 1.34): reparametrized by \u221an_embd, it\nshrinks as width grows and happens to cancel the \u003Ccode\u003E\u2016sub(h)\u2016\u003C/code\u003E growth \u2014 but that's\nthe gate laundering a geometry error, not a correct residual. The \u003Cstrong\u003Enormalized\nLERP\u003C/strong\u003E removes the error at the source (1.45 \u2192 1.37 \u2192 1.34):\nnormalizing \u003Ccode\u003Esub(h)\u003C/code\u003E makes \u003Ccode\u003E\u03b1\u003C/code\u003E a true interpolation fraction, so the per-layer\nrotation is \u2248 \u003Ccode\u003E\u03b1\u003C/code\u003E regardless of width or gate.\u003C/span\u003E\n\u003Cspan class=\"paragraph\"\u003EThis is why the correction matters even though the architecture sweep couldn't\nsee it: the scalar-gate nGPT we ship is only safe because \u003Cem\u003Esomething\u003C/em\u003E controls the\nresidual geometry, and the normalized LERP does it by construction rather than by\nluck. The additive forms survive as \u003Ccode\u003Econfig.normalize_sublayer=False\u003C/code\u003E (with\n\u003Ccode\u003Elearnable_alpha=False\u003C/code\u003E for the fixed gate), kept solely to reproduce this failure;\nthe normalized LERP is the default. See the\n\u003Ca href=\"https://github.com/z0u/mi-ni/blob/main/src/experiment/model/README.md\"\u003Emodel notes\u003C/a\u003E for the geometry.\u003C/span\u003E\u003C/span\u003E"}, "type": "data"}]}, {"code_hash": "09feab034c0dd2f377f17f6c96037284", "console": [], "id": "Kclp", "outputs": [{"data": {"text/markdown": "\u003Cspan class=\"markdown prose dark:prose-invert contents\"\u003E\u003Ch2 id=\"references\"\u003EReferences\u003C/h2\u003E\n\u003Cspan class=\"paragraph\"\u003ELoshchilov, I., Hsieh, C.-P., Sun, S., \u0026amp; Ginsburg, B. (2024). nGPT: Normalized\ntransformer with representation learning on the hypersphere. \u003Cem\u003EarXiv\u003C/em\u003E.\n\u003Ca href=\"https://arxiv.org/abs/2410.01131\" rel=\"noopener noreferrer\" target=\"_blank\"\u003Ehttps://arxiv.org/abs/2410.01131\u003C/a\u003E\u003C/span\u003E\n\u003Cspan class=\"paragraph\"\u003EKarpathy, A. (2022). nanoGPT [Computer software]. GitHub.\n\u003Ca href=\"https://github.com/karpathy/nanoGPT\" rel=\"noopener noreferrer\" target=\"_blank\"\u003Ehttps://github.com/karpathy/nanoGPT\u003C/a\u003E\u003C/span\u003E\u003C/span\u003E"}, "type": "data"}]}], "metadata": {"marimo_version": "0.23.9", "script_metadata_hash": null}, "version": "1"},
+            "runtimeConfig": null,
+        }),
+        writable: false,
+        configurable: false,
+      });
+    </script>
+  
+<marimo-code hidden="">
+    import%20marimo%0A%0A__generated_with%20%3D%20%220.23.9%22%0Aapp%20%3D%20marimo.App(%0A%20%20%20%20width%3D%22medium%22%2C%0A%20%20%20%20css_file%3D%22..%2Freport.css%22%2C%0A%20%20%20%20auto_download%3D%5B%22html%22%5D%2C%0A)%0A%0Awith%20app.setup(hide_code%3DTrue)%3A%0A%20%20%20%20import%20json%0A%20%20%20%20import%20tempfile%0A%20%20%20%20from%20pathlib%20import%20Path%0A%0A%20%20%20%20import%20marimo%20as%20mo%20%20%23%20noqa%3A%20F401%0A%20%20%20%20import%20matplotlib.pyplot%20as%20plt%0A%20%20%20%20import%20numpy%20as%20np%0A%0A%20%20%20%20from%20mini.reports%20import%20report_bundle%2C%20use_publisher%0A%20%20%20%20from%20mini.store%20import%20project_store%0A%20%20%20%20from%20mini.vis%20import%20light_dark%2C%20themed%0A%0A%20%20%20%20%23%20Externalize%20every%20themed%20figure%20to%20a%20file%20beside%20the%20exported%20HTML%2C%20referenced%0A%20%20%20%20%23%20by%20a%20relative%20URL%20%E2%80%94%20keeps%20the%20report%20light%2C%20and%20%60build_site%60%20repoints%20those%20URLs%0A%20%20%20%20%23%20at%20the%20bucket%20(one%20%3Cbase%3E%20tag)%20when%20publishing.%20No%20publisher%20%E2%86%92%20figures%20inline.%0A%20%20%20%20use_publisher(report_bundle(__file__))%0A%0A%20%20%20%20%23%20Sweep%20axes%20(kept%20in%20sync%20with%20experiment.py)%2C%20and%20per-arch%20plot%20colours.%0A%20%20%20%20LRS%20%3D%20%5B%223e-3%22%2C%20%221e-2%22%2C%20%224e-2%22%5D%0A%20%20%20%20ARCHS%20%3D%20%5B%22baseline%22%2C%20%22nGPT%22%2C%20%22nGPT%20(scalar)%22%5D%0A%20%20%20%20ARCH_COLORS%20%3D%20%7B%22baseline%22%3A%20%22tab%3Agray%22%2C%20%22nGPT%22%3A%20%22tab%3Ared%22%2C%20%22nGPT%20(scalar)%22%3A%20%22tab%3Agreen%22%7D%0A%0A%20%20%20%20%23%20The%20residual-bug%20ablation%3A%20the%20scalar-gate%20nGPT%20across%20widths%2C%20in%20three%0A%20%20%20%20%23%20recipes.%20In%20reading%20order%20%E2%80%94%20the%20additive%20step%20with%20a%20fixed%20gate%20(exposes%20the%0A%20%20%20%20%23%20bug)%2C%20the%20additive%20step%20with%20our%20learnable%20width-scaled%20gate%20(masks%20it)%2C%20and%0A%20%20%20%20%23%20the%20normalized-LERP%20fix.%0A%20%20%20%20WIDTHS%20%3D%20%5B32%2C%2064%2C%20128%5D%0A%20%20%20%20RESID%20%3D%20%5B%0A%20%20%20%20%20%20%20%20(%22fixed%22%2C%20%22additive%2C%20fixed%20%CE%B1%20(bug)%22)%2C%0A%20%20%20%20%20%20%20%20(%22add%22%2C%20%22additive%2C%20learnable%20%CE%B1%22)%2C%0A%20%20%20%20%20%20%20%20(%22norm%22%2C%20%22normalized%20LERP%20(fix)%22)%2C%0A%20%20%20%20%5D%0A%0A%20%20%20%20def%20resid_colors()%20-%3E%20dict%5Bstr%2C%20str%5D%3A%0A%20%20%20%20%20%20%20%20return%20dict(%0A%20%20%20%20%20%20%20%20%20%20%20%20fixed%3Dlight_dark(%22%23d1495b%22%2C%20%22%23e06c7d%22)%2C%20%20%23%20red%20%E2%80%94%20the%20bug%2C%20exposed%0A%20%20%20%20%20%20%20%20%20%20%20%20add%3Dlight_dark(%22%238d99ae%22%2C%20%22%23a7b1c2%22)%2C%20%20%23%20grey%20%E2%80%94%20additive%2C%20masked%20by%20the%20gate%0A%20%20%20%20%20%20%20%20%20%20%20%20norm%3Dlight_dark(%22%231b998b%22%2C%20%22%232ec4b6%22)%2C%20%20%23%20teal%20%E2%80%94%20the%20fix%0A%20%20%20%20%20%20%20%20)%0A%0A%20%20%20%20%23%20The%20experiment%20publishes%20its%20curves%20to%20the%20project-scoped%20store%20under%20this%0A%20%20%20%20%23%20name%20(see%20experiment.py)%3B%20we%20resolve%20them%20by%20name%20at%20export%20time%2C%20so%20no%20data%0A%20%20%20%20%23%20file%20is%20committed%20to%20Git.%20The%20store%20is%20the%20HF%20bucket%20when%20configured%2C%20else%20local.%0A%20%20%20%20CURVES_REF%20%3D%20%22reports%2Fgpt-sweep%2Fcurves%22%0A%0A%20%20%20%20def%20load_curves()%20-%3E%20dict%5Bstr%2C%20list%5Bfloat%5D%5D%3A%0A%20%20%20%20%20%20%20%20%22%22%22Resolve%20%60%7Bkey%3A%20%5Bval_loss%20per%20epoch%5D%7D%60%20from%20the%20store%2C%20or%20%60%7B%7D%60%20if%20unpublished.%22%22%22%0A%20%20%20%20%20%20%20%20store%20%3D%20project_store()%0A%20%20%20%20%20%20%20%20art%20%3D%20store.get_ref(CURVES_REF)%0A%20%20%20%20%20%20%20%20if%20art%20is%20None%3A%0A%20%20%20%20%20%20%20%20%20%20%20%20return%20%7B%7D%0A%20%20%20%20%20%20%20%20with%20tempfile.TemporaryDirectory()%20as%20d%3A%0A%20%20%20%20%20%20%20%20%20%20%20%20return%20json.loads(store.get(art%2C%20Path(d)%20%2F%20%22curves.json%22).read_text())%0A%0A%20%20%20%20def%20plateau(curves%3A%20dict%5Bstr%2C%20list%5Bfloat%5D%5D%2C%20key%3A%20str)%20-%3E%20float%3A%0A%20%20%20%20%20%20%20%20%22%22%22Converged%20loss%3A%20mean%20of%20the%20last%2010%20epochs%20(per-epoch%20eval%20noise%20is%20~%C2%B10.08).%22%22%22%0A%20%20%20%20%20%20%20%20return%20float(np.mean(curves%5Bkey%5D%5B-10%3A%5D))%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_()%3A%0A%20%20%20%20mo.md(r%22%22%22%0A%20%20%20%20%23%20Architecture%20sweep%3A%20GPT%20versus%20nGPT%0A%0A%20%20%20%20A%20controlled%20comparison%20of%20the%20baseline%20LayerNorm%20GPT%20against%0A%20%20%20%20%5BnGPT%5D(https%3A%2F%2Farxiv.org%2Fabs%2F2410.01131)%2C%20and%20a%20second%20sweep%20that%20pins%20down%20a%0A%20%20%20%20geometry%20bug%20in%20our%20simplified%20nGPT%20residual%20%E2%80%94%20found%2C%20and%20fixed%20in%20one%20line.%0A%0A%20%20%20%20This%20is%20a%20**report**%3A%20it%20reads%20results%20the%20experiment%20already%20produced%20and%0A%20%20%20%20renders%20them.%20The%20experiment%20itself%20is%20%5B%60experiment.py%60%5D(.%2Fexperiment.py)%2C%20an%0A%20%20%20%20importable%20%60main(ctx)%60%20DAG%20(one%20data-prep%20step%2C%20then%20a%20fifteen-cell%20GPU%20sweep)%0A%20%20%20%20run%20from%20the%20CLI%20on%20Modal%20L4s%20(the%20%60train%60%20role%20binds%20the%20GPU%20%2B%20timeout)%3A%0A%0A%20%20%20%20%60%60%60bash%0A%20%20%20%20bin%2Fmini%20run%20docs%2Fgpt-sweep%2Fexperiment.py%20--app%20modal%20--max-containers%2015%0A%20%20%20%20%60%60%60%0A%0A%20%20%20%20On%20completion%20the%20experiment%20publishes%20its%20val-loss%20curves%20to%20the%20project%0A%20%20%20%20store%20under%20a%20stable%20name%2C%20and%20this%20report%20resolves%20them%20by%20that%20name%20when%20it%0A%20%20%20%20renders%20%E2%80%94%20so%20the%20data%20lives%20in%20the%20durable%20store%20(the%20HF%20bucket)%2C%20not%20in%20Git.%0A%20%20%20%20%22%22%22)%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_()%3A%0A%20%20%20%20curves%20%3D%20load_curves()%0A%20%20%20%20return%20(curves%2C)%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_(curves)%3A%0A%20%20%20%20mo.stop(%0A%20%20%20%20%20%20%20%20not%20curves%2C%0A%20%20%20%20%20%20%20%20mo.md(%0A%20%20%20%20%20%20%20%20%20%20%20%20%22No%20results%20yet%20%E2%80%94%20run%20the%20experiment%20(it%20publishes%20its%20curves%20to%20the%20store%20on%20completion)%3A%5Cn%5Cn%22%0A%20%20%20%20%20%20%20%20%20%20%20%20%22%60%60%60bash%5Cnbin%2Fmini%20run%20docs%2Fgpt-sweep%2Fexperiment.py%20--app%20modal%20--max-containers%2015%5Cn%60%60%60%22%0A%20%20%20%20%20%20%20%20)%2C%0A%20%20%20%20)%0A%20%20%20%20flat%20%3D%20%7B(a%2C%20lr)%3A%20v%20for%20a%20in%20ARCHS%20for%20lr%20in%20LRS%20if%20(v%20%3A%3D%20curves.get(f%22%7Ba%7D%7C%7Blr%7D%22))%7D%0A%20%20%20%20best_arch%2C%20best_lr%20%3D%20min(flat%2C%20key%3Dlambda%20k%3A%20min(flat%5Bk%5D))%0A%20%20%20%20mo.md(%0A%20%20%20%20%20%20%20%20f%22**Best%20run%3A**%20%7Bbest_arch%7D%20at%20peak%20LR%20%7Bbest_lr%7D%20%E2%80%94%20val_loss%20%22%0A%20%20%20%20%20%20%20%20f%22**%7Bmin(flat%5B(best_arch%2C%20best_lr)%5D)%3A.2f%7D**%20over%20%7Blen(flat)%7D%20architecture%C3%97LR%20cells.%22%0A%20%20%20%20)%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_()%3A%0A%20%20%20%20mo.md(r%22%22%22%0A%20%20%20%20%23%23%20Does%20normalization%20help%3F%20nGPT%20versus%20the%20LayerNorm%20baseline%0A%0A%20%20%20%20nGPT%20added%20a%20fair%20amount%20of%20machinery%2C%20so%20it's%20worth%20checking%20how%20it%20compares%0A%20%20%20%20against%20the%20baseline.%20The%20two%20architectures%20don't%20want%20the%20same%20learning%20rate%3A%0A%20%20%20%20normalization%20rescales%20the%20effective%20gradients%2C%20which%20shifts%20nGPT's%20useful%20LR%0A%20%20%20%20band%20upward.%20To%20isolate%20the%20architecture%2C%20we%20sweep%20both%20across%20the%20same%20three%0A%20%20%20%20peak%20learning%20rates%2C%20with%20the%20same%20warmup-then-cosine%20schedule%2C%20on%20the%20same%0A%20%20%20%20data.%20The%20only%20difference%20within%20each%20panel%20is%20LayerNorm%20versus%20the%20hypersphere.%0A%0A%20%20%20%20-%20**baseline**%20%E2%80%94%20standard%20pre-norm%20transformer%20(LayerNorm%20%2B%20additive%20residual).%0A%20%20%20%20-%20**nGPT**%20%E2%80%94%20normalized%20transformer%20as%20published%20(per-channel%20eigen%20learning%20rates).%0A%20%20%20%20-%20**nGPT%20(scalar)**%20%E2%80%94%20a%20single%20learnable%20scalar%20gate%20per%20sub-module%20instead%20of%0A%20%20%20%20%20%20per-channel%20weights.%0A%0A%20%20%20%20Both%20nGPT%20arms%20use%20the%20corrected%20normalized-LERP%20residual%20(see%20the%20next%0A%20%20%20%20section)%3B%20at%20this%20width%20the%20correction%20is%20invisible%2C%20so%20this%20is%20a%20clean%0A%20%20%20%20architecture%20comparison.%0A%20%20%20%20%22%22%22)%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_(curves)%3A%0A%20%20%20%20mo.stop(not%20curves)%0A%0A%20%20%20%20%40themed(%0A%20%20%20%20%20%20%20%20alt_text%3D%22Three%20panels%2C%20one%20per%20peak%20learning%20rate.%20Each%20plots%20validation%20loss%20versus%20epoch%20%22%0A%20%20%20%20%20%20%20%20%22for%20the%20baseline%2C%20nGPT%2C%20and%20nGPT%20(scalar)%20architectures%2C%20with%20the%20minimum%20of%20each%20curve%20marked.%20%22%0A%20%20%20%20%20%20%20%20%22At%20the%20lowest%20learning%20rate%20the%20baseline%20edges%20ahead%3B%20at%20higher%20rates%20the%20two%20nGPT%20variants%20reach%20%22%0A%20%20%20%20%20%20%20%20%22slightly%20lower%20loss%20and%20track%20each%20other%20almost%20exactly.%22%0A%20%20%20%20)%0A%20%20%20%20def%20plot()%20-%3E%20plt.Figure%3A%0A%20%20%20%20%20%20%20%20fig%2C%20axes%20%3D%20plt.subplots(1%2C%203%2C%20figsize%3D(12%2C%203.6)%2C%20sharey%3DTrue)%0A%20%20%20%20%20%20%20%20for%20ax%2C%20lr%20in%20zip(axes%2C%20LRS%2C%20strict%3DTrue)%3A%0A%20%20%20%20%20%20%20%20%20%20%20%20for%20arch%20in%20ARCHS%3A%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20ys%20%3D%20curves.get(f%22%7Barch%7D%7C%7Blr%7D%22)%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20if%20not%20ys%3A%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20continue%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20ax.plot(range(1%2C%20len(ys)%20%2B%201)%2C%20ys%2C%20color%3DARCH_COLORS%5Barch%5D%2C%20lw%3D1.5%2C%20label%3Darch)%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20best%20%3D%20min(range(len(ys))%2C%20key%3Dys.__getitem__)%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20ax.scatter(%5Bbest%20%2B%201%5D%2C%20%5Bys%5Bbest%5D%5D%2C%20color%3DARCH_COLORS%5Barch%5D%2C%20s%3D18%2C%20zorder%3D5)%0A%20%20%20%20%20%20%20%20%20%20%20%20ax.set_title(f%22peak%20LR%20%3D%20%7Blr%7D%22)%0A%20%20%20%20%20%20%20%20%20%20%20%20ax.set_xlabel(%22epoch%22)%0A%20%20%20%20%20%20%20%20%20%20%20%20ax.grid(alpha%3D0.3)%0A%20%20%20%20%20%20%20%20axes%5B0%5D.set_ylabel(%22val_loss%22)%0A%20%20%20%20%20%20%20%20axes%5B0%5D.legend()%0A%20%20%20%20%20%20%20%20fig.tight_layout()%0A%20%20%20%20%20%20%20%20return%20fig%0A%0A%20%20%20%20mo.Html(plot())%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_(curves)%3A%0A%20%20%20%20mo.stop(not%20curves)%0A%0A%20%20%20%20def%20_cell(arch%3A%20str%2C%20lr%3A%20str)%20-%3E%20str%3A%0A%20%20%20%20%20%20%20%20ys%20%3D%20curves.get(f%22%7Barch%7D%7C%7Blr%7D%22)%0A%20%20%20%20%20%20%20%20return%20f%22%7Bmin(ys)%3A.2f%7D%22%20if%20ys%20else%20%22%E2%80%94%22%0A%0A%20%20%20%20%23%20Bold%20the%20best%20(lowest)%20architecture%20in%20each%20LR%20column.%0A%20%20%20%20def%20_row(lr%3A%20str)%20-%3E%20str%3A%0A%20%20%20%20%20%20%20%20vals%20%3D%20%7Ba%3A%20min(curves%5Bf%22%7Ba%7D%7C%7Blr%7D%22%5D)%20for%20a%20in%20ARCHS%20if%20curves.get(f%22%7Ba%7D%7C%7Blr%7D%22)%7D%0A%20%20%20%20%20%20%20%20best%20%3D%20min(vals%2C%20key%3Dlambda%20a%3A%20vals%5Ba%5D)%20if%20vals%20else%20None%0A%20%20%20%20%20%20%20%20cells%20%3D%20%22%20%7C%20%22.join(f%22**%7B_cell(a%2C%20lr)%7D**%22%20if%20a%20%3D%3D%20best%20else%20_cell(a%2C%20lr)%20for%20a%20in%20ARCHS)%0A%20%20%20%20%20%20%20%20return%20f%22%7C%20%7Blr%7D%20%7C%20%7Bcells%7D%20%7C%22%0A%0A%20%20%20%20table%20%3D%20%22%5Cn%22.join(%0A%20%20%20%20%20%20%20%20%5B%22%7C%20peak%20LR%20%7C%20baseline%20%7C%20nGPT%20%7C%20nGPT%20(scalar)%20%7C%22%2C%20%22%7C%20---%20%7C%20---%20%7C%20---%20%7C%20---%20%7C%22%2C%20*(_row(lr)%20for%20lr%20in%20LRS)%5D%0A%20%20%20%20)%0A%20%20%20%20mo.md(f%22%22%22%0A%20%20%20%20Best%20(minimum)%20validation%20loss%20per%20cell%3A%0A%0A%20%20%20%20%7Btable%7D%0A%0A%20%20%20%20Two%20things%20stand%20out.%20**nGPT%20needs%20a%20higher%20learning%20rate%20to%20pay%20off**%20%E2%80%94%20at%20the%0A%20%20%20%20lowest%20rate%20it%20trails%20the%20baseline%2C%20but%20given%20enough%20LR%20it%20reaches%20a%20slightly%0A%20%20%20%20lower%20loss.%20And%20the%20**scalar-gate%20simplification%20matches%20the%20full%20per-channel%0A%20%20%20%20variant**%20almost%20exactly%3A%20the%20per-channel%20granularity%20buys%20nothing%20at%20this%20scale.%0A%0A%20%20%20%20The%20paper's%20headline%20%22trains%20several%20times%20faster%22%20and%20its%20stability%20advantages%0A%20%20%20%20don't%20reproduce%20at%20this%20toy%20scale%20%E2%80%94%20the%20LayerNorm%20baseline%20never%20threatens%20to%0A%20%20%20%20diverge%20%E2%80%94%20so%20at%20this%20scale%20nGPT%20is%20a%20small%20but%20real%20improvement%20in%20final%20loss.%0A%20%20%20%20The%20load-bearing%20piece%20is%20the%20scalar%20gate%20on%20the%20*normalized*%20residual%20(see%20the%0A%20%20%20%20%5Bmodel%20notes%5D(..%2F..%2Fsrc%2Fexperiment%2Fmodel%2FREADME.md))%3B%20the%20rest%20of%20nGPT's%0A%20%20%20%20machinery%20is%20optional%20here.%0A%20%20%20%20%22%22%22)%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_()%3A%0A%20%20%20%20mo.md(r%22%22%22%0A%20%20%20%20%23%23%20The%20residual%20bug%3A%20a%20width-gated%20failure%20the%20gate%20was%20hiding%0A%0A%20%20%20%20The%20nGPT%20residual%20should%20step%20toward%20the%20sub-module's%20**normalized**%20output%2C%0A%20%20%20%20%60h%20%E2%86%90%20Norm(h%20%2B%20%CE%B1%C2%B7(Norm(sub(h))%20%E2%88%92%20h))%60%2C%20which%20makes%20%60%CE%B1%60%20a%20true%20interpolation%0A%20%20%20%20fraction.%20We%20had%20simplified%20it%20to%20a%20raw%20additive%20step%2C%20%60h%20%E2%86%90%20Norm(h%20%2B%20%CE%B1%C2%B7sub(h))%60%2C%0A%20%20%20%20on%20the%20assumption%20that%20%60sub(h)%60%20has%20norm%20%E2%89%88%201.%20It%20doesn't%3A%20the%20MLP%20scales%20its%0A%20%20%20%20pre-activations%20by%20a%20%E2%88%9An_embd%20baseline%20(to%20keep%20GELU%20in%20range)%2C%20so%0A%20%20%20%20%60%E2%80%96MLP(h)%E2%80%96%20%E2%88%9D%20%E2%88%9An_embd%60.%20The%20*effective*%20rotation%20is%20%60%CE%B1%C2%B7%E2%80%96sub(h)%E2%80%96%60%2C%20which%20**grows%0A%20%20%20%20with%20width**%20%E2%80%94%20a%20fixed%20%60%CE%B1%60%20can't%20control%20it.%0A%0A%20%20%20%20Whether%20that%20bites%20depends%20on%20the%20gate.%20Our%20%60%CE%B1%60%20is%20*learnable*%20and%0A%20%20%20%20reparametrized%20by%20%E2%88%9An_embd%2C%20so%20it%20can%20shrink%20as%20width%20grows%20and%20quietly%20absorb%0A%20%20%20%20the%20error%20%E2%80%94%20which%20is%20why%20the%20sweep%20above%20(all%20width%2032)%20saw%20nothing.%20To%20separate%0A%20%20%20%20the%20geometry%20from%20the%20gate%2C%20we%20sweep%20width%20%7B32%2C%2064%2C%20128%7D%20(with%20%60n_ff%20%3D%204%C2%B7n_embd%60%2C%0A%20%20%20%20so%20the%20MLP%20grows%20too)%20at%20depth%2012%20and%20LR%201e-2%2C%20in%20three%20recipes%3A%20the%20additive%0A%20%20%20%20step%20with%20a%20**fixed**%20%60%CE%B1%20%3D%201%2Fn_layer%60%20(exposes%20the%20bug)%2C%20the%20additive%20step%20with%0A%20%20%20%20our%20**learnable**%20%60%CE%B1%60%20(masks%20it)%2C%20and%20the%20**normalized%20LERP**%20(removes%20it).%0A%20%20%20%20%22%22%22)%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_(curves)%3A%0A%20%20%20%20mo.stop(not%20curves%20or%20not%20any(f%22width%7Cfixed%7C%7Bw%7D%22%20in%20curves%20for%20w%20in%20WIDTHS))%0A%20%20%20%20fixed_128%20%3D%20plateau(curves%2C%20%22width%7Cfixed%7C128%22)%0A%20%20%20%20norm_128%20%3D%20plateau(curves%2C%20%22width%7Cnorm%7C128%22)%0A%20%20%20%20norm_spread%20%3D%20max(plateau(curves%2C%20f%22width%7Cnorm%7C%7Bw%7D%22)%20for%20w%20in%20WIDTHS)%20-%20min(%0A%20%20%20%20%20%20%20%20plateau(curves%2C%20f%22width%7Cnorm%7C%7Bw%7D%22)%20for%20w%20in%20WIDTHS%0A%20%20%20%20)%0A%20%20%20%20mo.md(%0A%20%20%20%20%20%20%20%20f%22**A%20fixed%20gate%20exposes%20the%20bug%3B%20the%20fix%20removes%20it.**%20With%20a%20fixed%20step%20size%20the%20additive%20%22%0A%20%20%20%20%20%20%20%20f%22residual%20falls%20apart%20as%20width%20grows%20%E2%80%94%20converged%20loss%20climbs%20to%20**%7Bfixed_128%3A.2f%7D**%20nats%2Fchar%20%22%0A%20%20%20%20%20%20%20%20f%22at%20width%20128.%20The%20normalized-LERP%20fix%20reaches%20**%7Bnorm_128%3A.2f%7D**%20there%2C%20flat%20across%20all%20three%20%22%0A%20%20%20%20%20%20%20%20f%22widths%20(spread%20just%20%7Bnorm_spread%3A.02f%7D%20nats%2Fchar).%20Same%20learning%20rate%2C%20same%20everything%20else%3B%20%22%0A%20%20%20%20%20%20%20%20f%22one%20line%20of%20geometry.%22%0A%20%20%20%20)%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_(curves)%3A%0A%20%20%20%20mo.stop(not%20curves%20or%20not%20any(f%22width%7Cfixed%7C%7Bw%7D%22%20in%20curves%20for%20w%20in%20WIDTHS))%0A%0A%20%20%20%20%40themed(%0A%20%20%20%20%20%20%20%20name%3D%22width-gating%22%2C%0A%20%20%20%20%20%20%20%20alt_text%3D(%0A%20%20%20%20%20%20%20%20%20%20%20%20%22Two%20panels%20sharing%20a%20y-axis.%20Left%2C%20converged%20validation%20loss%20against%20width%20(32%2C%2064%2C%20128%20on%20a%20%22%0A%20%20%20%20%20%20%20%20%20%20%20%20%22log%20axis)%20for%20three%20residual%20recipes.%20The%20additive%20step%20with%20a%20fixed%20gate%20(red)%20starts%20near%20%22%0A%20%20%20%20%20%20%20%20%20%20%20%20%221.5%20at%20width%2032%20and%20climbs%20steeply%20to%20about%203.1%20at%20width%20128%3B%20the%20additive%20step%20with%20a%20%22%0A%20%20%20%20%20%20%20%20%20%20%20%20%22learnable%20gate%20(grey)%20and%20the%20normalized-LERP%20fix%20(teal)%20both%20stay%20flat%20and%20low%20near%201.35%20at%20%22%0A%20%20%20%20%20%20%20%20%20%20%20%20%22every%20width.%20Right%2C%20validation%20loss%20against%20epoch%20at%20width%20128%3A%20the%20fixed-gate%20recipe%20falls%20%22%0A%20%20%20%20%20%20%20%20%20%20%20%20%22during%20warmup%20then%20rises%20and%20sticks%20near%203.1%2C%20while%20the%20learnable-gate%20and%20normalized%20recipes%20%22%0A%20%20%20%20%20%20%20%20%20%20%20%20%22fall%20smoothly%20together%20to%20about%201.34.%22%0A%20%20%20%20%20%20%20%20)%2C%0A%20%20%20%20)%0A%20%20%20%20def%20_plot()%20-%3E%20plt.Figure%3A%0A%20%20%20%20%20%20%20%20colors%20%3D%20resid_colors()%0A%20%20%20%20%20%20%20%20fig%2C%20(ax_l%2C%20ax_r)%20%3D%20plt.subplots(1%2C%202%2C%20figsize%3D(9.5%2C%203.6)%2C%20sharey%3DTrue)%0A%0A%20%20%20%20%20%20%20%20%23%20Left%3A%20converged%20loss%20vs%20width.%0A%20%20%20%20%20%20%20%20for%20arm%2C%20label%20in%20RESID%3A%0A%20%20%20%20%20%20%20%20%20%20%20%20ys%20%3D%20%5Bplateau(curves%2C%20f%22width%7C%7Barm%7D%7C%7Bw%7D%22)%20for%20w%20in%20WIDTHS%5D%0A%20%20%20%20%20%20%20%20%20%20%20%20lw%20%3D%202.6%20if%20arm%20in%20(%22fixed%22%2C%20%22norm%22)%20else%201.8%0A%20%20%20%20%20%20%20%20%20%20%20%20ax_l.plot(WIDTHS%2C%20ys%2C%20%22o-%22%2C%20color%3Dcolors%5Barm%5D%2C%20lw%3Dlw%2C%20label%3Dlabel)%0A%20%20%20%20%20%20%20%20ax_l.set(xlabel%3D%22width%20(n_embd)%22%2C%20ylabel%3D%22converged%20val_loss%20(nats%2Fchar)%22%2C%20xscale%3D%22log%22)%0A%20%20%20%20%20%20%20%20ax_l.set_xticks(WIDTHS%2C%20%5Bstr(w)%20for%20w%20in%20WIDTHS%5D)%0A%20%20%20%20%20%20%20%20ax_l.minorticks_off()%0A%20%20%20%20%20%20%20%20ax_l.grid(alpha%3D0.3)%0A%20%20%20%20%20%20%20%20ax_l.legend(fontsize%3D8)%0A%0A%20%20%20%20%20%20%20%20%23%20Right%3A%20convergence%20at%20the%20failing%20width%20128.%0A%20%20%20%20%20%20%20%20for%20arm%2C%20label%20in%20RESID%3A%0A%20%20%20%20%20%20%20%20%20%20%20%20ys%20%3D%20curves%5Bf%22width%7C%7Barm%7D%7C128%22%5D%0A%20%20%20%20%20%20%20%20%20%20%20%20lw%20%3D%202.0%20if%20arm%20in%20(%22fixed%22%2C%20%22norm%22)%20else%201.4%0A%20%20%20%20%20%20%20%20%20%20%20%20ax_r.plot(range(1%2C%20len(ys)%20%2B%201)%2C%20ys%2C%20color%3Dcolors%5Barm%5D%2C%20lw%3Dlw%2C%20label%3Dlabel)%0A%20%20%20%20%20%20%20%20ax_r.axvline(10%2C%20color%3D%22%238888%22%2C%20lw%3D1%2C%20ls%3D%22%3A%22%2C%20label%3D%22end%20of%20LR%20warmup%22)%0A%20%20%20%20%20%20%20%20ax_r.set(title%3D%22width%20128%22%2C%20xlabel%3D%22epoch%22)%0A%20%20%20%20%20%20%20%20ax_r.grid(alpha%3D0.3)%0A%20%20%20%20%20%20%20%20ax_r.legend(fontsize%3D8)%0A%20%20%20%20%20%20%20%20fig.tight_layout()%0A%20%20%20%20%20%20%20%20return%20fig%0A%0A%20%20%20%20mo.Html(_plot())%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_(curves)%3A%0A%20%20%20%20mo.stop(not%20curves%20or%20not%20any(f%22width%7Cfixed%7C%7Bw%7D%22%20in%20curves%20for%20w%20in%20WIDTHS))%0A%20%20%20%20_f%20%3D%20%7Bw%3A%20plateau(curves%2C%20f%22width%7Cfixed%7C%7Bw%7D%22)%20for%20w%20in%20WIDTHS%7D%0A%20%20%20%20_a%20%3D%20%7Bw%3A%20plateau(curves%2C%20f%22width%7Cadd%7C%7Bw%7D%22)%20for%20w%20in%20WIDTHS%7D%0A%20%20%20%20_n%20%3D%20%7Bw%3A%20plateau(curves%2C%20f%22width%7Cnorm%7C%7Bw%7D%22)%20for%20w%20in%20WIDTHS%7D%0A%20%20%20%20mo.md(f%22%22%22%0A%20%20%20%20With%20a%20**fixed**%20step%20the%20additive%20residual%20is%20fine%20narrow%20and%20breaks%20wide%3A%0A%20%20%20%20%7B_f%5B32%5D%3A.2f%7D%20%E2%86%92%20%7B_f%5B64%5D%3A.2f%7D%20%E2%86%92%20%7B_f%5B128%5D%3A.2f%7D%20nats%2Fchar%20across%20widths%2032%20%2F%2064%20%2F%20128.%0A%20%20%20%20At%20width%20128%20it%20never%20really%20trains%20%E2%80%94%20the%20hidden%20state%20over-rotates%20through%20every%0A%20%20%20%20layer%20until%20the%20token's%20identity%20is%20lost.%20That's%20the%20failure%20the%20normalized%0A%20%20%20%20residual%20exists%20to%20prevent.%0A%0A%20%20%20%20Two%20things%20rescue%20it%2C%20for%20different%20reasons.%20Our%20**learnable**%20%60%CE%B1%60%20masks%20the%20bug%0A%20%20%20%20(%7B_a%5B32%5D%3A.2f%7D%20%E2%86%92%20%7B_a%5B64%5D%3A.2f%7D%20%E2%86%92%20%7B_a%5B128%5D%3A.2f%7D)%3A%20reparametrized%20by%20%E2%88%9An_embd%2C%20it%0A%20%20%20%20shrinks%20as%20width%20grows%20and%20happens%20to%20cancel%20the%20%60%E2%80%96sub(h)%E2%80%96%60%20growth%20%E2%80%94%20but%20that's%0A%20%20%20%20the%20gate%20laundering%20a%20geometry%20error%2C%20not%20a%20correct%20residual.%20The%20**normalized%0A%20%20%20%20LERP**%20removes%20the%20error%20at%20the%20source%20(%7B_n%5B32%5D%3A.2f%7D%20%E2%86%92%20%7B_n%5B64%5D%3A.2f%7D%20%E2%86%92%20%7B_n%5B128%5D%3A.2f%7D)%3A%0A%20%20%20%20normalizing%20%60sub(h)%60%20makes%20%60%CE%B1%60%20a%20true%20interpolation%20fraction%2C%20so%20the%20per-layer%0A%20%20%20%20rotation%20is%20%E2%89%88%20%60%CE%B1%60%20regardless%20of%20width%20or%20gate.%0A%0A%20%20%20%20This%20is%20why%20the%20correction%20matters%20even%20though%20the%20architecture%20sweep%20couldn't%0A%20%20%20%20see%20it%3A%20the%20scalar-gate%20nGPT%20we%20ship%20is%20only%20safe%20because%20*something*%20controls%20the%0A%20%20%20%20residual%20geometry%2C%20and%20the%20normalized%20LERP%20does%20it%20by%20construction%20rather%20than%20by%0A%20%20%20%20luck.%20The%20additive%20forms%20survive%20as%20%60config.normalize_sublayer%3DFalse%60%20(with%0A%20%20%20%20%60learnable_alpha%3DFalse%60%20for%20the%20fixed%20gate)%2C%20kept%20solely%20to%20reproduce%20this%20failure%3B%0A%20%20%20%20the%20normalized%20LERP%20is%20the%20default.%20See%20the%0A%20%20%20%20%5Bmodel%20notes%5D(..%2F..%2Fsrc%2Fexperiment%2Fmodel%2FREADME.md)%20for%20the%20geometry.%0A%20%20%20%20%22%22%22)%0A%20%20%20%20return%0A%0A%0A%40app.cell(hide_code%3DTrue)%0Adef%20_()%3A%0A%20%20%20%20mo.md(r%22%22%22%0A%20%20%20%20%23%23%20References%0A%0A%20%20%20%20Loshchilov%2C%20I.%2C%20Hsieh%2C%20C.-P.%2C%20Sun%2C%20S.%2C%20%26%20Ginsburg%2C%20B.%20(2024).%20nGPT%3A%20Normalized%0A%20%20%20%20transformer%20with%20representation%20learning%20on%20the%20hypersphere.%20_arXiv_.%0A%20%20%20%20https%3A%2F%2Farxiv.org%2Fabs%2F2410.01131%0A%0A%20%20%20%20Karpathy%2C%20A.%20(2022).%20nanoGPT%20%5BComputer%20software%5D.%20GitHub.%0A%20%20%20%20https%3A%2F%2Fgithub.com%2Fkarpathy%2FnanoGPT%0A%20%20%20%20%22%22%22)%0A%20%20%20%20return%0A%0A%0Aif%20__name__%20%3D%3D%20%22__main__%22%3A%0A%20%20%20%20app.run()%0A
+</marimo-code>
+
+<marimo-code-hash hidden="">ad5444e47029c56dc9397a2ea0007720</marimo-code-hash>
+</body>
+</html>
