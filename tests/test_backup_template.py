@@ -6,6 +6,7 @@ The code leg runs against real temporary git repos, since what it checks is git'
 import ast
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -15,6 +16,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import yaml
 from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 
 SCRIPT = Path(__file__).parents[1] / "templates" / "backup" / "backup.py"
@@ -650,3 +652,96 @@ def test_ruff_config_stands_alone_where_the_template_is_installed(tmp_path):
         text=True,
     )
     assert ruff.returncode == 0, ruff.stderr or ruff.stdout
+
+
+# -- the workflow's record step ----------------------------------------------------------
+
+
+def record_step() -> str:
+    """The `Record the run` step's script, read from the workflow so the test can't drift from it."""
+    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["backup"]["steps"]
+    return next(s["run"] for s in steps if s.get("name") == "Record the run")
+
+
+@pytest.fixture
+def backup_repo(tmp_path):
+    """A bare `origin` on `main` and a `clone(name)` helper, so several runs can share one parent.
+
+    `bash -e` and `-o pipefail` are what Actions gives a `run:` step on Linux, and the retry
+    limit is written the way it is because of `-e`, so running it any other way would miss that.
+    """
+    origin = tmp_path / "origin.git"
+    git("init", "--bare", "--initial-branch=main", str(origin), cwd=tmp_path)
+    seed = tmp_path / "seed"
+    git("clone", str(origin), str(seed), cwd=tmp_path)
+    (seed / "state").mkdir()
+    (seed / "state" / ".gitkeep").write_text("")
+    git("add", "-A", cwd=seed)
+    git("commit", "-qm", "seed", cwd=seed)
+    git("push", "origin", "main", cwd=seed)
+
+    def clone(name: str) -> Path:
+        path = tmp_path / name
+        git("clone", str(origin), str(path), cwd=tmp_path)
+        return path
+
+    def record(path: Path):
+        return subprocess.run(
+            ["bash", "-e", "-o", "pipefail", "-c", record_step()],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "GITHUB_REF_NAME": "main"},
+        )
+
+    return SimpleNamespace(origin=origin, clone=clone, record=record)
+
+
+def test_record_pushes_the_run(backup_repo):
+    run = backup_repo.clone("a")
+    (run / "state" / "last-run.json").write_text('{"run": "a"}')
+
+    assert backup_repo.record(run).returncode == 0
+    assert git("show", "origin/main:state/last-run.json", cwd=run) == '{"run": "a"}'
+
+
+def test_record_rebases_onto_a_run_that_landed_first(backup_repo):
+    """Several runs dispatched at once check out the same sha, so all but the first push onto a stale parent."""
+    first, second = backup_repo.clone("first"), backup_repo.clone("second")
+    (first / "state" / "last-run.json").write_text('{"run": "first"}')
+    (second / "state" / "last-run.json").write_text('{"run": "second"}')
+    (second / "state" / "store-missing.json").write_text("{}")
+
+    assert backup_repo.record(first).returncode == 0
+    result = backup_repo.record(second)
+
+    assert result.returncode == 0, result.stderr
+    assert git("show", "origin/main:state/last-run.json", cwd=second) == '{"run": "second"}'
+    assert git("show", "origin/main:state/store-missing.json", cwd=second) == "{}"
+    # Both runs are on the branch: the later one rebased onto the earlier rather than replacing it.
+    assert len(git("log", "--oneline", "origin/main", cwd=second).splitlines()) == 3
+
+
+def test_record_with_nothing_to_commit_pushes_nothing(backup_repo):
+    """A run whose state is unchanged, and one that failed before `backup.py` wrote anything, both land here."""
+    run = backup_repo.clone("a")
+
+    result = backup_repo.record(run)
+
+    assert result.returncode == 0, result.stderr
+    assert len(git("log", "--oneline", "origin/main", cwd=run).splitlines()) == 1
+
+
+def test_record_gives_up_rather_than_retrying_for_ever(backup_repo):
+    """A push that can never land must end the step, not spin: the retry is for a stale parent alone."""
+    hook = backup_repo.origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    run = backup_repo.clone("a")
+    (run / "state" / "last-run.json").write_text('{"run": "a"}')
+
+    result = backup_repo.record(run)
+
+    # That the test returns at all is the bound; the exit code is what turns the step red.
+    assert result.returncode == 1
+    assert result.stderr.lower().count("rejected") == 4  # the first push and three retries
