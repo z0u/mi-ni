@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [tooling, storage]
 opened: 2026-09-05
+closed: 2026-09-05
 bundle: backup-template
 ---
 # The backup template's `ruff.toml` extends a file the backup repo doesn't have
@@ -13,3 +14,5 @@ The fix is to make the file self-contained — `target-version = "py312"` and wh
 ## Notes
 
 **2026-09-05, setup** — Found while installing the template into sca2's backup repo ([z0u/sca2#146](https://github.com/z0u/sca2/pull/146)). That install dropped the `extend` line by hand, so the two copies differ until this lands.
+
+**2026-09-05, Opus** — Done. The file is self-contained now: the `py312` target, the line length, the Markdown exclusion, and the `select`/`ignore` pair the `extend` had been supplying, which is more than the item expected to find behind that one line. Linting `templates/backup/` from this repo is unchanged. A test copies the template somewhere with nothing above it and runs ruff there, which is the only place the flaw shows; it fails with the old config, for the reason above.

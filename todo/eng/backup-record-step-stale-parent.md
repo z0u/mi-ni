@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [tooling, storage]
 opened: 2026-09-05
+closed: 2026-09-05
 bundle: backup-template
 ---
 # A queued backup run can't record itself: the push is rejected on a stale parent
@@ -31,3 +32,7 @@ Re-running after a rejection is safe meanwhile, and costs no repeated work: ever
 ## Notes
 
 **2026-09-05, setup** — Met while installing the template into sca2's backup repo ([z0u/sca2#146](https://github.com/z0u/sca2/pull/146)). The patch above is applied by hand in `z0u-bot/sca2-backup`, so that copy of the workflow is ahead of the template until this lands.
+
+**2026-09-05, Opus** — Done, with the patch as written. Four tests run the step's own script (read out of the workflow, so they can't drift from it) under `bash -e -o pipefail` against real clones sharing a parent: a clean push, a rejected-then-rebased push where both runs survive on the branch, nothing to commit, and a repo that always rejects, so the retry limit ends the step rather than spinning.
+
+One correction to the item. The stated reason for preferring `if …; then exit 1; fi` — that `[ … ] && exit 1` aborts under `bash -e` when the test is false — does not hold: a command on the left of `&&` is exempt from that rule, and the loop runs on. The `if` form is still the one to write, because it says what it means without anyone having to know that.

@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [storage, tooling, security]
 opened: 2026-09-05
+closed: 2026-09-05
 bundle: backup-template
 ---
 # The backup's store leg can't copy from a private source bucket
@@ -21,3 +22,7 @@ Fix the diagnostics in the same pass. The batch endpoint returns a per-file reas
 ## Notes
 
 **2026-09-05, setup** — Diagnosed while installing the template into sca2's backup repo ([z0u/sca2#146](https://github.com/z0u/sca2/pull/146)). That project took the first fix — `z0u/sca2-store` is now public, which nothing in it argued against — so its backup runs clean and nothing there waits on this. What stays open is the template's half: it cannot back up a *private* bucket at all, and the run record swallows the reason. Both are worth fixing so the next project isn't asked to choose between a private store and a working backup.
+
+**2026-09-05, Opus** — Done, the third fix as described. `readable()` asks `bucket_info` once before the copy; where the answer is no, every file goes the path the non-Xet files already took. Batches there are bounded by bytes as well as count (`STAGE_BYTES`, 2 GB) since that path now carries whole stores, with a file larger than the budget going alone rather than being refused. `bucket_batch()` keeps the response body, so a refusal reaches `state/last-run.json` with the Hub's own per-file reason.
+
+Tested against the fake API, which grew a `bucket_info` that distinguishes what the *backup bucket's* credential can see from what the source's read token can — that split being the whole subject. Not exercised against a real private bucket: sca2's is public now, and standing up another to test it wasn't worth the setup. The two configuration fixes stay in the skill as the faster options, since the server-side copy is still the one that costs nothing.
