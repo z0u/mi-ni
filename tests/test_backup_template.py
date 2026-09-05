@@ -1,6 +1,6 @@
 """The backup template's payload script (`templates/backup/backup.py`).
 
-The code leg runs against real temporary git repos, since what it checks is git's behavior (what a non-fast-forward push does, what a tag refspec without `+` refuses). The two Hugging Face legs run against a fake API that keeps the backup dataset as a dict of path → bytes and appends to it on every `upload_folder`, which is all the script relies on: the never-delete invariant is then checkable as "nothing leaves the dict".
+The code leg runs against real temporary git repos, since what it checks is git's behavior (what a non-fast-forward push does, what a tag refspec without `+` refuses). The Hugging Face legs run against a fake API that keeps the backup dataset and the backup bucket as dicts and applies each call to them, which is all the script relies on: the never-delete invariant is then checkable as "nothing leaves the dataset dict, and nothing leaves the bucket dict before its window ends".
 """
 
 import ast
@@ -59,30 +59,37 @@ def source(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def mirror(tmp_path: Path) -> Path:
+    """A bare repo standing in for the mirror repo on GitHub."""
+    root = tmp_path / "mirror.git"
+    git("init", "-q", "--bare", str(root), cwd=tmp_path)
+    return root
+
+
+@pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A checkout of the (empty) backup repo, with a bare `origin` standing in for GitHub."""
-    origin = tmp_path / "origin.git"
-    git("init", "-q", "--bare", str(origin), cwd=tmp_path)
-    checkout = tmp_path / "backup-repo"
-    subprocess.run(["git", "clone", "-q", str(origin), str(checkout)], check=True, capture_output=True)
-    return checkout
+    """The backup repo's checkout: scratch, as far as the code leg is concerned. Fresh per test, like a runner."""
+    root = tmp_path / "backup-repo"
+    root.mkdir()
+    git("init", "-q", "-b", "main", cwd=root)
+    return root
 
 
-def origin_refs(repo: Path) -> dict[str, str]:
-    out = git("ls-remote", "origin", cwd=repo)
-    return {ref: sha for sha, ref in (line.split("\t") for line in out.splitlines())}
+def mirror_refs(mirror: Path) -> dict[str, str]:
+    out = git("for-each-ref", "--format=%(refname) %(objectname)", cwd=mirror)
+    return dict(line.split(" ") for line in out.splitlines())
 
 
 # -- code leg --------------------------------------------------------------------------
 
 
-def test_code_first_run_mirrors_snapshots_and_copies_tags(backup, source, repo):
+def test_code_first_run_mirrors_snapshots_and_copies_tags(backup, source, mirror, repo):
     tip = git("rev-parse", "main", cwd=source)
     v1 = git("rev-parse", "v1", cwd=source)
 
-    report = backup.backup_code(str(source), repo, prev_sha=None, dry_run=False)
+    report = backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=False)
 
-    refs = origin_refs(repo)
+    refs = mirror_refs(mirror)
     assert refs["refs/heads/mirror"] == tip
     assert refs["refs/tags/source/v1"] == v1
     assert refs[f"refs/tags/{report.snapshot}"] == tip
@@ -90,48 +97,93 @@ def test_code_first_run_mirrors_snapshots_and_copies_tags(backup, source, repo):
     assert report.to_dict() == {"source": str(source), "sha": tip, "snapshot": report.snapshot}
 
 
-def test_code_unchanged_tip_makes_no_snapshot(backup, source, repo):
+def test_code_unchanged_tip_makes_no_snapshot(backup, source, mirror, repo):
     tip = git("rev-parse", "main", cwd=source)
-    first = backup.backup_code(str(source), repo, prev_sha=None, dry_run=False)
+    first = backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=False)
 
-    second = backup.backup_code(str(source), repo, prev_sha=tip, dry_run=False)
+    second = backup.backup_code(str(source), str(mirror), repo, prev_sha=tip, dry_run=False)
 
     assert second.to_dict() == {"source": str(source), "sha": tip}
-    assert [r for r in origin_refs(repo) if r.startswith("refs/tags/snap/")] == [f"refs/tags/{first.snapshot}"]
+    assert [r for r in mirror_refs(mirror) if r.startswith("refs/tags/snap/")] == [f"refs/tags/{first.snapshot}"]
 
 
-def test_code_rewritten_history_is_refused_reported_and_still_snapshotted(backup, source, repo):
+def test_code_rewritten_history_is_refused_reported_and_still_snapshotted(backup, source, mirror, repo):
     old_tip = git("rev-parse", "main", cwd=source)
-    backup.backup_code(str(source), repo, prev_sha=None, dry_run=False)
+    backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=False)
     git("reset", "-q", "--hard", "HEAD~1", cwd=source)
     new_tip = commit(source, "rewritten")
 
-    report = backup.backup_code(str(source), repo, prev_sha=old_tip, dry_run=False)
+    report = backup.backup_code(str(source), str(mirror), repo, prev_sha=old_tip, dry_run=False)
 
-    refs = origin_refs(repo)
+    refs = mirror_refs(mirror)
     assert refs["refs/heads/mirror"] == old_tip  # never forced
     assert refs[f"refs/tags/{report.snapshot}"] == new_tip  # but the night's tip is recorded
     assert re.fullmatch(r"snap/\d{4}-\d\d-\d\dT\d{4}Z", report.snapshot)  # same-day collision → time suffix
     assert any("rewritten" in n for n in report.notes)
 
 
-def test_code_a_moved_source_tag_stays_where_first_seen(backup, source, repo):
+def test_code_a_moved_source_tag_stays_where_first_seen(backup, source, mirror, repo):
     v1 = git("rev-parse", "v1", cwd=source)
-    backup.backup_code(str(source), repo, prev_sha=None, dry_run=False)
+    backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=False)
     git("tag", "-f", "v1", "main", cwd=source)
 
-    report = backup.backup_code(str(source), repo, prev_sha=git("rev-parse", "main", cwd=source), dry_run=False)
+    report = backup.backup_code(
+        str(source), str(mirror), repo, prev_sha=git("rev-parse", "main", cwd=source), dry_run=False
+    )
 
-    assert origin_refs(repo)["refs/tags/source/v1"] == v1
+    assert mirror_refs(mirror)["refs/tags/source/v1"] == v1
     assert any("tags" in n for n in report.notes)
 
 
-def test_code_dry_run_fetches_but_pushes_nothing(backup, source, repo):
-    report = backup.backup_code(str(source), repo, prev_sha=None, dry_run=True)
+def test_code_dry_run_fetches_but_pushes_nothing(backup, source, mirror, repo):
+    report = backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=True)
 
     assert (report.sha, report.snapshot) == (git("rev-parse", "main", cwd=source), report.snapshot)
     assert report.snapshot.startswith("snap/")
-    assert origin_refs(repo) == {}
+    assert mirror_refs(mirror) == {}
+
+
+def test_github_slug_only_for_github_urls(backup):
+    assert backup.github_slug("https://github.com/o/mirror.git") == "o/mirror"
+    assert backup.github_slug("https://github.com/o/mirror") == "o/mirror"
+    assert backup.github_slug("/tmp/mirror.git") is None
+    assert backup.github_slug("https://gitlab.example/o/mirror.git") is None
+
+
+def test_check_mirror_refuses_a_github_repo_with_actions_enabled(backup, monkeypatch):
+    asked: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(backup, "actions_enabled", lambda slug, token: (asked.append((slug, token)), True)[1])
+
+    with pytest.raises(RuntimeError, match="Actions is enabled on o/mirror"):
+        backup.check_mirror("https://github.com/o/mirror.git", "tok")
+    assert asked == [("o/mirror", "tok")]
+
+    monkeypatch.setattr(backup, "actions_enabled", lambda slug, token: False)
+    backup.check_mirror("https://github.com/o/mirror.git", "tok")  # off: fine
+    backup.check_mirror("/tmp/mirror.git", None)  # not GitHub: not this leg's call
+
+
+def test_actions_enabled_asks_the_api_with_the_token_and_fails_closed(backup, monkeypatch):
+    import io
+    import urllib.error
+    from email.message import Message
+
+    seen = {}
+
+    def urlopen(req):
+        seen["url"], seen["auth"] = req.full_url, req.get_header("Authorization")
+        return io.BytesIO(b'{"enabled": false}')
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    assert backup.actions_enabled("o/mirror", "tok") is False
+    assert seen == {"url": "https://api.github.com/repos/o/mirror/actions/permissions", "auth": "Bearer tok"}
+
+    def forbidden(req):
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", Message(), None)
+
+    monkeypatch.setattr("urllib.request.urlopen", forbidden)
+    with pytest.raises(RuntimeError, match="Administration read"):
+        backup.actions_enabled("o/mirror", "tok")
 
 
 # -- Hugging Face fixtures ---------------------------------------------------------------
@@ -144,8 +196,8 @@ def repo_not_found():
     )
 
 
-def entry(path: str, size: int = 1):
-    return SimpleNamespace(path=path, size=size, type="file")
+def entry(path: str, size: int = 1, xet_hash: str | None = "h"):
+    return SimpleNamespace(path=path, size=size, type="file", xet_hash=xet_hash)
 
 
 def hf_commit(sha: str, title: str = "publish"):
@@ -153,24 +205,43 @@ def hf_commit(sha: str, title: str = "publish"):
 
 
 class FakeApi:
-    """Two sources and one backup dataset, in memory."""
+    """Two sources, one backup dataset and one backup bucket, in memory.
+
+    Bucket contents are `path → bytes`; a file's xet hash is its content, so a server-side copy by hash is a dict lookup.
+    """
 
     def __init__(self, tmp_path: Path):
         self.tmp = tmp_path
-        self.bucket: dict[str, bytes] = {}  # path → content
+        self.bucket: dict[str, bytes] = {}  # the source bucket
+        self.backup_bucket: dict[str, bytes] | None = {}  # None → not created yet
         self.history: list[tuple[str, dict[str, bytes]]] = []  # newest first: (sha, files at that revision)
-        self.backup: dict[str, bytes] | None = {}  # None → the dataset doesn't exist
+        self.backup: dict[str, bytes] | None = {}  # the dataset; None → doesn't exist
         self.uploads: list[dict] = []
         self.downloaded: list[str] = []
+        self.batches: list[dict] = []
 
-    # -- store bucket
+    # -- buckets
     def list_bucket_tree(self, bucket, recursive):
-        return [entry(p, len(b)) for p, b in self.bucket.items()]
+        files = {"ns/store": self.bucket, "ns/backup-store": self.backup_bucket}[bucket]
+        if files is None:
+            raise repo_not_found()
+        return [entry(p, len(b), xet_hash=b.decode()) for p, b in files.items()]
 
     def download_bucket_files(self, bucket, files, raise_on_missing_files):
         for e, dest in files:
             self.downloaded.append(e.path)
             Path(dest).write_bytes(self.bucket[e.path])
+
+    def batch_bucket_files(self, bucket, *, add=None, copy=None, delete=None):
+        assert bucket == "ns/backup-store" and self.backup_bucket is not None
+        self.batches.append({"add": len(add or []), "copy": len(copy or []), "delete": len(delete or [])})
+        for src, dest in add or []:
+            self.backup_bucket[dest] = Path(src).read_bytes()
+        for kind, source, xet_hash, dest in copy or []:
+            assert (kind, source) == ("bucket", "ns/store")
+            self.backup_bucket[dest] = xet_hash.encode()  # by hash: the bytes never pass through here
+        for path in delete or []:
+            del self.backup_bucket[path]
 
     # -- publish repo
     def list_repo_commits(self, repo, repo_type):
@@ -224,41 +295,106 @@ def api(tmp_path):
 # -- store leg ----------------------------------------------------------------------
 
 
-def test_store_copies_only_what_the_backup_lacks_plus_every_ref(backup, api, tmp_path):
-    api.bucket = {"cas/aa/1": b"one", "cas/bb/2": b"two", "refs/run/x": b"ptr"}
-    api.backup = {"store/cas/aa/1": b"one", "store/refs/run/x": b"old"}
+def store(backup, api, tmp_path, *, missing=None, retain_days=90, dry_run=False):
+    return backup.backup_store(
+        api,
+        api,
+        api,
+        "ns/store",
+        "ns/backup",
+        "ns/backup-store",
+        tmp_path / "w",
+        missing or {},
+        retain_days=retain_days,
+        dry_run=dry_run,
+    )
 
-    report = backup.backup_store(api, api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=1 << 20, dry_run=False)
 
-    assert sorted(api.downloaded) == ["cas/bb/2", "refs/run/x"]
-    assert api.backup == {"store/cas/aa/1": b"one", "store/cas/bb/2": b"two", "store/refs/run/x": b"ptr"}
+def test_store_copies_by_hash_what_the_backup_lacks_and_keeps_refs_history(backup, api, tmp_path):
+    api.bucket = {"cas/aa/1": b"one", "cas/bb/2": b"two", "refs/run/x.json": b"ptr"}
+    api.backup_bucket = {"cas/aa/1": b"one", "refs/run/x.json": b"old"}
+
+    report, missing = store(backup, api, tmp_path)
+
+    assert api.backup_bucket == api.bucket  # the new blob, and the ref whose hash changed
+    assert api.batches == [{"add": 0, "copy": 2, "delete": 0}]
+    assert api.downloaded == ["refs/run/x.json"]  # the refs, for the dataset; no CAS bytes through the runner
+    assert api.backup == {"store/refs/run/x.json": b"ptr"}
     assert report.to_dict() == {"source": "ns/store", "seen": 3, "copied": 2, "bytes": 6, "commits": ["b1"]}
+    assert missing == {}
     assert not (tmp_path / "w" / "store").exists()
 
 
-def test_store_dry_run_sizes_the_copy_and_uploads_nothing(backup, api, tmp_path):
-    api.bucket = {"cas/aa/1": b"12345"}
-    api.backup = None  # not created yet
+def test_store_a_file_without_a_xet_hash_goes_the_long_way_round(backup, api, tmp_path, monkeypatch):
+    api.bucket = {"cas/aa/1": b"one"}
+    monkeypatch.setattr(
+        api,
+        "list_bucket_tree",
+        lambda bucket, recursive: [entry("cas/aa/1", 3, xet_hash=None)] if bucket == "ns/store" else [],
+    )
 
-    report = backup.backup_store(api, api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=1 << 20, dry_run=True)
+    report, _ = store(backup, api, tmp_path)
+
+    assert api.downloaded == ["cas/aa/1"] and api.backup_bucket == {"cas/aa/1": b"one"}
+    assert api.batches == [{"add": 1, "copy": 0, "delete": 0}]
+
+
+def test_store_keeps_what_the_source_dropped_until_the_window_ends(backup, api, tmp_path):
+    api.bucket = {"cas/keep": b"k"}
+    api.backup_bucket = {"cas/keep": b"k", "cas/new-gone": b"n", "cas/old-gone": b"o"}
+
+    report, missing = store(backup, api, tmp_path, missing={"cas/old-gone": "2000-01-01"})
+
+    assert api.backup_bucket == {"cas/keep": b"k", "cas/new-gone": b"n"}  # the old one expired, the new one waits
+    assert api.batches == [{"add": 0, "copy": 0, "delete": 1}]
+    assert list(missing) == ["cas/new-gone"] and missing["cas/new-gone"].startswith("20")
+    assert (report.missing, report.expired) == (1, 1)
+    assert report.notes == ["1 file(s) newly missing from the source, kept for 90 days"]
+
+
+def test_store_a_file_that_returns_to_the_source_leaves_the_missing_list(backup, api, tmp_path):
+    api.bucket = api.backup_bucket = {"cas/back": b"b"}
+
+    _, missing = store(backup, api, tmp_path, missing={"cas/back": "2000-01-01"})
+
+    assert missing == {} and api.backup_bucket == {"cas/back": b"b"}
+
+
+def test_store_warns_when_most_of_the_source_vanishes_overnight(backup, api, tmp_path, capsys):
+    api.bucket = {}
+    api.backup_bucket = {"cas/1": b"1", "cas/2": b"2"}
+
+    report, missing = store(backup, api, tmp_path)
+
+    assert len(missing) == 2 and api.backup_bucket == {"cas/1": b"1", "cas/2": b"2"}  # nothing deleted today
+    assert report.notes == ["2 of 2 backed-up files vanished from the source overnight — inspect the source"]
+    assert "::warning::" in capsys.readouterr().out
+
+
+def test_store_dry_run_sizes_the_copy_and_writes_nothing(backup, api, tmp_path):
+    api.bucket = {"cas/aa/1": b"12345"}
+    api.backup_bucket = None  # not created yet
+    api.backup = None
+
+    report, _ = store(backup, api, tmp_path, dry_run=True)
 
     assert (report.copied, report.bytes) == (1, 5)
-    assert api.uploads == [] and api.downloaded == []
+    assert api.uploads == [] and api.downloaded == [] and api.batches == []
 
 
-def test_store_splits_a_large_delta_into_one_commit_per_batch(backup, api, tmp_path):
-    api.bucket = {f"cas/{i}": bytes(3) for i in range(5)}
+def test_retention_is_a_clock_the_source_can_start_but_not_hurry(backup):
+    from datetime import date
 
-    report = backup.backup_store(api, api, "ns/store", "ns/backup", tmp_path / "w", batch_bytes=7, dry_run=False)
-
-    assert [len(u["files"]) for u in api.uploads] == [2, 2, 1]
-    assert report.commits == ["b1", "b2", "b3"]
-    assert len(api.backup) == 5
-
-
-def test_batches_never_splits_a_file_larger_than_the_limit(backup):
-    big, small = entry("big", 10), entry("small", 1)
-    assert list(backup.batches([small, big, small], limit=4)) == [[small], [big], [small]]
+    today = date(2026, 9, 5)
+    missing, expired = backup.retention(
+        {"a": "2026-06-01", "b": "2026-06-10", "returned": "2026-01-01"},
+        source={"kept", "returned"},
+        have={"kept", "returned", "a", "b", "fresh"},
+        today=today,
+        retain_days=90,
+    )
+    assert expired == ["a"]  # 96 days
+    assert missing == {"b": "2026-06-10", "fresh": "2026-09-05"}  # b at 87 days waits; fresh starts today
 
 
 # -- publish leg --------------------------------------------------------------------
@@ -321,20 +457,23 @@ def test_publish_dry_run_counts_without_touching_anything(backup, api, tmp_path)
 
 @pytest.fixture
 def hf_tokens() -> list:
-    """What each `HfApi(...)` was given, in construction order: the source client, then the backup client."""
+    """What each `HfApi(...)` was given, in construction order: the source client, the dataset client, the bucket client."""
     return []
 
 
 @pytest.fixture
-def run(backup, api, source, repo, tmp_path, monkeypatch, hf_tokens):
+def run(backup, api, source, mirror, repo, tmp_path, monkeypatch, hf_tokens):
     """Run `main()` with the fake API and the temporary git repos, from a scratch cwd; returns (exit code, state dict)."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SOURCE_REPO", str(source))
+    monkeypatch.setenv("MIRROR_REPO", str(mirror))
     monkeypatch.setenv("SOURCE_BUCKET", "ns/store")
     monkeypatch.setenv("SOURCE_PUBLISH_REPO", "ns/pub")
     monkeypatch.setenv("BACKUP_DATASET", "ns/backup")
+    monkeypatch.setenv("BACKUP_BUCKET", "ns/backup-store")
     monkeypatch.setenv("HF_TOKEN", "t-write")
     monkeypatch.delenv("SOURCE_HF_TOKEN", raising=False)
+    monkeypatch.delenv("HF_BUCKET_TOKEN", raising=False)
     monkeypatch.setattr("huggingface_hub.HfApi", lambda token=None: (hf_tokens.append(token), api)[1])
 
     def go(*argv: str):
@@ -345,7 +484,7 @@ def run(backup, api, source, repo, tmp_path, monkeypatch, hf_tokens):
     return go
 
 
-def test_main_records_all_three_legs(api, source, run):
+def test_main_records_all_three_legs(api, source, mirror, run):
     api.bucket = {"cas/1": b"x"}
     api.history = [("c1", {"a": b"a"})]
 
@@ -356,13 +495,36 @@ def test_main_records_all_three_legs(api, source, run):
     snapshot = state["code"].pop("snapshot")
     assert snapshot.startswith("snap/")
     assert state == {
+        "mirror": str(mirror),
         "backup": "ns/backup",
+        "backup_bucket": "ns/backup-store",
         "dry_run": False,
         "code": {"source": str(source), "sha": git("rev-parse", "main", cwd=source)},
-        "store": {"source": "ns/store", "seen": 1, "copied": 1, "bytes": 1, "commits": ["b1"]},
-        "pub": {"source": "ns/pub", "seen": 1, "copied": 1, "commits": ["b2"]},
+        "store": {"source": "ns/store", "seen": 1, "copied": 1, "bytes": 1},
+        "pub": {"source": "ns/pub", "seen": 1, "copied": 1, "commits": ["b1"]},
     }
+    assert json.loads(Path("state/store-missing.json").read_text()) == {}
     assert not Path(".backup-work").exists()
+
+
+def test_main_carries_the_missing_list_between_runs(api, run):
+    api.bucket = {"cas/1": b"x", "cas/2": b"y"}
+    run()
+    api.bucket = {"cas/1": b"x"}
+
+    _, state = run()
+
+    assert state["store"]["missing"] == 1
+    assert list(json.loads(Path("state/store-missing.json").read_text())) == ["cas/2"]
+    assert api.backup_bucket == {"cas/1": b"x", "cas/2": b"y"}
+
+
+def test_main_dry_run_leaves_the_missing_list_alone(api, run):
+    api.backup_bucket = {"cas/gone": b"g"}
+
+    run("--dry-run")
+
+    assert not Path("state/store-missing.json").exists()
 
 
 def test_main_reads_the_last_tip_from_the_previous_record(run):
@@ -387,7 +549,7 @@ def test_main_keeps_going_when_one_leg_fails_and_exits_nonzero(api, run, capsys)
     assert "error: pub:" in capsys.readouterr().err
 
 
-def test_main_requires_the_four_names(backup, monkeypatch, tmp_path):
+def test_main_requires_the_six_names(backup, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("SOURCE_REPO", raising=False)
     monkeypatch.setattr(sys, "argv", ["backup.py"])
@@ -401,7 +563,7 @@ def test_main_requires_the_four_names(backup, monkeypatch, tmp_path):
 def test_main_reads_the_sources_anonymously_and_writes_with_the_write_token(run, hf_tokens):
     run()
 
-    assert hf_tokens == [False, "t-write"]  # source client, backup client; False is anonymous, never a fallback
+    assert hf_tokens == [False, "t-write", "t-write"]  # source, dataset, bucket; False is anonymous, never a fallback
 
 
 def test_main_reads_private_sources_with_their_own_read_token(run, hf_tokens, monkeypatch):
@@ -409,7 +571,15 @@ def test_main_reads_private_sources_with_their_own_read_token(run, hf_tokens, mo
 
     run()
 
-    assert hf_tokens == ["t-read", "t-write"]
+    assert hf_tokens == ["t-read", "t-write", "t-write"]
+
+
+def test_main_writes_the_bucket_with_its_own_token_when_given_one(run, hf_tokens, monkeypatch):
+    monkeypatch.setenv("HF_BUCKET_TOKEN", "t-bucket")
+
+    run()
+
+    assert hf_tokens == [False, "t-write", "t-bucket"]
 
 
 def test_main_needs_a_write_token_unless_dry_run(run, monkeypatch):
