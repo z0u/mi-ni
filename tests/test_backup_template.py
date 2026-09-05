@@ -756,6 +756,11 @@ def backup_repo(tmp_path):
     git("init", "--bare", "--initial-branch=main", str(origin), cwd=tmp_path)
     seed = tmp_path / "seed"
     git("clone", str(origin), str(seed), cwd=tmp_path)
+    # The seed commit is the one made outside the step's own script, so it is the one that
+    # needs an identity set here: CI runners have no global `user.name`/`user.email`, and
+    # `git commit` without either exits 128.
+    git("config", "user.email", "test@example.invalid", cwd=seed)
+    git("config", "user.name", "Test", cwd=seed)
     (seed / "state").mkdir()
     (seed / "state" / ".gitkeep").write_text("")
     git("add", "-A", cwd=seed)
