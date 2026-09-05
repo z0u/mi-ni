@@ -38,17 +38,7 @@ Each leg lands somewhere different. In the mirror repo, the `mirror` branch trac
 
 5. Connect the write side (human, in the backup account). On the settings page of the dataset, and again on the bucket's, under Trusted Publishers, add GitHub Actions with repository `<owner>/<project>-backup`, branch `main`, and workflow `backup.yml`. Each run then exchanges the identity of the job for two tokens that last an hour and reach one target each; there is nothing to paste or rotate. If you'd rather store a token, put a fine-grained one with write on the dataset and the bucket, and nothing else, in the `HF_TOKEN` secret of the backup repo, and the workflow skips the minting steps.
 
-   The exchange can fail with `invalid_grant: This operation was aborted` while `repository`, `ref` and `workflow_ref` all match the job exactly. Two readings. The Hub documents the claims it matches as `repository`, `branch` and `workflow`, matched exactly and with no mention of `sub`, and "This operation was aborted" is the wording of a cancelled request rather than of a mismatch, which points at a Hub-side timeout (verifying the token needs GitHub's signing keys) on a day the Hub was struggling. The other candidate is GitHub's [immutable subject claim](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/), which every repo created after 2026-07-15 carries: `sub` becomes `repo:<owner>@<id>/<repo>@<id>:ref:…` rather than `repo:<owner>/<repo>:ref:…`, and a Hub that rebuilt `sub` from the configured claims would refuse it for good. A retry on a calm day tells them apart: with the `HF_TOKEN` secret removed, run the workflow by hand; if it still fails with matching claims, report it to the Hub with the `Request ID` the CLI prints. To see what a run presents, decode the payload of its id token (never the token itself):
-
-   ```yaml
-   - run: |
-       curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-         "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://huggingface.co" \
-       | python3 -c 'import sys,json,base64
-   t = json.load(sys.stdin)["value"].split(".")[1]
-   c = json.loads(base64.urlsafe_b64decode(t + "=" * (-len(t) % 4)))
-   print({k: c.get(k) for k in ("iss","aud","repository","ref","workflow_ref","sub")})'
-   ```
+   The exchange failed once, on a day the Hub was returning 500s, with `invalid_grant: This operation was aborted` while `repository`, `ref` and `workflow_ref` all matched the job; the same workflow minted fine the next day. That message is the wording of a cancelled request rather than of a claim mismatch, so treat it as a Hub-side hiccup: retry later. GitHub's immutable subject claim (`sub` as `repo:<owner>@<id>/<repo>@<id>:ref:…`, on every repo created after 2026-07-15) is accepted, so a new backup repo needs no opt-out. If a retry still fails with matching claims, report it to the Hub with the `Request ID` the CLI prints.
 
    Meanwhile the stored-token fallback keeps containment: the token is scoped to the two backup targets and lives wholly in the backup account, so what it costs is per-run rotation, not the separation the design is built on.
 
