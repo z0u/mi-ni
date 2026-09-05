@@ -99,10 +99,27 @@ jobs:
         # `-A state/` rather than the files: a run that fails before `backup.py` writes them
         # (a credential problem, say) would otherwise die here on an unmatched pathspec,
         # adding a spurious second red step that buries the real error.
+        #
+        # Rebase and retry, because a run does not necessarily start from the tip. A
+        # `workflow_dispatch` run is pinned to the sha its branch had when it was dispatched,
+        # and `actions/checkout` takes that sha; the `concurrency` group above serialises when
+        # runs execute and not what they checked out. So several runs dispatched at once — the
+        # way to work through a long first `pub/` replay — all commit on the same parent, the
+        # first to finish pushes, and the rest are refused with `! [rejected] (fetch first)`.
+        # `-X theirs` while rebasing keeps the commit being replayed, so the newer run's record
+        # wins. The limit is written as `if …; then exit 1; fi` rather than `[ … ] && exit 1`
+        # because the step runs under `bash -e`, where whether a false test aborts depends on
+        # the exemption rules for `&&` lists; `if` says what it means under any shell.
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A state/
           git commit -q -m "backup $(date -u +%F)" || exit 0
-          git push origin HEAD
+          attempt=0
+          until git push origin "HEAD:$GITHUB_REF_NAME"; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -gt 3 ]; then exit 1; fi
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase -X theirs FETCH_HEAD
+          done

@@ -6,7 +6,9 @@ The code leg runs against real temporary git repos, since what it checks is git'
 import ast
 import importlib.util
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +16,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import yaml
 from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 
 SCRIPT = Path(__file__).parents[1] / "templates" / "backup" / "backup.py"
@@ -211,6 +214,7 @@ class FakeApi:
     def __init__(self, tmp_path: Path):
         self.tmp = tmp_path
         self.bucket: dict[str, bytes] = {}  # the source bucket
+        self.unreadable: set[str] = set()  # buckets the *backup bucket's* credential cannot see
         self.backup_bucket: dict[str, bytes] | None = {}  # None → not created yet
         self.history: list[tuple[str, dict[str, bytes]]] = []  # newest first: (sha, files at that revision)
         self.backup: dict[str, bytes] | None = {}  # the dataset; None → doesn't exist
@@ -224,6 +228,17 @@ class FakeApi:
         if files is None:
             raise repo_not_found()
         return [entry(p, len(b), xet_hash=b.decode()) for p, b in files.items()]
+
+    def bucket_info(self, bucket):
+        """The probe the store leg makes with the backup bucket's own credential, before choosing its route.
+
+        `unreadable` is the source as *that* credential sees it. The source's own read token,
+        which every other call here stands for, reaches it either way — which is the whole point
+        of the split, and why the probe has to be a separate question.
+        """
+        if bucket in self.unreadable:
+            raise repo_not_found()
+        return SimpleNamespace(id=bucket)
 
     def download_bucket_files(self, bucket, files, raise_on_missing_files):
         for e, dest in files:
@@ -351,6 +366,76 @@ def test_store_a_file_without_a_xet_hash_goes_the_long_way_round(backup, api, tm
 
     assert api.downloaded == ["cas/aa/1"] and api.backup_bucket == {"cas/aa/1": b"one"}
     assert api.batches == [{"add": 1, "copy": 0, "delete": 0}]
+
+
+def test_store_copies_through_the_runner_when_the_backup_bucket_cant_read_the_source(backup, api, tmp_path):
+    """A private source is invisible to the backup bucket's own token, and a server-side copy is authorised against that token alone."""
+    api.bucket = {"cas/aa/1": b"one", "cas/bb/2": b"two", "refs/run/x.json": b"ptr"}
+    api.unreadable = {"ns/store"}
+
+    report, _ = store(backup, api, tmp_path)
+
+    assert api.backup_bucket == api.bucket  # every file arrived, by the long way round
+    assert api.batches == [{"add": 3, "copy": 0, "delete": 0}]
+    assert sorted(api.downloaded) == ["cas/aa/1", "cas/bb/2", "refs/run/x.json", "refs/run/x.json"]
+    assert report.notes == ["ns/backup-store's credential cannot read ns/store, so the copy goes through the runner"]
+    assert not (tmp_path / "w" / "store").exists()  # the stage is emptied afterwards
+
+
+def test_store_says_in_a_dry_run_which_route_the_copy_will_take(backup, api, tmp_path):
+    """Worth knowing before the first run, when the choice is between seconds and moving the whole store."""
+    api.bucket = {"cas/aa/1": b"one"}
+    api.unreadable = {"ns/store"}
+
+    report, _ = store(backup, api, tmp_path, dry_run=True)
+
+    assert report.notes == ["ns/backup-store's credential cannot read ns/store, so the copy goes through the runner"]
+    assert api.batches == [] and api.downloaded == []
+
+
+def test_store_needs_no_probe_when_there_is_nothing_to_copy(backup, api, tmp_path):
+    """The nightly case: the probe is a call, and a run with an empty delta has nothing to choose between."""
+    api.bucket = {"cas/aa/1": b"one"}
+    api.backup_bucket = dict(api.bucket)
+    api.unreadable = {"ns/store"}
+
+    report, _ = store(backup, api, tmp_path)
+
+    assert report.notes == [] and api.batches == []
+
+
+def test_store_stages_within_a_disk_budget(backup, api, tmp_path, monkeypatch):
+    """Only the fallback path stages, and a private store bigger than the runner's disk must still fit through it."""
+    monkeypatch.setattr(backup, "STAGE_BYTES", 10)
+    api.bucket = {"cas/a": b"a" * 4, "cas/b": b"b" * 4, "cas/c": b"c" * 9, "cas/big": b"x" * 50}
+    api.unreadable = {"ns/store"}
+
+    store(backup, api, tmp_path)
+
+    assert api.backup_bucket == api.bucket
+    # 4 + 4 fits; `c` would make 17, so it opens the next batch; `big` overruns the budget alone
+    # and goes anyway, because refusing it would strand the backup on the one file it most wants.
+    assert api.batches == [
+        {"add": 2, "copy": 0, "delete": 0},
+        {"add": 1, "copy": 0, "delete": 0},
+        {"add": 1, "copy": 0, "delete": 0},
+    ]
+
+
+def test_bucket_batch_keeps_the_hubs_reason_for_a_refusal(backup, api, tmp_path):
+    """`hf_raise_for_status` raises from the status line, so without this the record holds a URL and no cause."""
+    from huggingface_hub.errors import HfHubHTTPError
+
+    body = '{"success":false,"failed":[{"path":"cas/aa/1","error":"Source repository not found"}]}'
+    response = httpx.Response(422, text=body, request=httpx.Request("POST", "https://hub.test/batch"))
+
+    def refuse(bucket, **ops):
+        raise HfHubHTTPError("422 Client Error for url: https://hub.test/batch", response=response)
+
+    with pytest.raises(RuntimeError, match="Source repository not found") as raised:
+        backup.bucket_batch(SimpleNamespace(batch_bucket_files=refuse), "ns/backup-store", copy=[])
+
+    assert "https://hub.test/batch" in str(raised.value)  # the URL is still there, with the cause beside it
 
 
 def test_store_keeps_what_the_source_dropped_until_the_window_ends(backup, api, tmp_path):
@@ -632,3 +717,118 @@ def test_script_parses_at_the_python_the_workflow_pins():
     pin = re.search(r'python-version:\s*"(\d+)\.(\d+)"', WORKFLOW.read_text())
     assert pin, "the workflow no longer pins python-version"
     ast.parse(SCRIPT.read_text(), feature_version=(int(pin[1]), int(pin[2])))
+
+
+def test_ruff_config_stands_alone_where_the_template_is_installed(tmp_path):
+    """The template is copied to the root of a backup repo, which has no `pyproject.toml` to extend.
+
+    An `extend` that resolves here but not there makes ruff exit before it reads a setting,
+    and the `target-version` pin the file exists to carry is what would be missed. Copying the
+    template somewhere with nothing above it is the only way to see that.
+    """
+    shutil.copytree(SCRIPT.parent, tmp_path / "backup-repo")
+    ruff = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--no-cache", "backup.py"],
+        cwd=tmp_path / "backup-repo",
+        capture_output=True,
+        text=True,
+    )
+    assert ruff.returncode == 0, ruff.stderr or ruff.stdout
+
+
+# -- the workflow's record step ----------------------------------------------------------
+
+
+def record_step() -> str:
+    """The `Record the run` step's script, read from the workflow so the test can't drift from it."""
+    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["backup"]["steps"]
+    return next(s["run"] for s in steps if s.get("name") == "Record the run")
+
+
+@pytest.fixture
+def backup_repo(tmp_path):
+    """A bare `origin` on `main` and a `clone(name)` helper, so several runs can share one parent.
+
+    `bash -e` and `-o pipefail` are what Actions gives a `run:` step on Linux, and the retry
+    limit is written the way it is because of `-e`, so running it any other way would miss that.
+    """
+    origin = tmp_path / "origin.git"
+    git("init", "--bare", "--initial-branch=main", str(origin), cwd=tmp_path)
+    seed = tmp_path / "seed"
+    git("clone", str(origin), str(seed), cwd=tmp_path)
+    # The seed commit is the one made outside the step's own script, so it is the one that
+    # needs an identity set here: CI runners have no global `user.name`/`user.email`, and
+    # `git commit` without either exits 128.
+    git("config", "user.email", "test@example.invalid", cwd=seed)
+    git("config", "user.name", "Test", cwd=seed)
+    (seed / "state").mkdir()
+    (seed / "state" / ".gitkeep").write_text("")
+    git("add", "-A", cwd=seed)
+    git("commit", "-qm", "seed", cwd=seed)
+    git("push", "origin", "main", cwd=seed)
+
+    def clone(name: str) -> Path:
+        path = tmp_path / name
+        git("clone", str(origin), str(path), cwd=tmp_path)
+        return path
+
+    def record(path: Path):
+        return subprocess.run(
+            ["bash", "-e", "-o", "pipefail", "-c", record_step()],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "GITHUB_REF_NAME": "main"},
+        )
+
+    return SimpleNamespace(origin=origin, clone=clone, record=record)
+
+
+def test_record_pushes_the_run(backup_repo):
+    run = backup_repo.clone("a")
+    (run / "state" / "last-run.json").write_text('{"run": "a"}')
+
+    assert backup_repo.record(run).returncode == 0
+    assert git("show", "origin/main:state/last-run.json", cwd=run) == '{"run": "a"}'
+
+
+def test_record_rebases_onto_a_run_that_landed_first(backup_repo):
+    """Several runs dispatched at once check out the same sha, so all but the first push onto a stale parent."""
+    first, second = backup_repo.clone("first"), backup_repo.clone("second")
+    (first / "state" / "last-run.json").write_text('{"run": "first"}')
+    (second / "state" / "last-run.json").write_text('{"run": "second"}')
+    (second / "state" / "store-missing.json").write_text("{}")
+
+    assert backup_repo.record(first).returncode == 0
+    result = backup_repo.record(second)
+
+    assert result.returncode == 0, result.stderr
+    assert git("show", "origin/main:state/last-run.json", cwd=second) == '{"run": "second"}'
+    assert git("show", "origin/main:state/store-missing.json", cwd=second) == "{}"
+    # Both runs are on the branch: the later one rebased onto the earlier rather than replacing it.
+    assert len(git("log", "--oneline", "origin/main", cwd=second).splitlines()) == 3
+
+
+def test_record_with_nothing_to_commit_pushes_nothing(backup_repo):
+    """A run whose state is unchanged, and one that failed before `backup.py` wrote anything, both land here."""
+    run = backup_repo.clone("a")
+
+    result = backup_repo.record(run)
+
+    assert result.returncode == 0, result.stderr
+    assert len(git("log", "--oneline", "origin/main", cwd=run).splitlines()) == 1
+
+
+def test_record_gives_up_rather_than_retrying_for_ever(backup_repo):
+    """A push that can never land must end the step, not spin: the retry is for a stale parent alone."""
+    hook = backup_repo.origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    run = backup_repo.clone("a")
+    (run / "state" / "last-run.json").write_text('{"run": "a"}')
+
+    result = backup_repo.record(run)
+
+    # That the test returns at all is the bound; the exit code is what turns the step red.
+    assert result.returncode == 1
+    assert result.stderr.lower().count("rejected") == 4  # the first push and three retries

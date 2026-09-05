@@ -42,3 +42,13 @@ lr_finder_search  # unused function (src/utils/lr_finder/lr_finder.py:18)
 plot_lr_finder  # unused function (src/utils/lr_finder/vis.py:10)
 group_properties_by_scale  # unused function (src/mini/temporal/vis.py:41)
 Debouncer  # unused class (src/mini/_debounce.py:16 — BackgroundEmitter took over the hot path)
+
+# The backup template's fake Hugging Face API: every name here is reached by
+# `templates/backup/backup.py` through duck typing, which vulture can't follow —
+# the script is loaded from a path, so there is no import edge to trace.
+_.list_repo_commits  # unused method (tests/test_backup_template.py)
+_.snapshot_download  # unused method (tests/test_backup_template.py)
+_.list_repo_tree  # unused method (tests/test_backup_template.py)
+_.bucket_info  # unused method (tests/test_backup_template.py)
+raise_on_missing_files  # unused variable (tests/test_backup_template.py — download_bucket_files' signature)
+ignore_patterns  # unused variable (tests/test_backup_template.py — upload_folder's signature)

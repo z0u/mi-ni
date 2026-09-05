@@ -4,7 +4,7 @@
 This is the payload half of the backup runbook (the ``backup`` skill in the mi-ni template). It runs inside the *backup* repo's nightly GitHub Actions workflow, from a trust domain the project's day-to-day tokens cannot reach. Three legs, three targets: a *mirror repo* on GitHub (browsable history), a backup *dataset* on the Hub (git-backed, so it keeps history) and a backup *bucket* (mutable, so it can forget).
 
 - Code. Fetch the source repo's ``main``, fast-forward the ``mirror`` branch of the *mirror repo* (a second GitHub repo under the backup account) to it, tag ``snap/<date>`` there when the tip differs from what the mirror already holds, and carry the source's own tags under ``source/``. A push that isn't a fast-forward is refused, never forced: the source rewrote its history, which the run reports and the snapshot records regardless. The push uses a fine-grained token with contents and workflows write on the mirror repo alone, because the job's own token may not write workflow files and the source's commits contain them. A token that can push workflow files also lets the mirrored workflows *run* on push, so the mirror repo has GitHub Actions disabled, and the leg checks that setting through the API before every push and refuses if it is on.
-- Store. The CAS bucket is copied into the backup bucket server-side, by Xet hash, so no bytes pass through the runner. The bucket is write-once-by-hash, so the files the backup lacks are the whole delta; ``refs/`` (mutable name → artifact pointers) is re-copied when its hash changed, and a copy of ``refs/`` also goes into the dataset under ``store/refs/`` so earlier pointers stay recoverable. The source bucket is meant to shrink (``mini gc --store``), so the backup bucket follows it with a delay: a file that has been gone from the source for longer than ``--retain-days`` is deleted from the backup, and the date each file was first missed is kept in ``state/store-missing.json``.
+- Store. The CAS bucket is copied into the backup bucket server-side, by Xet hash, so no bytes pass through the runner. The Hub authorises that copy against the backup bucket's token alone, which reaches a public source and not a private one, so a private source is copied the long way round instead: down with the source's read token, up with the backup's write token, a bounded batch at a time. Either way no token spans both accounts. The bucket is write-once-by-hash, so the files the backup lacks are the whole delta; ``refs/`` (mutable name → artifact pointers) is re-copied when its hash changed, and a copy of ``refs/`` also goes into the dataset under ``store/refs/`` so earlier pointers stay recoverable. The source bucket is meant to shrink (``mini gc --store``), so the backup bucket follows it with a delay: a file that has been gone from the source for longer than ``--retain-days`` is deleted from the backup, and the date each file was first missed is kept in ``state/store-missing.json``.
 - ``pub/`` in the dataset replays the publish repo's history, oldest commit first, one backup commit per source commit, so every revision a ``publish.lock`` has ever pinned stays recoverable. The head of ``pub/`` is the *union* of every revision replayed: a file the source later deleted is still there, and a restore of one pinned revision reads the backup commit that replayed it.
 
 Two rules keep the copy trustworthy. It never deletes anything the source still has, and nothing sooner than the retention window: no ``delete_patterns``, no ``super_squash_history``, no forced push, and the one delete there is runs on a clock the source can only start, never hurry. And it never runs code from the sources: this file and the workflow live in the backup repo, copied once from the template.
@@ -45,6 +45,10 @@ SOURCE_TAGS = "refs/tags/source/*"
 # Bucket operations per API call. A batch is not transactional, but every operation here
 # is idempotent, so a batch that fails halfway is simply finished by the next run.
 BUCKET_BATCH = 200
+# How much one batch may stage on disk before it is sent. Only the download-then-upload path
+# stages anything, and the runner's disk is what this is written against: a hosted runner has
+# some 14 GB free, and the stage is emptied between batches.
+STAGE_BYTES = 2 * 1024**3
 
 
 def _trim(d: dict[str, Any], keep: tuple[str, ...]) -> dict[str, Any]:
@@ -254,9 +258,49 @@ def retention(
     return {p: d for p, d in kept.items() if p not in expired}, expired
 
 
-def chunks(items: list[Any], size: int) -> Iterable[list[Any]]:
-    for i in range(0, len(items), size):
-        yield items[i : i + size]
+def chunks(items: list[Any], size: int, budget: int | None = None) -> Iterable[list[Any]]:
+    """*items* in batches of at most *size*, and of at most *budget* bytes where one is given.
+
+    A batch of one goes however large it is: a file bigger than the whole budget still has to move, and refusing it would strand the backup on the one file it most wants. Only a budgeted call reads ``item.size``, so a plain list of paths can use this too.
+    """
+    batch: list[Any] = []
+    total = 0
+    for item in items:
+        if batch and (len(batch) >= size or (budget is not None and total + item.size > budget)):
+            yield batch
+            batch, total = [], 0
+        batch.append(item)
+        total += item.size if budget is not None else 0
+    if batch:
+        yield batch
+
+
+def readable(api: Any, bucket: str) -> bool:
+    """Whether *api*'s credential can read *bucket*, asked once so the store leg knows which route it can take.
+
+    A server-side copy is one request: it goes to the *destination* bucket carrying the destination's token and names the source in each operation, so the Hub authorises both halves against that one token. A fine-grained token carries implicit read on public repos only, which makes a private source invisible to it — and the Hub reports that as the same 422 it gives for a bucket that does not exist. Asking first is what tells those two apart, at the cost of one call.
+    """
+    from huggingface_hub.errors import HfHubHTTPError
+
+    try:
+        api.bucket_info(bucket)
+        return True
+    except HfHubHTTPError:
+        return False
+
+
+def bucket_batch(api: Any, bucket: str, **ops: Any) -> None:
+    """One batch call against *bucket*, keeping the Hub's own reason for a refusal.
+
+    ``hf_raise_for_status`` raises from the status line and drops the body, and the body is where this endpoint puts the diagnosis: a failure arrives as a bare 422 and a URL, while ``{"success": false, "failed": [{"path": …, "error": …}]}`` says which file and why. Reading it before re-raising is what puts the reason into ``state/last-run.json`` instead of a URL.
+    """
+    from huggingface_hub.errors import HfHubHTTPError
+
+    try:
+        api.batch_bucket_files(bucket, **ops)
+    except HfHubHTTPError as e:
+        body = (getattr(e.response, "text", "") or "").strip()
+        raise RuntimeError(f"{e}; {body[:2000]}" if body else str(e)) from e
 
 
 def backup_store(
@@ -272,9 +316,11 @@ def backup_store(
     retain_days: int,
     dry_run: bool,
 ) -> tuple[LegReport, dict[str, str]]:
-    """Copy the bucket's delta into *backup_bucket* server-side, expire what the source gave up long enough ago, and keep ``refs/`` history in *dataset*.
+    """Copy the bucket's delta into *backup_bucket*, expire what the source gave up long enough ago, and keep ``refs/`` history in *dataset*.
 
     *source_api* reads the bucket; *bucket_api* reads and writes the backup bucket; *backup_api* writes the dataset. *missing* is the retention manifest from the last run, and the updated one comes back with the report.
+
+    The copy is server-side, by content hash, wherever *bucket_api* can also read the source, which is the case while the source is public. Otherwise it goes through the runner, a batch at a time, and the report says so.
     """
     report = LegReport(source=bucket)
     source = bucket_files(source_api, bucket)
@@ -290,23 +336,32 @@ def backup_store(
         warn(report, f"{newly} of {len(have)} backed-up files vanished from the source overnight — inspect the source")
     elif newly:
         report.notes.append(f"{newly} file(s) newly missing from the source, kept for {retain_days} days")
+    # Which route the copy can take. A server-side copy moves no bytes through the runner, but
+    # the Hub authorises it against the backup bucket's token alone, and that token reaches a
+    # public source and not a private one. So ask, once, and fall back rather than fail — no
+    # token has to span the two accounts either way.
+    server_side = not delta or readable(bucket_api, bucket)
+    if delta and not server_side:
+        report.notes.append(f"{backup_bucket}'s credential cannot read {bucket}, so the copy goes through the runner")
     if dry_run:
         return report, missing
 
-    by_hash = [e for e in delta if e.xet_hash]
-    for batch in chunks(by_hash, BUCKET_BATCH):
-        bucket_api.batch_bucket_files(backup_bucket, copy=[("bucket", bucket, e.xet_hash, e.path) for e in batch])
-    # A file the Hub holds outside Xet (rare in a bucket) has no hash to copy by, so it goes the long way round.
+    for batch in chunks([e for e in delta if e.xet_hash] if server_side else [], BUCKET_BATCH):
+        bucket_batch(bucket_api, backup_bucket, copy=[("bucket", bucket, e.xet_hash, e.path) for e in batch])
+    # The long way round: down with the source's read token, up with the backup's. It carries a
+    # file the Hub holds outside Xet, which has no hash to copy by, and every file when the
+    # server-side route is closed. The stage is emptied between batches, so the disk it needs is
+    # one batch rather than the whole delta.
     stage = work / STORE_PREFIX
-    for batch in chunks([e for e in delta if not e.xet_hash], BUCKET_BATCH):
+    for batch in chunks([e for e in delta if not e.xet_hash] if server_side else delta, BUCKET_BATCH, STAGE_BYTES):
         shutil.rmtree(stage, ignore_errors=True)
         files = [(e, str(stage / e.path)) for e in batch]
         for _, dest in files:
             Path(dest).parent.mkdir(parents=True, exist_ok=True)
         source_api.download_bucket_files(bucket, files=files, raise_on_missing_files=True)
-        bucket_api.batch_bucket_files(backup_bucket, add=[(dest, e.path) for e, dest in files])
+        bucket_batch(bucket_api, backup_bucket, add=[(dest, e.path) for e, dest in files])
     for batch in chunks(expired, BUCKET_BATCH):
-        bucket_api.batch_bucket_files(backup_bucket, delete=batch)
+        bucket_batch(bucket_api, backup_bucket, delete=batch)
 
     # The refs are the one mutable part of the store, and a bucket forgets an overwritten
     # value at once; the dataset keeps every version, at the cost of moving a few small files.
