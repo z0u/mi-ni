@@ -87,7 +87,7 @@ def test_code_first_run_mirrors_snapshots_and_copies_tags(backup, source, mirror
     tip = git("rev-parse", "main", cwd=source)
     v1 = git("rev-parse", "v1", cwd=source)
 
-    report = backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=False)
+    report = backup.backup_code(str(source), str(mirror), repo, dry_run=False)
 
     refs = mirror_refs(mirror)
     assert refs["refs/heads/mirror"] == tip
@@ -99,9 +99,9 @@ def test_code_first_run_mirrors_snapshots_and_copies_tags(backup, source, mirror
 
 def test_code_unchanged_tip_makes_no_snapshot(backup, source, mirror, repo):
     tip = git("rev-parse", "main", cwd=source)
-    first = backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=False)
+    first = backup.backup_code(str(source), str(mirror), repo, dry_run=False)
 
-    second = backup.backup_code(str(source), str(mirror), repo, prev_sha=tip, dry_run=False)
+    second = backup.backup_code(str(source), str(mirror), repo, dry_run=False)
 
     assert second.to_dict() == {"source": str(source), "sha": tip}
     assert [r for r in mirror_refs(mirror) if r.startswith("refs/tags/snap/")] == [f"refs/tags/{first.snapshot}"]
@@ -109,11 +109,11 @@ def test_code_unchanged_tip_makes_no_snapshot(backup, source, mirror, repo):
 
 def test_code_rewritten_history_is_refused_reported_and_still_snapshotted(backup, source, mirror, repo):
     old_tip = git("rev-parse", "main", cwd=source)
-    backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=False)
+    backup.backup_code(str(source), str(mirror), repo, dry_run=False)
     git("reset", "-q", "--hard", "HEAD~1", cwd=source)
     new_tip = commit(source, "rewritten")
 
-    report = backup.backup_code(str(source), str(mirror), repo, prev_sha=old_tip, dry_run=False)
+    report = backup.backup_code(str(source), str(mirror), repo, dry_run=False)
 
     refs = mirror_refs(mirror)
     assert refs["refs/heads/mirror"] == old_tip  # never forced
@@ -124,19 +124,17 @@ def test_code_rewritten_history_is_refused_reported_and_still_snapshotted(backup
 
 def test_code_a_moved_source_tag_stays_where_first_seen(backup, source, mirror, repo):
     v1 = git("rev-parse", "v1", cwd=source)
-    backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=False)
+    backup.backup_code(str(source), str(mirror), repo, dry_run=False)
     git("tag", "-f", "v1", "main", cwd=source)
 
-    report = backup.backup_code(
-        str(source), str(mirror), repo, prev_sha=git("rev-parse", "main", cwd=source), dry_run=False
-    )
+    report = backup.backup_code(str(source), str(mirror), repo, dry_run=False)
 
     assert mirror_refs(mirror)["refs/tags/source/v1"] == v1
     assert any("tags" in n for n in report.notes)
 
 
 def test_code_dry_run_fetches_but_pushes_nothing(backup, source, mirror, repo):
-    report = backup.backup_code(str(source), str(mirror), repo, prev_sha=None, dry_run=True)
+    report = backup.backup_code(str(source), str(mirror), repo, dry_run=True)
 
     assert (report.sha, report.snapshot) == (git("rev-parse", "main", cwd=source), report.snapshot)
     assert report.snapshot.startswith("snap/")
@@ -282,9 +280,14 @@ class FakeApi:
             for p in Path(folder_path).rglob("*")
             if p.is_file()
         }
+        if all(self.backup.get(p) == b for p, b in staged.items()):
+            return self.repo_info(repo_id, repo_type)  # the Hub skips an empty commit and answers with its head
         self.backup |= staged
         self.uploads.append({"message": commit_message, "description": commit_description, "files": sorted(staged)})
-        return SimpleNamespace(oid=f"b{len(self.uploads)}")
+        return self.repo_info(repo_id, repo_type)
+
+    def repo_info(self, repo_id, repo_type):
+        return SimpleNamespace(sha=f"b{len(self.uploads)}", oid=f"b{len(self.uploads)}")
 
 
 @pytest.fixture
@@ -323,6 +326,17 @@ def test_store_copies_by_hash_what_the_backup_lacks_and_keeps_refs_history(backu
     assert report.to_dict() == {"source": "ns/store", "seen": 3, "copied": 2, "bytes": 6, "commits": ["b1"]}
     assert missing == {}
     assert not (tmp_path / "w" / "store").exists()
+
+
+def test_store_unchanged_refs_make_no_dataset_commit(backup, api, tmp_path):
+    api.bucket = {"cas/aa/1": b"one", "refs/run/x.json": b"ptr"}
+    api.backup_bucket = dict(api.bucket)
+    api.backup = {"store/refs/run/x.json": b"ptr"}
+
+    report, _ = store(backup, api, tmp_path)
+
+    assert report.to_dict() == {"source": "ns/store", "seen": 2}  # no commit: the Hub skipped an empty one
+    assert api.uploads == []
 
 
 def test_store_a_file_without_a_xet_hash_goes_the_long_way_round(backup, api, tmp_path, monkeypatch):
@@ -527,12 +541,13 @@ def test_main_dry_run_leaves_the_missing_list_alone(api, run):
     assert not Path("state/store-missing.json").exists()
 
 
-def test_main_reads_the_last_tip_from_the_previous_record(run):
+def test_main_takes_the_last_tip_from_the_mirror_not_the_record(run):
     run()
+    Path("state/last-run.json").unlink()  # a reset or lost state file
 
     _, state = run()
 
-    assert "snapshot" not in state["code"]  # the tip hadn't moved since the run before
+    assert "snapshot" not in state["code"]  # the mirror already held the tip
 
 
 def test_main_keeps_going_when_one_leg_fails_and_exits_nonzero(api, run, capsys):

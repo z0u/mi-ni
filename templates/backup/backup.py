@@ -3,7 +3,7 @@
 
 This is the payload half of the backup runbook (the ``backup`` skill in the mi-ni template). It runs inside the *backup* repo's nightly GitHub Actions workflow, from a trust domain the project's day-to-day tokens cannot reach. Three legs, three targets: a *mirror repo* on GitHub (browsable history), a backup *dataset* on the Hub (git-backed, so it keeps history) and a backup *bucket* (mutable, so it can forget).
 
-- Code. Fetch the source repo's ``main``, fast-forward the ``mirror`` branch of the *mirror repo* (a second GitHub repo under the backup account) to it, tag ``snap/<date>`` there when the tip moved since the last run, and carry the source's own tags under ``source/``. A push that isn't a fast-forward is refused, never forced: the source rewrote its history, which the run reports and the snapshot records regardless. The push uses a fine-grained token with contents and workflows write on the mirror repo alone, because the job's own token may not write workflow files and the source's commits contain them. A token that can push workflow files also lets the mirrored workflows *run* on push, so the mirror repo has GitHub Actions disabled, and the leg checks that setting through the API before every push and refuses if it is on.
+- Code. Fetch the source repo's ``main``, fast-forward the ``mirror`` branch of the *mirror repo* (a second GitHub repo under the backup account) to it, tag ``snap/<date>`` there when the tip differs from what the mirror already holds, and carry the source's own tags under ``source/``. A push that isn't a fast-forward is refused, never forced: the source rewrote its history, which the run reports and the snapshot records regardless. The push uses a fine-grained token with contents and workflows write on the mirror repo alone, because the job's own token may not write workflow files and the source's commits contain them. A token that can push workflow files also lets the mirrored workflows *run* on push, so the mirror repo has GitHub Actions disabled, and the leg checks that setting through the API before every push and refuses if it is on.
 - Store. The CAS bucket is copied into the backup bucket server-side, by Xet hash, so no bytes pass through the runner. The bucket is write-once-by-hash, so the files the backup lacks are the whole delta; ``refs/`` (mutable name → artifact pointers) is re-copied when its hash changed, and a copy of ``refs/`` also goes into the dataset under ``store/refs/`` so earlier pointers stay recoverable. The source bucket is meant to shrink (``mini gc --store``), so the backup bucket follows it with a delay: a file that has been gone from the source for longer than ``--retain-days`` is deleted from the backup, and the date each file was first missed is kept in ``state/store-missing.json``.
 - ``pub/`` in the dataset replays the publish repo's history, oldest commit first, one backup commit per source commit, so every revision a ``publish.lock`` has ever pinned stays recoverable. The head of ``pub/`` is the *union* of every revision replayed: a file the source later deleted is still there, and a restore of one pinned revision reads the backup commit that replayed it.
 
@@ -160,11 +160,16 @@ def check_mirror(url: str, token: str | None) -> None:
         )
 
 
-def snapshot_name(repo: Path, now: datetime, env: dict[str, str]) -> str:
-    """``snap/<date>``, or a time-suffixed name if that tag already exists on the mirror (a second run in one day)."""
+def remote_refs(repo: Path, remote: str, env: dict[str, str]) -> dict[str, str]:
+    """Every ref *remote* holds, name → sha. Empty for an empty repo."""
+    out = git("ls-remote", remote, cwd=repo, env=env).stdout
+    return {name: sha for sha, name in (line.split("\t") for line in out.splitlines())}
+
+
+def snapshot_name(have: dict[str, str], now: datetime) -> str:
+    """``snap/<date>``, or a time-suffixed name if the mirror (*have*, its refs) already has that tag: a second run in one day."""
     tag = f"snap/{now:%Y-%m-%d}"
-    exists = git("ls-remote", "--exit-code", "--tags", "mirror", f"refs/tags/{tag}", cwd=repo, check=False, env=env)
-    if exists.returncode == 0:
+    if f"refs/tags/{tag}" in have:
         tag = f"snap/{now:%Y-%m-%dT%H%MZ}"
     return tag
 
@@ -174,7 +179,6 @@ def backup_code(
     mirror_url: str,
     repo: Path,
     *,
-    prev_sha: str | None,
     branch: str = "main",
     dry_run: bool,
     source_token: str | None = None,
@@ -182,7 +186,7 @@ def backup_code(
 ) -> CodeReport:
     """Mirror *source_url*'s *branch* into *mirror_url*: fast-forward ``mirror``, tag a snapshot if the tip moved, copy the source's tags.
 
-    *repo* is any local git repo, scratch as far as this leg is concerned; it holds the fetched objects between the fetch and the push. *source_token* is read access to a private source, sent on the fetches only; *mirror_token* is write access to the mirror repo, sent on the pushes only. Nothing here forces: a mirror or tag push that isn't a fast-forward is refused by git and reported.
+    The mirror repo is the record of what was backed up: the tip has moved if it differs from the mirror's ``mirror`` branch, so a lost or reset state file costs nothing here. *repo* is any local git repo, scratch as far as this leg is concerned; it holds the fetched objects between the fetch and the push. *source_token* is read access to a private source, sent on the fetches only; *mirror_token* is write access to the mirror repo, sent on the pushes only. Nothing here forces: a mirror or tag push that isn't a fast-forward is refused by git and reported.
     """
     for name, url in (("source", source_url), ("mirror", mirror_url)):
         if git("remote", "get-url", name, cwd=repo, check=False).returncode == 0:
@@ -198,8 +202,9 @@ def backup_code(
     report = CodeReport(source=source_url, sha=tip)
     if tags.returncode != 0:
         warn(report, "some source tags moved since the backup first saw them; the earlier pointers stand")
-    if tip != prev_sha:
-        report.snapshot = snapshot_name(repo, datetime.now(timezone.utc), write)
+    have = remote_refs(repo, "mirror", write)
+    if tip != have.get(MIRROR):
+        report.snapshot = snapshot_name(have, datetime.now(timezone.utc))
     if dry_run:
         return report
 
@@ -308,21 +313,30 @@ def backup_store(
     refs = [e for e in source.values() if e.path.startswith(f"{REFS_PREFIX}/")]
     if refs:
         shutil.rmtree(stage, ignore_errors=True)
-        files = [(e, str(stage / e.path)) for e in refs]
-        for _, dest in files:
-            Path(dest).parent.mkdir(parents=True, exist_ok=True)
-        source_api.download_bucket_files(bucket, files=files, raise_on_missing_files=True)
-        info = backup_api.upload_folder(
-            repo_id=dataset,
-            repo_type="dataset",
-            folder_path=str(stage / REFS_PREFIX),
-            path_in_repo=f"{STORE_PREFIX}/{REFS_PREFIX}",
-            ignore_patterns=IGNORE,
-            commit_message=f"store: {len(refs)} ref(s) from {bucket}",
-        )
-        report.commits.append(info.oid)
+        report.commits += filter(None, [keep_refs(source_api, backup_api, bucket, dataset, refs, stage)])
     shutil.rmtree(stage, ignore_errors=True)
     return report, missing
+
+
+def keep_refs(source_api: Any, backup_api: Any, bucket: str, dataset: str, refs: list[Any], stage: Path) -> str | None:
+    """Commit the bucket's *refs* to ``store/refs/`` in the dataset. The new commit's sha, or None if nothing changed.
+
+    An upload that changes nothing makes no commit, and the Hub answers with the head it already had; only a new sha is this run's.
+    """
+    files = [(e, str(stage / e.path)) for e in refs]
+    for _, dest in files:
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    source_api.download_bucket_files(bucket, files=files, raise_on_missing_files=True)
+    head = backup_api.repo_info(dataset, repo_type="dataset").sha
+    info = backup_api.upload_folder(
+        repo_id=dataset,
+        repo_type="dataset",
+        folder_path=str(stage / REFS_PREFIX),
+        path_in_repo=f"{STORE_PREFIX}/{REFS_PREFIX}",
+        ignore_patterns=IGNORE,
+        commit_message=f"store: {len(refs)} ref(s) from {bucket}",
+    )
+    return None if info.oid == head else info.oid
 
 
 # -- publish repo → pub/ -------------------------------------------------------------
@@ -438,8 +452,6 @@ def main() -> int:
     source_api = HfApi(token=os.environ.get("SOURCE_HF_TOKEN") or False)
     backup_api = HfApi(token=write_token or False)
     bucket_api = HfApi(token=os.environ.get("HF_BUCKET_TOKEN") or write_token or False)
-    prev = json.loads(args.state.read_text()) if args.state.is_file() else {}
-    prev_sha = prev.get("code", {}).get("sha")
     missing_path = args.state.with_name("store-missing.json")
     missing: dict[str, str] = json.loads(missing_path.read_text()) if missing_path.is_file() else {}
     state: dict[str, Any] = {
@@ -480,7 +492,6 @@ def main() -> int:
                 git_url(code),
                 git_url(mirror),
                 args.repo,
-                prev_sha=prev_sha,
                 branch=args.source_branch,
                 dry_run=args.dry_run,
                 source_token=os.environ.get("SOURCE_GH_TOKEN"),
