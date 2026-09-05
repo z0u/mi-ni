@@ -214,6 +214,7 @@ class FakeApi:
     def __init__(self, tmp_path: Path):
         self.tmp = tmp_path
         self.bucket: dict[str, bytes] = {}  # the source bucket
+        self.unreadable: set[str] = set()  # buckets the *backup bucket's* credential cannot see
         self.backup_bucket: dict[str, bytes] | None = {}  # None → not created yet
         self.history: list[tuple[str, dict[str, bytes]]] = []  # newest first: (sha, files at that revision)
         self.backup: dict[str, bytes] | None = {}  # the dataset; None → doesn't exist
@@ -227,6 +228,17 @@ class FakeApi:
         if files is None:
             raise repo_not_found()
         return [entry(p, len(b), xet_hash=b.decode()) for p, b in files.items()]
+
+    def bucket_info(self, bucket):
+        """The probe the store leg makes with the backup bucket's own credential, before choosing its route.
+
+        `unreadable` is the source as *that* credential sees it. The source's own read token,
+        which every other call here stands for, reaches it either way — which is the whole point
+        of the split, and why the probe has to be a separate question.
+        """
+        if bucket in self.unreadable:
+            raise repo_not_found()
+        return SimpleNamespace(id=bucket)
 
     def download_bucket_files(self, bucket, files, raise_on_missing_files):
         for e, dest in files:
@@ -354,6 +366,76 @@ def test_store_a_file_without_a_xet_hash_goes_the_long_way_round(backup, api, tm
 
     assert api.downloaded == ["cas/aa/1"] and api.backup_bucket == {"cas/aa/1": b"one"}
     assert api.batches == [{"add": 1, "copy": 0, "delete": 0}]
+
+
+def test_store_copies_through_the_runner_when_the_backup_bucket_cant_read_the_source(backup, api, tmp_path):
+    """A private source is invisible to the backup bucket's own token, and a server-side copy is authorised against that token alone."""
+    api.bucket = {"cas/aa/1": b"one", "cas/bb/2": b"two", "refs/run/x.json": b"ptr"}
+    api.unreadable = {"ns/store"}
+
+    report, _ = store(backup, api, tmp_path)
+
+    assert api.backup_bucket == api.bucket  # every file arrived, by the long way round
+    assert api.batches == [{"add": 3, "copy": 0, "delete": 0}]
+    assert sorted(api.downloaded) == ["cas/aa/1", "cas/bb/2", "refs/run/x.json", "refs/run/x.json"]
+    assert report.notes == ["ns/backup-store's credential cannot read ns/store, so the copy goes through the runner"]
+    assert not (tmp_path / "w" / "store").exists()  # the stage is emptied afterwards
+
+
+def test_store_says_in_a_dry_run_which_route_the_copy_will_take(backup, api, tmp_path):
+    """Worth knowing before the first run, when the choice is between seconds and moving the whole store."""
+    api.bucket = {"cas/aa/1": b"one"}
+    api.unreadable = {"ns/store"}
+
+    report, _ = store(backup, api, tmp_path, dry_run=True)
+
+    assert report.notes == ["ns/backup-store's credential cannot read ns/store, so the copy goes through the runner"]
+    assert api.batches == [] and api.downloaded == []
+
+
+def test_store_needs_no_probe_when_there_is_nothing_to_copy(backup, api, tmp_path):
+    """The nightly case: the probe is a call, and a run with an empty delta has nothing to choose between."""
+    api.bucket = {"cas/aa/1": b"one"}
+    api.backup_bucket = dict(api.bucket)
+    api.unreadable = {"ns/store"}
+
+    report, _ = store(backup, api, tmp_path)
+
+    assert report.notes == [] and api.batches == []
+
+
+def test_store_stages_within_a_disk_budget(backup, api, tmp_path, monkeypatch):
+    """Only the fallback path stages, and a private store bigger than the runner's disk must still fit through it."""
+    monkeypatch.setattr(backup, "STAGE_BYTES", 10)
+    api.bucket = {"cas/a": b"a" * 4, "cas/b": b"b" * 4, "cas/c": b"c" * 9, "cas/big": b"x" * 50}
+    api.unreadable = {"ns/store"}
+
+    store(backup, api, tmp_path)
+
+    assert api.backup_bucket == api.bucket
+    # 4 + 4 fits; `c` would make 17, so it opens the next batch; `big` overruns the budget alone
+    # and goes anyway, because refusing it would strand the backup on the one file it most wants.
+    assert api.batches == [
+        {"add": 2, "copy": 0, "delete": 0},
+        {"add": 1, "copy": 0, "delete": 0},
+        {"add": 1, "copy": 0, "delete": 0},
+    ]
+
+
+def test_bucket_batch_keeps_the_hubs_reason_for_a_refusal(backup, api, tmp_path):
+    """`hf_raise_for_status` raises from the status line, so without this the record holds a URL and no cause."""
+    from huggingface_hub.errors import HfHubHTTPError
+
+    body = '{"success":false,"failed":[{"path":"cas/aa/1","error":"Source repository not found"}]}'
+    response = httpx.Response(422, text=body, request=httpx.Request("POST", "https://hub.test/batch"))
+
+    def refuse(bucket, **ops):
+        raise HfHubHTTPError("422 Client Error for url: https://hub.test/batch", response=response)
+
+    with pytest.raises(RuntimeError, match="Source repository not found") as raised:
+        backup.bucket_batch(SimpleNamespace(batch_bucket_files=refuse), "ns/backup-store", copy=[])
+
+    assert "https://hub.test/batch" in str(raised.value)  # the URL is still there, with the cause beside it
 
 
 def test_store_keeps_what_the_source_dropped_until_the_window_ends(backup, api, tmp_path):
