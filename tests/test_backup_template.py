@@ -7,6 +7,7 @@ import ast
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -632,3 +633,20 @@ def test_script_parses_at_the_python_the_workflow_pins():
     pin = re.search(r'python-version:\s*"(\d+)\.(\d+)"', WORKFLOW.read_text())
     assert pin, "the workflow no longer pins python-version"
     ast.parse(SCRIPT.read_text(), feature_version=(int(pin[1]), int(pin[2])))
+
+
+def test_ruff_config_stands_alone_where_the_template_is_installed(tmp_path):
+    """The template is copied to the root of a backup repo, which has no `pyproject.toml` to extend.
+
+    An `extend` that resolves here but not there makes ruff exit before it reads a setting,
+    and the `target-version` pin the file exists to carry is what would be missed. Copying the
+    template somewhere with nothing above it is the only way to see that.
+    """
+    shutil.copytree(SCRIPT.parent, tmp_path / "backup-repo")
+    ruff = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--no-cache", "backup.py"],
+        cwd=tmp_path / "backup-repo",
+        capture_output=True,
+        text=True,
+    )
+    assert ruff.returncode == 0, ruff.stderr or ruff.stdout

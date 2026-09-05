@@ -1,7 +1,29 @@
-# `backup.py` is the recovery tool: it may have to run years from now, on whatever
-# interpreter is to hand, and the workflow pins the runner below this project's own
-# floor to keep that portability exercised. Without this file ruff infers its target
-# from `requires-python = ">=3.14"` and rewrites `except (A, B):` into the bare PEP 758
-# form — valid here, a SyntaxError on the runner. Formatting is otherwise inherited.
-extend = "../../pyproject.toml"
+# Ruff settings for the backup repo, which has no `pyproject.toml` of its own.
+#
+# Self-contained on purpose. This file is copied to the root of the backup repo, so an
+# `extend` pointing at the originating project would resolve to nothing there, and an
+# unresolvable `extend` makes ruff exit before it reads a single setting. Everything the
+# template wants is therefore written out here, which also keeps the two copies identical.
+#
+# `target-version` is the setting this file exists to carry. `backup.py` is the recovery
+# tool: it may have to run years from now on whatever interpreter is to hand, and the
+# workflow pins the runner below the originating project's own floor to keep that
+# portability exercised. Left to infer, ruff reads the nearest `pyproject.toml` — in mi-ni,
+# `requires-python = ">=3.14"` — and rewrites `except (A, B):` into the bare PEP 758 form,
+# which is valid there and a SyntaxError on the runner.
 target-version = "py312"
+line-length = 120
+# Markdown is excluded because ruff formats fenced code blocks in it, and the blocks in
+# `README.md` and `RESTORE.md` are illustrative fragments rather than runnable code.
+extend-exclude = ["*.md"]
+
+[lint]
+select = ["E", "F", "W", "B", "C", "D", "T"]
+ignore = [
+    "E501", "E731",
+    "C408",
+    "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D200", "D202", "D203", "D204", "D205", "D211", "D212", "D213", "D400", "D401", "D413", "D415",
+    "F722",
+    "Q000",
+    "T201",
+]
