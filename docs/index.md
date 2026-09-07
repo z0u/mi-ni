@@ -28,25 +28,40 @@ app.volume.download(...)
 
 Notebooks are automatically published to GitHub Pages; their figures and other heavy assets are served from a Hugging Face bucket (repointed at build time with one `<base>` tag).
 
-The notebooks build on each other, so they read well in order.
+The notebooks build on each other, so they read well in order. Each entry carries a strip of the report's figures, in reading order.
 
-<!-- These URLs are rewritten to point to the published notebooks -->
+<!-- These URLs are rewritten to point to the published notebooks, and the mini:figures markers become thumbnail strips (scripts/build_site.py) -->
 
 ### Start here
 
 - [Getting started](./getting_started.py): map a function over a sweep from a notebook, and swap local ↔ Modal compute without changing the code.
 
+    <!-- mini:figures ./getting_started.py -->
+
 ### The detached, memoized flow
 
 - [Pipeline](./pipeline/report.py): a multi-step experiment driven by the CLI — a prep step feeds a training sweep, and the report reads the durable results back.
+
+    <!-- mini:figures ./pipeline/report.py -->
+
 - [Probe](./probe/report.py): reuses activations that a separate experiment ([acts](./acts/experiment.py)) shared through the content-addressed artifact store, by name.
+
+    <!-- mini:figures ./probe/report.py -->
 
 ### A case study at scale
 
 - [Sweep over GPT architectures](./gpt-sweep/report.py): LayerNorm vs. hypersphere (nGPT) across learning rates. Adds hyperparameter schedules, role-based hardware routing, and artifacts published by name.
+
+    <!-- mini:figures ./gpt-sweep/report.py -->
+
 - [nanoGPT and nGPT, interactively](./gpt.py): the same models trained inline in one notebook (source only; it re-trains on every run).
 
 ### Visualization utilities
 
 - [Themed (light/dark) plots](./themed.py): the `@themed` decorator that every report above uses for dual-mode figures.
+
+    <!-- mini:figures ./themed.py -->
+
 - [Sparkline text annotations](./subline_demo.py): per-token annotations with the sibling `subline` library.
+
+    <!-- mini:figures ./subline_demo.py -->

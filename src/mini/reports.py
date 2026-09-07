@@ -59,6 +59,10 @@ __all__ = [
     "stray_links",
     "ReportFigure",
     "report_figures",
+    "write_thumbnails",
+    "THUMBNAIL_META",
+    "THUMBNAIL_DIR",
+    "THUMBNAIL_HEIGHT",
     "rewrite_links",
     "github_slug",
     "insert_base",
@@ -530,14 +534,44 @@ class ReportFigure:
     alt: str = ""
     width: int | None = None
     height: int | None = None
+    # The small copies :func:`write_thumbnails` made at export, when the bundle declares
+    # them (:data:`THUMBNAIL_META`); ``None`` for a bundle exported before thumbnails.
+    light_thumb: str | None = None
+    dark_thumb: str | None = None
+
+
+# The ``<meta>`` an export stamps into a bundle's ``<head>`` once :func:`write_thumbnails`
+# has run; its ``content`` is the bundle-relative dir prefix (``_assets/thumbs/``) under
+# which every asset-served figure has a same-named thumbnail. The build reads it from the
+# one thing it fetches — the HTML — so a bundle without the tag (exported before
+# thumbnails existed) degrades to full-size images rather than to broken ones.
+THUMBNAIL_META = "mini-thumbnails"
+THUMBNAIL_DIR = "thumbs"  # under the bundle's asset dir; the leaf names match their sources
+THUMBNAIL_HEIGHT = 192  # px: the index strip shows ~72 CSS px tall, so this covers a 2× screen with margin
+
+_THUMBNAIL_META_TAG = re.compile(
+    rf"""<meta\s+name\s*=\s*["']{THUMBNAIL_META}["']\s+content\s*=\s*["']([^"']*)["']""", re.IGNORECASE
+)
+
+
+def _thumbnail_prefix(html: str) -> str | None:
+    m = _THUMBNAIL_META_TAG.search(html)
+    return m.group(1) if m else None
 
 
 def report_figures(html: str, *, link: str = "_assets") -> list[ReportFigure]:
     """The asset-served figures in a report's exported HTML, in document order.
 
     A ``themed`` figure lands as two sibling ``<img>`` tags — ``<stem>-light.png`` and ``<stem>-dark.png``, one hidden by CSS — which fold into a single :class:`ReportFigure` keyed by the stem; an unpaired image keeps its filename stem and no ``dark``. The first alt text seen for a stem wins (the variants carry the same one). This is how the site build draws an index page's thumbnails from the HTML it already fetched, rather than listing the bucket: the HTML also knows the *narrative* order, which a directory listing doesn't.
+
+    When the HTML carries the :data:`THUMBNAIL_META` tag, each figure's ``light_thumb``/``dark_thumb`` names the small copy under that prefix — same leaf, so the build derives the URL without listing anything.
     """
     prefix = f"{link}/"
+    thumbs = _thumbnail_prefix(html)
+
+    def thumb(src: str | None) -> str | None:
+        return f"{thumbs}{src[len(prefix) :]}" if thumbs is not None and src else None
+
     # Marimo's session blob JSON-escapes angle brackets (< / >), so the tags
     # are invisible to an HTML-shaped regex until those are folded back. Quotes stay in
     # their \" form, which the attribute patterns already read.
@@ -572,10 +606,73 @@ def report_figures(html: str, *, link: str = "_assets") -> list[ReportFigure]:
             alt=e["alt"] or "",
             width=int(e["width"]) if e["width"] else None,
             height=int(e["height"]) if e["height"] else None,
+            light_thumb=thumb(e["light"] or e["dark"]),
+            dark_thumb=thumb(e["dark"]),
         )
         for stem, e in order.items()
         if e["light"] or e["dark"]
     ]
+
+
+def _thumbnail_bytes(src: Path, height: int) -> bytes | None:
+    """*src* scaled to *height* px tall, in its own format — or ``None`` when the original should ship as is (already that small, or not an image Pillow reads).
+
+    A PNG is quantized to an 8-bit palette on the way out: a plot at thumbnail scale is a few colours on a flat background, and the palette cuts the file to roughly a quarter of the truecolour encoding for no visible loss. Other formats keep their encoder's defaults. Deterministic for unchanged input, so republishing an unchanged report writes the same bytes and stays a no-op commit.
+    """
+    from io import BytesIO
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(src) as im:
+            fmt = im.format
+            if im.height <= height:
+                return None  # already small: ship the original rather than re-encode it
+            im = im.convert("RGBA") if fmt == "PNG" else im.convert("RGB")
+            im = im.resize((max(1, round(im.width * height / im.height)), height), Image.Resampling.LANCZOS)
+            if fmt == "PNG":
+                # Only the octree quantizer takes alpha, and it nudges it (opaque → 254);
+                # an opaque figure — most of them — gets the better RGB quantizer instead.
+                opaque = im.getchannel("A").getextrema() == (255, 255)
+                im = im.convert("RGB").quantize(256) if opaque else im.quantize(256, method=Image.Quantize.FASTOCTREE)
+            out = BytesIO()
+            im.save(out, format=fmt, optimize=True)
+    except UnidentifiedImageError, OSError:
+        return None
+    return out.getvalue()
+
+
+def write_thumbnails(
+    html: str, asset_dir: Path, *, link: str = "_assets", height: int = THUMBNAIL_HEIGHT
+) -> tuple[str, list[str]]:
+    """Write a thumbnail of every asset-served figure in *html* under ``asset_dir/thumbs/`` and declare them in the HTML.
+
+    Returns the HTML with the :data:`THUMBNAIL_META` tag added, and the leaves written. Runs at export (``scripts/export_reports.py``), the one half of publishing that holds the figure bytes: the site build is read-only and fetches only the HTML, so it can't scale anything itself — it reads the tag and swaps each strip image for its small copy (:func:`report_figures`). The thumbnails ride the bundle sync like any other asset, so the index's images are pinned to the same revision as the report's.
+
+    The tag promises a thumbnail for *every* figure the HTML references, since the build derives each URL from its source's leaf without listing the bucket. So a figure that can't be scaled — an SVG, a missing file, one already small enough — is copied through unchanged: that entry costs what it does today rather than 404ing.
+    """
+    import shutil
+
+    prefix = f"{link}/"
+    thumb_dir = asset_dir / THUMBNAIL_DIR
+    written: list[str] = []
+    for fig in report_figures(html, link=link):
+        for src in (fig.light, fig.dark):
+            if not src or not src.startswith(prefix):
+                continue
+            leaf = src[len(prefix) :]
+            source, dest = asset_dir / leaf, thumb_dir / leaf
+            if not source.is_file() or leaf in written:
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if (data := _thumbnail_bytes(source, height)) is not None:
+                dest.write_bytes(data)
+            else:
+                shutil.copyfile(source, dest)
+            written.append(leaf)
+    meta = f'<meta name="{THUMBNAIL_META}" content="{prefix}{THUMBNAIL_DIR}/" />'
+    html = _THUMBNAIL_META_TAG.sub("", html)  # re-stamp rather than stack, if the HTML already carried one
+    return re.sub(r"(<head[^>]*>)", lambda m: f"{m.group(1)}\n    {meta}", html, count=1), written
 
 
 #: Markup a heading carries that GitHub renders away before slugging: inline HTML, and
