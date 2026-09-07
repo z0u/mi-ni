@@ -128,6 +128,41 @@ def test_figures_marker_survives_markdown_and_expands_to_pinned_cdn_thumbnails(r
     assert strip_html.count("<picture>") == 1  # only the themed figure; the unthemed one is a bare <img>
 
 
+def test_figure_strip_shows_the_export_thumbnails_when_the_bundle_has_them(resolver):
+    """A few KB per entry instead of the full figure; a bundle exported before thumbnails keeps serving the full-size image."""
+    from mini.reports import ReportFigure
+
+    strip = build_site.FigureStrip(
+        "probe/report",
+        "https://hf.co/d/r/resolve/abc123/exports/probe/report/",
+        (
+            ReportFigure(
+                "grading",
+                light="_assets/grading-light.png",
+                dark="_assets/grading-dark.png",
+                light_thumb="_assets/thumbs/grading-light.png",
+                dark_thumb="_assets/thumbs/grading-dark.png",
+                width=640,
+                height=480,
+            ),
+            ReportFigure("old", light="_assets/old-light.png", dark="_assets/old-dark.png"),
+        ),
+    )
+    out = build_site._figure_strip_html(strip, from_dir="", externalizing=True)
+    base = "https://hf.co/d/r/resolve/abc123/exports/probe/report/"
+    assert f'<img src="{base}_assets/thumbs/grading-light.png"' in out
+    assert f'srcset="{base}_assets/thumbs/grading-dark.png"' in out
+    assert 'width="640" height="480"' in out  # the figure's own aspect; the CSS fixes the height
+    assert f'<img src="{base}_assets/old-light.png"' in out and f'srcset="{base}_assets/old-dark.png"' in out
+    assert 'grading-light.png"' not in out.replace("thumbs/grading-light.png", "")  # never the full-size one
+
+
+def test_figure_strip_of_a_figureless_report_renders_nothing():
+    """A report whose figures are inlined (no publisher) has no strip to show; an empty box would just add a margin."""
+    strip = build_site.FigureStrip("probe/report", None, ())
+    assert build_site._figure_strip_html(strip, from_dir="", externalizing=False) == ""
+
+
 def test_figures_marker_localizes_to_the_copied_assets(resolver, strips):
     out = build_site.expand_figure_strips(
         "<!-- mini:figures ./probe/report.py -->", strips, resolver, from_dir="", externalizing=False

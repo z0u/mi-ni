@@ -27,6 +27,7 @@ from mini.reports import (  # noqa: E402
     report_notebooks,
     save_pins,
     set_provenance,
+    write_thumbnails,
 )
 from mini.store import active_profile  # noqa: E402
 
@@ -74,9 +75,16 @@ def export_one(nb: Path) -> Path:
     subprocess.run(["marimo", "export", "html", "-f", str(nb), "-o", str(out)], check=True, cwd=ROOT, env=env)
     clean_html(out)  # scrub terminal control seqs + redact modal URLs from the published HTML
     default_hidden_code(out)  # literate reports open with code collapsed; the menu toggle still reveals it
+    html = out.read_text("utf-8")
     if sidecar.exists():  # the render read store refs — cite their producers in a footer
         refs = json.loads(sidecar.read_text()).get("refs", {})
-        out.write_text(set_provenance(out.read_text("utf-8"), refs), "utf-8")
+        html = set_provenance(html, refs)
+    # Small copies of every figure, for the index's strips: made here because this is the
+    # one step that holds the figure bytes (the site build fetches only the HTML).
+    html, thumbs = write_thumbnails(html, assets)
+    if thumbs:
+        print(f"  thumbs {len(thumbs)} figure(s) -> {assets.relative_to(ROOT)}/thumbs/")
+    out.write_text(html, "utf-8")
     return out.parent
 
 

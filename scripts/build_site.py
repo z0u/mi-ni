@@ -475,12 +475,14 @@ def _marker_key(token: str, links: LinkResolver, *, from_dir: str) -> str | None
 
 
 def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool) -> str:
-    """A report's thumbnail strip: each figure a lazy full-size image, themed via ``<picture>``.
+    """A report's thumbnail strip: each figure a lazy image, themed via ``<picture>``.
 
-    Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail reuses the figure's own alt text and the ``width``/``height`` the export stamped (so the row lays out before the PNGs arrive). The CSS (``scripts/md.css``) sizes them down, so the browser fetches one theme's PNG per figure and only as it scrolls into view. Deliberately no link to the full-size PNG: opening one paints its transparent background on the browser's white canvas, wrong in dark mode, while copying the image in place picks up the scheme-matched variant the ``<picture>`` shows.
+    Empty for a report with no asset-served figures (nothing to show, so no box). Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Deliberately no link to the full-size PNG: opening one paints its transparent background on the browser's white canvas, wrong in dark mode; the report itself is one click away on the entry's title.
     """
     import html
 
+    if not strip.figures:
+        return ""
     base = (
         strip.base_href
         if externalizing
@@ -490,9 +492,10 @@ def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool
     for fig in strip.figures:
         alt, title = html.escape(fig.alt), html.escape(fig.stem)
         size = f' width="{fig.width}" height="{fig.height}"' if fig.width and fig.height else ""
-        img = f'<img src="{base}{fig.light}" alt="{alt}" title="{title}"{size} loading="lazy">'
-        if fig.dark:
-            img = f'<picture><source media="(prefers-color-scheme: dark)" srcset="{base}{fig.dark}">{img}</picture>'
+        light, dark = fig.light_thumb or fig.light, fig.dark_thumb or fig.dark
+        img = f'<img src="{base}{light}" alt="{alt}" title="{title}"{size} loading="lazy">'
+        if dark:
+            img = f'<picture><source media="(prefers-color-scheme: dark)" srcset="{base}{dark}">{img}</picture>'
         parts.append(img)
     return f'<div class="fig-strip">{"".join(parts)}</div>'
 

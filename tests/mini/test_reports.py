@@ -28,6 +28,7 @@ from mini.reports import (
     set_responsive,
     set_theme,
     stray_links,
+    write_thumbnails,
     use_publisher,
 )
 
@@ -89,6 +90,84 @@ def test_report_figures_reads_the_escaped_session_blob():
     # JSON-unescaped (\u2192 → the arrow), then HTML-unescaped (&quot; → "); the first alt seen wins.
     assert figs[0].alt == 'Margin → 1; "red" holds'
     assert (figs[0].width, figs[0].height) == (512, 384)  # read through the \" quoting
+
+
+def test_report_figures_reads_thumbnails_from_the_bundle_meta():
+    """An exported bundle declares its thumbnails in the one thing the build fetches: the HTML. Same leaf under the declared prefix, so no listing is needed; a bundle without the tag has none."""
+    figs = '<img src="_assets/grading-light.png" alt="a" /><img src="_assets/grading-dark.png" alt="a" /><img src="_assets/extra.png" />'
+    assert [(f.light_thumb, f.dark_thumb) for f in report_figures(figs)] == [(None, None), (None, None)]
+
+    html = f'<head><meta name="mini-thumbnails" content="_assets/thumbs/" /></head>{figs}'
+    assert [(f.light_thumb, f.dark_thumb) for f in report_figures(html)] == [
+        ("_assets/thumbs/grading-light.png", "_assets/thumbs/grading-dark.png"),
+        ("_assets/thumbs/extra.png", None),
+    ]
+
+
+@pytest.fixture
+def bundle(tmp_path):
+    """An exported bundle: a tall transparent figure pair, one already small, an SVG, and a dangling reference."""
+    from PIL import Image
+
+    assets = tmp_path / "_assets"
+    assets.mkdir()
+    big = Image.new("RGBA", (800, 600), (0, 0, 0, 0))
+    big.paste((200, 30, 30, 255), (100, 100, 700, 500))  # an opaque block on a transparent ground
+    big.save(assets / "cloud-light.png")
+    Image.new("RGBA", (800, 600), (20, 20, 20, 255)).save(assets / "cloud-dark.png")  # opaque, like a themed figure
+    Image.new("RGBA", (100, 50), (0, 0, 255, 255)).save(assets / "tiny.png")
+    (assets / "diagram.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+    html = (
+        "<html><head><title>r</title></head><body>"
+        '<img src="_assets/cloud-light.png" alt="c" /><img src="_assets/cloud-dark.png" alt="c" />'
+        '<img src="_assets/tiny.png" /><img src="_assets/diagram.svg" /><img src="_assets/gone.png" />'
+        "</body></html>"
+    )
+    return html, assets
+
+
+def test_write_thumbnails_scales_declares_and_keeps_alpha(bundle):
+    from PIL import Image
+
+    html, assets = bundle
+    out, written = write_thumbnails(html, assets, height=192)
+    assert written == ["cloud-light.png", "cloud-dark.png", "tiny.png", "diagram.svg"]  # the dangling one is skipped
+    assert '<head>\n    <meta name="mini-thumbnails" content="_assets/thumbs/" />' in out
+    # The build reads the tag back into the same URLs the files were written at.
+    assert [f.light_thumb for f in report_figures(out)][:2] == [
+        "_assets/thumbs/cloud-light.png",
+        "_assets/thumbs/tiny.png",
+    ]
+
+    with Image.open(assets / "thumbs" / "cloud-light.png") as thumb:
+        assert thumb.size == (256, 192)  # 192 tall, aspect kept
+        assert thumb.mode == "P"  # palette-quantized: a few KB rather than tens
+        alpha = thumb.convert("RGBA").getchannel("A")
+        assert alpha.getpixel((1, 1)) == 0  # the transparent ground survived quantization
+        assert alpha.getpixel((128, 96)) in range(250, 256)  # the octree quantizer nudges alpha a little
+    with Image.open(assets / "thumbs" / "cloud-dark.png") as thumb:
+        assert thumb.mode == "P"
+        assert thumb.convert("RGBA").getchannel("A").getextrema() == (255, 255)  # opaque stays exactly so
+    assert (assets / "thumbs" / "cloud-light.png").stat().st_size < (assets / "cloud-light.png").stat().st_size
+
+
+def test_write_thumbnails_copies_what_it_cannot_shrink(bundle):
+    """The tag promises a thumbnail per figure, so an unscalable one is copied through rather than left to 404."""
+    html, assets = bundle
+    write_thumbnails(html, assets, height=192)
+    for leaf in ("tiny.png", "diagram.svg"):  # already small; not a raster
+        assert (assets / "thumbs" / leaf).read_bytes() == (assets / leaf).read_bytes()
+    assert not (assets / "thumbs" / "gone.png").exists()
+
+
+def test_write_thumbnails_is_deterministic_and_restamps(bundle):
+    """A republish of an unchanged report must be a no-op commit: same bytes, and one tag rather than a stack of them."""
+    html, assets = bundle
+    once, _ = write_thumbnails(html, assets, height=192)
+    first = (assets / "thumbs" / "cloud-light.png").read_bytes()
+    twice, _ = write_thumbnails(once, assets, height=192)
+    assert (assets / "thumbs" / "cloud-light.png").read_bytes() == first
+    assert twice.count("mini-thumbnails") == 1
 
 
 def test_stray_links_flags_author_links_not_assets():
