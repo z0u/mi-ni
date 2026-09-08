@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -15,7 +16,9 @@ from mini.reports import (
     input_dir,
     insert_base,
     is_report_notebook,
+    lightbox_chrome,
     load_pins,
+    mark_figures,
     relative_urls,
     render_path,
     report_figures,
@@ -23,6 +26,7 @@ from mini.reports import (
     rewrite_links,
     save_pins,
     set_banner,
+    set_lightbox,
     set_provenance,
     set_report_styles,
     set_responsive,
@@ -168,6 +172,52 @@ def test_write_thumbnails_is_deterministic_and_restamps(bundle):
     twice, _ = write_thumbnails(once, assets, height=192)
     assert (assets / "thumbs" / "cloud-light.png").read_bytes() == first
     assert twice.count("mini-thumbnails") == 1
+
+
+def test_mark_figures_defers_and_marks_asset_images_in_both_spellings():
+    """A report ships every figure on load, both variants of a themed pair included. The mark reaches the tags Marimo buries in its session blob as well as the ones written out as markup."""
+    html = (
+        '<img class="mini-themed-img-light" src="_assets/g-light.png" alt="A" width="640" height="480" />'
+        '<img src="data:image/png;base64,AA" alt="inline" />'
+        '<img src="https://example.com/off.png" alt="elsewhere" />'
+        '<script>{"outputs":"\\u003Cimg src=\\"_assets/c-dark.png\\" alt=\\"x\\" /\\u003E"}</script>'
+    )
+    out = mark_figures(html)
+    assert out.count("data-mini-zoom") == 2  # the two asset figures; not the inline or off-site ones
+    assert '<img loading="lazy" tabindex="0" data-mini-zoom class="mini-themed-img-light"' in out
+    # Inside the blob the tag's own quotes are escaped, so the added ones must be too —
+    # otherwise the attribute closes the JSON string the tag lives in.
+    assert '\\u003Cimg loading=\\"lazy\\" tabindex=\\"0\\" data-mini-zoom src=\\"_assets/c-dark.png\\"' in out
+    blob = re.search(r"<script>(.*)</script>", out, re.S)
+    assert blob and json.loads(blob.group(1))  # the tag still sits inside valid JSON
+
+
+def test_mark_figures_leaves_an_already_marked_tag_alone():
+    """Build steps re-run on their own output in a preview loop; a second pass must not stack attributes."""
+    once = mark_figures('<img src="_assets/a.png" alt="a" />')
+    assert mark_figures(once) == once
+
+
+def test_set_lightbox_injects_one_overlay_before_the_styles_close():
+    html = set_lightbox(_EXPORT_HTML)
+    assert html.count("mini-lightbox") > 1 and html.index("mini-lightbox") < html.index("</head>")
+    assert "showModal" in html  # a top-layer dialog, so no z-index race with Marimo's app layer
+    assert "<a " not in lightbox_chrome()  # nothing that navigates away from the report
+
+
+def test_lightbox_holds_the_box_open_while_the_full_size_figure_loads():
+    js = lightbox_chrome()
+    # The size the export stamped fixes the panel's shape *and* its width before any bytes
+    # arrive, so it can't open flat or resize under the reader; the image on screen stands
+    # in meanwhile, so the panel can't be left showing the figure opened before it.
+    assert "aspectRatio" in js and "getAttribute('width')" in js
+    assert "size(ar, w || " in js  # the physical size the report asked for is the ceiling
+    assert "mini-lightbox-loading" in js  # the placeholder reads as one until the real image lands
+    assert "big.src=full" in js and "pre.onload" in js  # swapped in only once decoded
+
+
+def test_set_lightbox_is_a_noop_without_a_head():
+    assert set_lightbox("<p>not a page</p>") == "<p>not a page</p>"
 
 
 def test_stray_links_flags_author_links_not_assets():

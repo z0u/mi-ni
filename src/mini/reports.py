@@ -60,6 +60,10 @@ __all__ = [
     "ReportFigure",
     "report_figures",
     "write_thumbnails",
+    "mark_figures",
+    "set_lightbox",
+    "lightbox_chrome",
+    "ZOOM_ATTR",
     "THUMBNAIL_META",
     "THUMBNAIL_DIR",
     "THUMBNAIL_HEIGHT",
@@ -675,6 +679,45 @@ def write_thumbnails(
     return re.sub(r"(<head[^>]*>)", lambda m: f"{m.group(1)}\n    {meta}", html, count=1), written
 
 
+#: Stamped on every asset-served figure the build marks (:func:`mark_figures`, and the
+#: index strip's thumbnails). It is what the lightbox script looks for, so a figure opts
+#: in by carrying it rather than by the script guessing from a URL shape.
+ZOOM_ATTR = "data-mini-zoom"
+
+# An ``<img>`` tag in either spelling an export carries it in: plain markup, and
+# JSON-escaped inside Marimo's session blob (``\u003Cimg … /\u003E``, attribute quotes
+# as ``\"``). One pattern for both means one pass over the document — which is
+# megabytes — and one place that knows the two spellings. Neither form holds a bare
+# ``>`` inside a tag, so the body is "anything up to whichever terminator this form
+# uses".
+_ANY_IMG_TAG = re.compile(
+    r"(?P<lt><|\\u003[Cc])img\b(?P<attrs>(?:(?!\\u003[Ee])[^>])*)(?P<gt>>|\\u003[Ee])", re.IGNORECASE
+)
+_LOADING_ATTR = re.compile(r"(?<![\w-])loading\s*=", re.IGNORECASE)
+
+
+def mark_figures(html: str, *, link: str = "_assets") -> str:
+    """Mark the asset-served figures in a report's HTML as deferrable and zoomable.
+
+    Each matching ``<img>`` gains ``loading="lazy"`` — a report with twenty figures otherwise fetches all twenty PNGs on load, and a themed figure ships *both* variants even though CSS hides one — plus :data:`ZOOM_ATTR` and a ``tabindex``, which is how the lightbox (:func:`set_lightbox`) knows what to open and how a keyboard reaches it.
+
+    Runs at build time beside :func:`set_theme` and friends, so it reaches reports published before any of this existed and a later change to the markup needs no re-export. Only figures under *link* are touched: an inline ``data:`` image is already downloaded, and an off-site one isn't ours to defer. Idempotent — a tag that already declares ``loading`` is left alone.
+    """
+    prefix = f"{link}/"
+
+    def repl(m: re.Match) -> str:
+        attrs = m["attrs"]
+        src = _IMG_SRC_ATTR.search(attrs)
+        if src is None or not src.group(1).startswith(prefix):
+            return m[0]
+        if _LOADING_ATTR.search(attrs) or ZOOM_ATTR in attrs:
+            return m[0]
+        q = '"' if m["lt"] == "<" else '\\"'  # inside the blob the tag's own quotes are escaped
+        return f"{m['lt']}img loading={q}lazy{q} tabindex={q}0{q} {ZOOM_ATTR}{attrs}{m['gt']}"
+
+    return _ANY_IMG_TAG.sub(repl, html)
+
+
 #: Markup a heading carries that GitHub renders away before slugging: inline HTML, and
 #: a link's target (its text stays).
 _SLUG_HTML_TAG = re.compile(r"<[^>]+>")
@@ -773,6 +816,153 @@ def set_theme(html: str, theme: str = "system") -> str:
     if theme == "system":
         html = re.sub(r"(<body[^>]*>)", lambda m: f"{m.group(1)}\n    {_FLASH_GUARD}", html, count=1)
     return html
+
+
+# The lightbox's own styling. ``Canvas``/``CanvasText`` are the UA's theme-aware system
+# colors — the same ones the nav and provenance chips use — so the panel behind the
+# figure is the page's own background in either scheme, which is what a figure PNG's
+# transparent background needs to read correctly. Opening the file in a tab instead would
+# paint it on the browser's white canvas, wrong in dark mode; this is the reason the
+# index strip had no link to the full-size image until now.
+_LIGHTBOX_CSS = """
+[data-mini-zoom]{cursor:zoom-in}
+dialog.mini-lightbox{border:0;padding:0;margin:auto;max-width:96vw;max-height:96vh;
+  background:Canvas;color:CanvasText;border-radius:.5rem;box-shadow:0 1rem 3rem rgb(0 0 0/.45)}
+dialog.mini-lightbox::backdrop{background:rgb(0 0 0/.62);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+dialog.mini-lightbox img{display:block;margin:0 auto;max-width:96vw;max-height:84vh;width:auto;height:auto;
+  transition:filter .18s ease-out,opacity .18s ease-out,width .18s ease-out}
+dialog.mini-lightbox img.mini-lightbox-loading{filter:blur(4px) grayscale(.35);opacity:.55}
+@media (prefers-reduced-motion:reduce){dialog.mini-lightbox img{transition:none}}
+dialog.mini-lightbox figcaption{margin:0;padding:.5rem .75rem;max-width:70ch;
+  font:italic .8125rem/1.5 system-ui,sans-serif;color:color-mix(in srgb,CanvasText 70%,transparent)}
+.mini-lightbox-close{position:absolute;top:.35rem;right:.35rem;width:1.9rem;height:1.9rem;
+  font:1.25rem/1 system-ui,sans-serif;cursor:pointer;color:CanvasText;border-radius:50%;
+  background:color-mix(in srgb,Canvas 70%,transparent);
+  border:1px solid color-mix(in srgb,CanvasText 20%,transparent)}
+@media print{dialog.mini-lightbox{display:none}}
+"""
+
+# A ``<dialog>`` opened with ``showModal`` renders in the browser's *top layer*, above
+# every stacking context on the page — which is why the overlay needs none of the
+# z-index arithmetic the nav and provenance chips do to clear Marimo's opaque app layer.
+# It also brings Escape-to-close, the focus trap, and inertness of the page behind it for
+# free. Listeners are delegated from ``document``, so figures Marimo hydrates long after
+# this script runs are covered without re-binding.
+_LIGHTBOX_JS = r"""
+(function(){
+  if(!window.HTMLDialogElement) return;  // no dialog: the figures simply stay static
+  var ZOOM='[__ZOOM__]', dlg, seq=0;
+  function chrome(){
+    if(dlg) return dlg;
+    dlg=document.createElement('dialog');
+    dlg.className='mini-lightbox';
+    dlg.innerHTML='<button type="button" class="mini-lightbox-close" aria-label="Close">×</button>'+
+      '<figure style="margin:0"><img alt=""><figcaption></figcaption></figure>';
+    dlg.addEventListener('click',function(ev){
+      // The dialog box is exactly the panel, so a click reported against the dialog
+      // itself landed on the backdrop around it.
+      if(ev.target===dlg||ev.target.closest('.mini-lightbox-close')) dlg.close();
+    });
+    document.body.appendChild(dlg);
+    return dlg;
+  }
+  function fullSrc(img){
+    var light=img.getAttribute('data-mini-full'), dark=img.getAttribute('data-mini-full-dark');
+    if(light||dark){
+      // An index thumbnail names its full-size counterparts. The index is a plain page
+      // with no theme of its own, so the device preference is the whole of the answer.
+      return (dark&&matchMedia('(prefers-color-scheme: dark)').matches&&dark)||light||dark;
+    }
+    // A themed report figure is a light/dark pair of siblings with one hidden by CSS.
+    // Whichever is on screen is the variant the page settled on, however it decided.
+    var pair=(img.parentElement||img).querySelectorAll('img.mini-themed-img-light,img.mini-themed-img-dark');
+    for(var i=0;i<pair.length;i++) if(pair[i].offsetParent) return pair[i].src;
+    return img.src;
+  }
+  function want(img){
+    // The size the report asked for, stamped by the export on the figure's tag and on the
+    // index thumbnail made from it: the figure's *physical* size (see mini.vis.nb), which
+    // for a plot saved at 2x is half its pixels. That is the size it is meant to be drawn
+    // at and the size it looks sharp at on a dense screen, so it is the panel's ceiling
+    // as well as its shape — and it is in the markup before the panel has any bytes.
+    return {w:+img.getAttribute('width')||0, h:+img.getAttribute('height')||0};
+  }
+  function ratio(img){
+    var d=want(img), w=d.w, h=d.h;
+    if(!(w>0&&h>0)){ w=img.naturalWidth; h=img.naturalHeight; }  // unstamped: what it measures
+    return (w>0&&h>0) ? w/h : 0;
+  }
+  function size(ar, px){
+    // As large as the viewport allows, up to the figure's own size. An unstamped figure
+    // has only its pixels to go on, and not until it has them — pass 0 and the fit stands.
+    if(!ar) return '';
+    return 'min(96vw,calc(84vh * '+ar.toFixed(4)+(px?'),'+px+'px':')')+')';
+  }
+  function open(img){
+    var d=chrome(), big=d.querySelector('img'), cap=d.querySelector('figcaption'),
+        fig=img.closest('figure'), own=fig&&fig.querySelector('figcaption'),
+        full=fullSrc(img), shown=img.currentSrc||img.src, ar=ratio(img), w=want(img).w;
+    // Fix the box before any bytes arrive: an image that hasn't loaded has no intrinsic
+    // size, so without this the panel opens flat and jumps open when the figure lands.
+    // A stamped figure opens at its final size; an unstamped one at the right shape,
+    // narrowing to fit its pixels once those arrive.
+    big.style.aspectRatio = ar ? ar.toFixed(4) : '';
+    big.style.width = size(ar, w || (shown===full ? img.naturalWidth : 0));
+    big.alt=img.alt||'';
+    cap.textContent=((own&&own.textContent)||img.alt||'').trim();
+    cap.hidden=!cap.textContent;
+    // Start from the image the page is already showing — on the index a thumbnail the
+    // browser has cached, on a report the full-size figure itself — so the panel paints
+    // this frame rather than holding the figure opened before it. Blown up from a
+    // thumbnail it is soft, so it reads as a placeholder until the real one arrives.
+    var turn = ++seq;
+    big.src=shown;
+    big.classList.toggle('mini-lightbox-loading', shown!==full);
+    d.showModal();
+    if(shown===full) return;
+    var pre=new Image();
+    // Swapping to a decoded image paints without an empty frame in between. A second
+    // click while this one loads takes the panel, so a stale arrival is dropped.
+    pre.onload=pre.onerror=function(){
+      if(turn!==seq) return;
+      if(pre.naturalWidth){ big.src=full; big.style.width=size(ar, w || pre.naturalWidth); }
+      big.classList.remove('mini-lightbox-loading');
+    };
+    pre.src=full;
+  }
+  function target(ev){
+    return ev.target.closest?ev.target.closest(ZOOM):null;
+  }
+  document.addEventListener('click',function(ev){
+    if(ev.button||ev.metaKey||ev.ctrlKey||ev.shiftKey||ev.altKey) return;
+    var img=target(ev);
+    if(img){ ev.preventDefault(); open(img); }
+  });
+  document.addEventListener('keydown',function(ev){
+    if(ev.key!=='Enter'&&ev.key!==' ') return;
+    var img=target(ev);
+    if(img){ ev.preventDefault(); open(img); }
+  });
+})();
+""".replace("__ZOOM__", ZOOM_ATTR)
+
+
+def lightbox_chrome() -> str:
+    """The ``<style>`` and ``<script>`` that make a :data:`ZOOM_ATTR` figure open full-size in an overlay.
+
+    One snippet, inlined by both page builders — the report pages through :func:`set_lightbox`, the Markdown pages by ``scripts/build_site.py`` — rather than a file the site links, because externalize mode puts a ``<base href>`` at the bucket that would repoint a relative stylesheet URL, and because the two would otherwise drift apart.
+    """
+    return f"<style>{_LIGHTBOX_CSS.strip()}</style>\n<script>{_LIGHTBOX_JS.strip()}</script>"
+
+
+def set_lightbox(html: str) -> str:
+    """Give a published report's figures a click-to-enlarge overlay.
+
+    A figure on the page is sized to the reading column, and the PNG behind it is often several times that wide; clicking one now opens it at full size over a dimmed page, captioned, and closes on Escape, on the backdrop, or on the button. It stays on the page throughout — no navigation — which is what lets the overlay carry a themed background, so a figure's transparent PNG reads right in dark mode as well as light.
+
+    Pairs with :func:`mark_figures`, which is what says *which* images are figures. A no-op on a page with no ``</head>``.
+    """
+    return re.sub(r"(</head>)", lambda m: f"    {lightbox_chrome()}\n{m.group(1)}", html, count=1)
 
 
 # Marimo renders two bits of chrome we don't want on a *published* report — a "Static

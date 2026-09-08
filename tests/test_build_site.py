@@ -115,14 +115,14 @@ def test_figures_marker_survives_markdown_and_expands_to_pinned_cdn_thumbnails(r
     )
     assert "mini:figures" in body  # the comment came through rendering intact
 
-    out = build_site.expand_figure_strips(body, strips, resolver, from_dir="", externalizing=True)
-    assert "mini:figures" not in out
+    out, has_strip = build_site.expand_figure_strips(body, strips, resolver, from_dir="", externalizing=True)
+    assert has_strip and "mini:figures" not in out
     assert '<img src="https://hf.co/d/r/resolve/abc123/exports/probe/report/_assets/grading-light.png"' in out
     assert 'srcset="https://hf.co/d/r/resolve/abc123/exports/probe/report/_assets/grading-dark.png"' in out
     assert 'alt="Bands"' in out and 'loading="lazy"' in out
     assert 'width="640" height="480"' in out  # the export's stamped size, for layout before load
-    # No anchor: a raw PNG opens transparent-on-white (wrong in dark mode); copying the
-    # image in place gets the scheme-matched variant the <picture> shows.
+    # No anchor: a raw PNG opens transparent-on-white (wrong in dark mode) and navigates
+    # off the index. The lightbox shows it in place instead, over a themed backdrop.
     strip_html = out.split('<div class="fig-strip">')[1]
     assert "<a " not in strip_html
     assert strip_html.count("<picture>") == 1  # only the themed figure; the unthemed one is a bare <img>
@@ -154,7 +154,35 @@ def test_figure_strip_shows_the_export_thumbnails_when_the_bundle_has_them(resol
     assert f'srcset="{base}_assets/thumbs/grading-dark.png"' in out
     assert 'width="640" height="480"' in out  # the figure's own aspect; the CSS fixes the height
     assert f'<img src="{base}_assets/old-light.png"' in out and f'srcset="{base}_assets/old-dark.png"' in out
-    assert 'grading-light.png"' not in out.replace("thumbs/grading-light.png", "")  # never the full-size one
+    assert f'src="{base}_assets/grading-light.png"' not in out  # the strip never *loads* the full-size one
+
+
+def test_figure_strip_thumbnails_name_the_full_size_figure_for_the_lightbox(resolver):
+    """A strip thumbnail is unreadable at 4.5rem, so it carries the full-size URLs the overlay opens — both themes, since the index picks by device preference."""
+    from mini.reports import ReportFigure
+
+    base = "https://hf.co/d/r/resolve/abc123/exports/probe/report/"
+    strip = build_site.FigureStrip(
+        "probe/report",
+        base,
+        (
+            ReportFigure(
+                "grading",
+                light="_assets/grading-light.png",
+                dark="_assets/grading-dark.png",
+                alt="Bands",
+                light_thumb="_assets/thumbs/grading-light.png",
+                dark_thumb="_assets/thumbs/grading-dark.png",
+            ),
+            ReportFigure("lone", light="_assets/lone.png", alt="One", light_thumb="_assets/thumbs/lone.png"),
+        ),
+    )
+    out = build_site._figure_strip_html(strip, from_dir="", externalizing=True)
+    assert f'data-mini-full="{base}_assets/grading-light.png"' in out
+    assert f'data-mini-full-dark="{base}_assets/grading-dark.png"' in out
+    assert out.count("data-mini-zoom") == 2  # both entries open, the unthemed one included
+    assert "data-mini-full-dark" not in out.split("lone")[-1]  # nothing to offer for an unthemed figure
+    assert out.count('tabindex="0"') == 2  # reachable without a mouse
 
 
 def test_figure_strip_of_a_figureless_report_renders_nothing():
@@ -164,17 +192,17 @@ def test_figure_strip_of_a_figureless_report_renders_nothing():
 
 
 def test_figures_marker_localizes_to_the_copied_assets(resolver, strips):
-    out = build_site.expand_figure_strips(
+    out, _ = build_site.expand_figure_strips(
         "<!-- mini:figures ./probe/report.py -->", strips, resolver, from_dir="", externalizing=False
     )
     assert '<img src="probe/report/_assets/grading-light.png"' in out  # beside _site/probe/report/index.html
 
 
 def test_figures_marker_for_an_unbuilt_report_renders_nothing(resolver, strips, capsys):
-    out = build_site.expand_figure_strips(
+    out, has_strip = build_site.expand_figure_strips(
         "<!-- mini:figures ./acts/report.py --><p>after</p>", strips, resolver, from_dir="", externalizing=True
     )
-    assert out == "<p>after</p>"
+    assert out == "<p>after</p>" and not has_strip
     assert "names no built report" in capsys.readouterr().out
 
 

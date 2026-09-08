@@ -27,12 +27,15 @@ from mini.reports import (
     export_key,
     github_slug,
     insert_base,
+    lightbox_chrome,
     load_pins,
+    mark_figures,
     publish_lock,
     report_figures,
     report_notebooks,
     rewrite_links,
     set_banner,
+    set_lightbox,
     set_report_styles,
     set_responsive,
     set_theme,
@@ -336,6 +339,8 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
         nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
 
         html = _resolve_html_links(bundle.html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
+        html = mark_figures(html, link=ASSET_LINK)  # defer offscreen figures; mark them zoomable
+        html = set_lightbox(html)  # click a figure for the full-size image, over a dimmed page
         html = set_theme(html)  # follow the visitor's device, not the exporter's setting
         html = set_responsive(html)  # fit narrow screens; drop Marimo's watermark
         index_url, source_url = _nav_urls(links, key=key, nb_rel=nb_rel, externalizing=externalizing)
@@ -477,7 +482,7 @@ def _marker_key(token: str, links: LinkResolver, *, from_dir: str) -> str | None
 def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool) -> str:
     """A report's thumbnail strip: each figure a lazy image, themed via ``<picture>``.
 
-    Empty for a report with no asset-served figures (nothing to show, so no box). Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Deliberately no link to the full-size PNG: opening one paints its transparent background on the browser's white canvas, wrong in dark mode; the report itself is one click away on the entry's title.
+    Empty for a report with no asset-served figures (nothing to show, so no box). Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Clicking one opens the full-size figure in the lightbox (:func:`~mini.reports.lightbox_chrome`) rather than linking to the PNG: a link navigates away, and the browser paints the figure's transparent background on its white canvas — wrong in dark mode — where the overlay can carry a themed one.
     """
     import html
 
@@ -491,9 +496,16 @@ def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool
     parts = []
     for fig in strip.figures:
         alt, title = html.escape(fig.alt), html.escape(fig.stem)
-        size = f' width="{fig.width}" height="{fig.height}"' if fig.width and fig.height else ""
+        dims = f' width="{fig.width}" height="{fig.height}"' if fig.width and fig.height else ""
         light, dark = fig.light_thumb or fig.light, fig.dark_thumb or fig.dark
-        img = f'<img src="{base}{light}" alt="{alt}" title="{title}"{size} loading="lazy">'
+        # The thumbnail is a few KB and unreadable at strip size, so each one names the
+        # full-size figure it was made from; clicking opens that in the lightbox, which
+        # is what lets the strip offer the image without a link that navigates to it.
+        full = f' data-mini-full="{base}{fig.light}"' + (f' data-mini-full-dark="{base}{fig.dark}"' if fig.dark else "")
+        img = (
+            f'<img src="{base}{light}" alt="{alt}" title="{title}"{dims}'
+            f' loading="lazy" tabindex="0" data-mini-zoom{full}>'
+        )
         if dark:
             img = f'<picture><source media="(prefers-color-scheme: dark)" srcset="{base}{dark}">{img}</picture>'
         parts.append(img)
@@ -502,21 +514,28 @@ def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool
 
 def expand_figure_strips(
     body: str, strips: dict[str, FigureStrip], links: LinkResolver, *, from_dir: str, externalizing: bool
-) -> str:
+) -> tuple[str, bool]:
     """Swap each ``mini:figures`` marker in a rendered page for its report's thumbnail strip.
 
     Operates on the rendered HTML rather than the Markdown, so the strip's markup never has to survive Python-Markdown's block parsing (it would read a raw ``<div>`` indented inside a list item as code). A marker whose report wasn't built (unpublished, or skipped) renders as nothing, with a build note.
+
+    Also returns whether the page ended up with a strip, so the caller ships the lightbox only to the pages that have something to enlarge.
     """
 
+    shown = False
+
     def repl(m: re.Match) -> str:
+        nonlocal shown
         token = m.group(1)
         strip = strips.get(_marker_key(token, links, from_dir=from_dir) or "")
         if strip is None:
             print(f"  ! {from_dir or '.'}: mini:figures {token!r} names no built report — dropping the strip")
             return ""
-        return _figure_strip_html(strip, from_dir=from_dir, externalizing=externalizing)
+        html = _figure_strip_html(strip, from_dir=from_dir, externalizing=externalizing)
+        shown = shown or bool(html)  # a dropped marker, or a figureless report, is not a strip
+        return html
 
-    return _FIGURES_MARKER.sub(repl, body)
+    return _FIGURES_MARKER.sub(repl, body), shown
 
 
 _MERMAID_FENCE = re.compile(r'<pre><code class="language-mermaid">(.*?)</code></pre>', re.DOTALL)
@@ -545,7 +564,9 @@ def convert_markdown(links: LinkResolver, externalizing: bool, strips: dict[str,
         from_dir = "" if from_dir == "." else from_dir
         text = _rewrite_md_links(md_file.read_text("utf-8"), links, from_dir=from_dir, pretty=externalizing)
         body, has_mermaid = promote_mermaid(render_markdown(text))
-        body = expand_figure_strips(body, strips or {}, links, from_dir=from_dir, externalizing=externalizing)
+        body, has_strip = expand_figure_strips(
+            body, strips or {}, links, from_dir=from_dir, externalizing=externalizing
+        )
         title_match = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else md_file.stem
         root = site_root(dest)
@@ -556,7 +577,10 @@ def convert_markdown(links: LinkResolver, externalizing: bool, strips: dict[str,
             '<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             f"<title>{title}</title>\n"
-            f'<link rel="stylesheet" href="{root}md.css">\n' + (MERMAID_SCRIPT if has_mermaid else "") + "</head>\n"
+            f'<link rel="stylesheet" href="{root}md.css">\n'
+            + (MERMAID_SCRIPT if has_mermaid else "")
+            + (lightbox_chrome() if has_strip else "")
+            + "</head>\n"
             "<body>\n" + body + "\n</body>\n</html>\n"
         )
         dest.write_text(html, "utf-8")
