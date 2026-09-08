@@ -1,0 +1,243 @@
+/*
+ * Webfonts matching the Marimo notebook reports (PT Sans / Lora / Fira Mono),
+ * loaded from the same jsDelivr-hosted bundle Marimo ships.
+ * Filenames are content-hashed and pinned to marimo 0.23.16 — re-check/bump
+ * these URLs whenever the marimo dependency is upgraded.
+ */
+@font-face {
+  font-family: "PT Sans";
+  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/PTSans-Regular-Bam3NpBI.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PT Sans";
+  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/PTSans-Bold-C_DwAp7Z.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Lora";
+  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/Lora-VariableFont_wght-CZceb_kH.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fira Mono";
+  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Regular-CEsLFVD9.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fira Mono";
+  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Medium-D5MAsWEG.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fira Mono";
+  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Bold-C6PDArdf.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --fg-muted: #555555;
+  --link: #0066cc;
+  --border: #dddddd;
+  --code-bg: #f5f5f5;
+  --code-accent: #0066cc;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1f1f;
+    --fg: #ffffff;
+    --fg-muted: #aaaaaa;
+    --link: #6cb6ff;
+    --border: #5a5a5a;
+    --code-bg: #2d2d2d;
+    --code-accent: #66d9aa;
+  }
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: "PT Sans", ui-sans-serif, system-ui, sans-serif;
+  /* Marimo's prose paragraphs land at ~14.4px (its app sets a ~90% base); match it. */
+  font-size: 0.9rem;
+  line-height: 1.6;
+  max-width: 50rem;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+  padding-block: 2rem;
+}
+
+a {
+  color: var(--link);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Lora", serif;
+  /* Marimo renders Lora headings at the regular weight, not the browser-default bold,
+   * with its ligatures on — otherwise the variable font shows its 700 master. */
+  font-weight: 400;
+  font-feature-settings: "rlig" 1, "calt" 1;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+
+/* 2.25em of the ~14.4px base ≈ 32.4px, matching the reports' h1. */
+h1 { margin-top: 0; font-size: 2.25em; }
+
+p { margin-block: 1em; }
+
+code {
+  font-family: "Fira Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.875em;
+  background-color: var(--code-bg);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+pre {
+  font-family: "Fira Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.875em;
+  background-color: var(--code-bg);
+  padding: 1em;
+  border-radius: 4px;
+  border-left: 3px solid var(--code-accent);
+  overflow-x: auto;
+  margin-block: 1.5em;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+}
+
+table {
+  border-collapse: collapse;
+  margin-block: 1.5em;
+}
+
+th, td {
+  padding: 0.5em 1em;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+th {
+  font-weight: 600;
+  border-bottom: 2px solid var(--border);
+}
+
+img, video {
+  max-width: 100%;
+  height: auto;
+}
+
+blockquote {
+  margin-inline: 0;
+  padding-inline: 1em;
+  border-left: 3px solid var(--border);
+  color: var(--fg-muted);
+}
+
+a {
+  text-decoration: none;
+}
+
+/* Anchor links */
+a.anchor-link {
+  opacity: 0;
+  display: inline;
+  transition: opacity 0.2s ease;
+  text-decoration: none;
+  color: var(--fg-muted);
+}
+a.anchor-link::after {
+  content: '#';
+  font-size: 0.8em;
+  margin-inline: 0.4em;
+}
+:hover > a.anchor-link {
+  opacity: 1;
+}
+
+details summary,
+.github-markdown-body details summary {
+  list-style-position: outside;
+}
+
+/* Makes a ul look like a descriptive list. */
+ul:has(>li>p),
+.github-markdown-body ul:has(>li>p)
+{
+  padding-inline: 0;
+  --pseudo-dl-indent: 2ex;
+
+  >li {
+    list-style: none;
+    padding-inline-start: var(--pseudo-dl-indent);
+
+    /* pseudo-dt */
+    > :first-child {
+      font-weight: 500;
+      margin-inline-start: calc(0px - var(--pseudo-dl-indent));
+    }
+    > :first-child::after {
+      content: "";
+      display: block;
+    }
+  }
+}
+
+/* A report's thumbnail strip (a `mini:figures` marker, expanded by scripts/build_site.py):
+ * full-size figures scaled down to a fixed-height row that scrolls sideways when it
+ * overflows. The height cap is what keeps a page of them cheap to scan; `max-width: none`
+ * lifts the global img rule, which would otherwise squash each figure to fit the flex row. */
+.fig-strip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  margin-block: 0.75em;
+}
+
+.fig-strip img {
+  display: block;
+  height: 4.5rem;
+  width: auto;
+  max-width: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* A tag row under an index entry: quieter than body text, so it reads as metadata. */
+.tags {
+  color: var(--fg-muted);
+  font-size: 0.875em;
+}
+
+/* A ```mermaid fence, promoted by the build to the <pre class="mermaid"> the library
+ * renders into (see scripts/build_site.py). It holds a diagram rather than code, so it
+ * drops the code-block frame; until the script has run it shows the diagram source. */
+pre.mermaid {
+  background: none;
+  border-left: none;
+  padding: 0;
+  text-align: center;
+}
+
+pre.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}

@@ -1,0 +1,184 @@
+/* Shared report styles.
+ *
+ * Single source of truth for cross-report presentation polish. Applied two ways
+ * (see eng/ and mini.reports.set_report_styles):
+ *   - baked into each export via `marimo.App(css_file="…/report.css")`, so authors
+ *     see it live in edit mode and it ships in the raw bundle;
+ *   - re-injected from *this* file at site-build time, so central edits here update
+ *     every published report without re-exporting the notebooks.
+ * Keep it small and selector-scoped; it layers on top of Marimo's own CSS. */
+
+/* Centre figures that don't fill the content column. `themed` (mini.vis.nb) emits a
+ * <figure class="mini-themed-figure-<hash>"> wrapping the light/dark <img> pair; the
+ * visible one is display:block, so margin-inline:auto centres it. */
+.markdown figure,
+ figure[class*="mini-themed-figure"] {
+  text-align: center;
+}
+.markdown figure img,
+figure[class*="mini-themed-figure"] img {
+  margin-inline: auto;
+}
+
+/* A figure composed of independent sub-figures — a multi-panel plot split into separate
+ * images so each keeps its own size and the row reflows to a stack on a narrow viewport,
+ * rather than all panels shrinking together. The group caption is the outer <figcaption>. */
+figure:has(> figure) {
+  margin-inline: 0;
+  text-align: center;
+  text-wrap: balance;
+}
+figure:has(> figure) > figure {
+  display: inline-block;
+  vertical-align: top;
+  margin: 0 0.5em;
+}
+
+/* Captions on authored figures — a sub-figure group (above) or a table / other HTML-SVG
+ * body wrapped by mini.vis.figure_html with class="report-figure" — get the same muted
+ * italic look `themed` bakes into image captions, so every report caption reads alike. */
+figure:has(> figure) > figcaption,
+figure.report-figure > figcaption {
+  margin-top: 0.6em;
+  font-size: 0.9em;
+  font-style: italic;
+  opacity: 0.75;
+  text-wrap: balance;
+}
+
+/* Colour swatch: a small square tinted via the `--sw` custom property, so each
+ * occurrence is just `<span class="sw" style="--sw:#rrggbb">`. See the style-fig skill. */
+.sw {
+  display: inline-block;
+  width: round(0.8em, 1px);
+  height: round(0.8em, 1px);
+  border-radius: 2px;
+  margin-inline: 0.5ch;
+  border: 1px solid #8886;
+  background: var(--sw);
+}
+.sw-ghost {
+  --sw: transparent;
+  border-color: transparent;
+}
+/* Variants that let a swatch stand for a mark in a figure: a round dot, and an open
+ * (unfilled) one, matching the filled/open scatter marks the reports draw. */
+.sw-dot {
+  border-radius: 50%;
+  width: round(0.6em, 1px);
+  height: round(0.6em, 1px);
+}
+.sw-open {
+  background: none;
+  border-color: var(--sw);
+}
+/* A swatch whose colour is themed: it carries a `--sw-light` / `--sw-dark` pair instead of
+ * a single `--sw`, so the square tracks the same pair a `light_dark` figure uses. The two
+ * hexes ride in separate properties because the element's own `style=` would outrank any
+ * rule that tried to reassign `--sw` directly. Theme detection mirrors the themed-figure
+ * CSS in mini.vis.nb: an explicit theme on <body> wins, and the OS preference applies only
+ * where <body> states none. */
+.sw-themed {
+  --sw: var(--sw-light);
+}
+body[data-theme="dark"] .sw-themed,
+body.dark .sw-themed,
+body.dark-theme .sw-themed {
+  --sw: var(--sw-dark);
+}
+@media (prefers-color-scheme: dark) {
+  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme)
+    .sw-themed {
+    --sw: var(--sw-dark);
+  }
+}
+
+/* Authored report tables. Headings left-align with their columns by default; annotate
+ * numeric columns (header and cells) with class="num" to right-align on tabular figures. */
+.report-table th {
+  text-align: left;
+}
+.report-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.report-table :is(th, td):not(:first-child) {
+  padding-left: 2ex;
+}
+
+/* A spread quoted beside the value it belongs to (±half-range over seeds), and rows that
+ * are context rather than measurement — an external reference, a row of nulls. Both recede
+ * so the eye lands on the measured numbers first. */
+.report-table .range {
+  opacity: 0.6;
+  font-size: 0.85em;
+}
+.report-table tr.ref :is(th, td) {
+  opacity: 0.65;
+}
+
+/* Wide tables (e.g. the per-seed completions grid) scroll horizontally inside their own
+ * box rather than wrapping cell contents — which detaches a swatch from its word — or
+ * forcing the whole page to scroll sideways. .report-table-scroll is not needed for
+ * tables in Markdown. */
+.report-table-scroll {
+  overflow-x: auto;
+}
+.markdown table.report-table,
+.report-table-scroll .report-table {
+  white-space: nowrap;
+}
+
+/* Make details elements usable. My default they are styled as admonitions, which are
+ * designed to be eye-catching and is the opposite of what a details element should do.
+ */
+.markdown details {
+  border-width: 0;
+  border-radius: 0;
+  box-shadow: 4px 0px 0px 0px color-mix(in srgb, var(--border), transparent 0%) inset;
+  transition: 0.3s;
+
+  > summary {
+    transition: 0.3s;
+    &:before {
+      border-color: currentColor;
+    }
+    &:after {
+      content: "…";
+      visibility: hidden;
+    }
+  }
+  > summary + * {
+    margin-top: 0px;
+  }
+}
+.markdown details:not(:open) {
+  background: transparent;
+  box-shadow: 4px 0px 0px 0px transparent inset;
+
+  > summary {
+    padding: 0;
+    opacity: 0.7;
+    &:after {
+      visibility: visible;
+    }
+  }
+}
+
+.output .footnote {
+  >ol>li {
+    font-size: 0.9em;
+    transition: 0.3s;
+    opacity: 0.5;
+    &:hover {
+      opacity: 1;
+    }
+  }
+  .footnote-backref {
+    transition: 0.3s;
+    opacity: 0.5;
+    &:hover {
+      opacity: 1;
+    }
+  }
+}

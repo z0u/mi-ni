@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mi-ni</title>
+<link rel="stylesheet" href="md.css">
+<style>[data-mini-zoom]{cursor:zoom-in}
+dialog.mini-lightbox{border:0;padding:0;margin:auto;max-width:96vw;max-height:96vh;
+  background:Canvas;color:CanvasText;border-radius:.5rem;box-shadow:0 1rem 3rem rgb(0 0 0/.45)}
+dialog.mini-lightbox::backdrop{background:rgb(0 0 0/.62);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+dialog.mini-lightbox img{display:block;margin:0 auto;max-width:96vw;max-height:84vh;width:auto;height:auto;
+  transition:filter .18s ease-out,opacity .18s ease-out,width .18s ease-out}
+dialog.mini-lightbox img.mini-lightbox-loading{filter:blur(4px) grayscale(.35);opacity:.55}
+@media (prefers-reduced-motion:reduce){dialog.mini-lightbox img{transition:none}}
+dialog.mini-lightbox figcaption{margin:0;padding:.5rem .75rem;max-width:70ch;
+  font:italic .8125rem/1.5 system-ui,sans-serif;color:color-mix(in srgb,CanvasText 70%,transparent)}
+.mini-lightbox-close{position:absolute;top:.35rem;right:.35rem;width:1.9rem;height:1.9rem;
+  font:1.25rem/1 system-ui,sans-serif;cursor:pointer;color:CanvasText;border-radius:50%;
+  background:color-mix(in srgb,Canvas 70%,transparent);
+  border:1px solid color-mix(in srgb,CanvasText 20%,transparent)}
+@media print{dialog.mini-lightbox{display:none}}</style>
+<script>(function(){
+  if(!window.HTMLDialogElement) return;  // no dialog: the figures simply stay static
+  var ZOOM='[data-mini-zoom]', dlg, seq=0;
+  function chrome(){
+    if(dlg) return dlg;
+    dlg=document.createElement('dialog');
+    dlg.className='mini-lightbox';
+    dlg.innerHTML='<button type="button" class="mini-lightbox-close" aria-label="Close">×</button>'+
+      '<figure style="margin:0"><img alt=""><figcaption></figcaption></figure>';
+    dlg.addEventListener('click',function(ev){
+      // The dialog box is exactly the panel, so a click reported against the dialog
+      // itself landed on the backdrop around it.
+      if(ev.target===dlg||ev.target.closest('.mini-lightbox-close')) dlg.close();
+    });
+    document.body.appendChild(dlg);
+    return dlg;
+  }
+  function fullSrc(img){
+    var light=img.getAttribute('data-mini-full'), dark=img.getAttribute('data-mini-full-dark');
+    if(light||dark){
+      // An index thumbnail names its full-size counterparts. The index is a plain page
+      // with no theme of its own, so the device preference is the whole of the answer.
+      return (dark&&matchMedia('(prefers-color-scheme: dark)').matches&&dark)||light||dark;
+    }
+    // A themed report figure is a light/dark pair of siblings with one hidden by CSS.
+    // Whichever is on screen is the variant the page settled on, however it decided.
+    var pair=(img.parentElement||img).querySelectorAll('img.mini-themed-img-light,img.mini-themed-img-dark');
+    for(var i=0;i<pair.length;i++) if(pair[i].offsetParent) return pair[i].src;
+    return img.src;
+  }
+  function want(img){
+    // The size the report asked for, stamped by the export on the figure's tag and on the
+    // index thumbnail made from it: the figure's *physical* size (see mini.vis.nb), which
+    // for a plot saved at 2x is half its pixels. That is the size it is meant to be drawn
+    // at and the size it looks sharp at on a dense screen, so it is the panel's ceiling
+    // as well as its shape — and it is in the markup before the panel has any bytes.
+    return {w:+img.getAttribute('width')||0, h:+img.getAttribute('height')||0};
+  }
+  function ratio(img){
+    var d=want(img), w=d.w, h=d.h;
+    if(!(w>0&&h>0)){ w=img.naturalWidth; h=img.naturalHeight; }  // unstamped: what it measures
+    return (w>0&&h>0) ? w/h : 0;
+  }
+  function size(ar, px){
+    // As large as the viewport allows, up to the figure's own size. An unstamped figure
+    // has only its pixels to go on, and not until it has them — pass 0 and the fit stands.
+    if(!ar) return '';
+    return 'min(96vw,calc(84vh * '+ar.toFixed(4)+(px?'),'+px+'px':')')+')';
+  }
+  function open(img){
+    var d=chrome(), big=d.querySelector('img'), cap=d.querySelector('figcaption'),
+        fig=img.closest('figure'), own=fig&&fig.querySelector('figcaption'),
+        full=fullSrc(img), shown=img.currentSrc||img.src, ar=ratio(img), w=want(img).w;
+    // Fix the box before any bytes arrive: an image that hasn't loaded has no intrinsic
+    // size, so without this the panel opens flat and jumps open when the figure lands.
+    // A stamped figure opens at its final size; an unstamped one at the right shape,
+    // narrowing to fit its pixels once those arrive.
+    big.style.aspectRatio = ar ? ar.toFixed(4) : '';
+    big.style.width = size(ar, w || (shown===full ? img.naturalWidth : 0));
+    big.alt=img.alt||'';
+    cap.textContent=((own&&own.textContent)||img.alt||'').trim();
+    cap.hidden=!cap.textContent;
+    // Start from the image the page is already showing — on the index a thumbnail the
+    // browser has cached, on a report the full-size figure itself — so the panel paints
+    // this frame rather than holding the figure opened before it. Blown up from a
+    // thumbnail it is soft, so it reads as a placeholder until the real one arrives.
+    var turn = ++seq;
+    big.src=shown;
+    big.classList.toggle('mini-lightbox-loading', shown!==full);
+    d.showModal();
+    if(shown===full) return;
+    var pre=new Image();
+    // Swapping to a decoded image paints without an empty frame in between. A second
+    // click while this one loads takes the panel, so a stale arrival is dropped.
+    pre.onload=pre.onerror=function(){
+      if(turn!==seq) return;
+      if(pre.naturalWidth){ big.src=full; big.style.width=size(ar, w || pre.naturalWidth); }
+      big.classList.remove('mini-lightbox-loading');
+    };
+    pre.src=full;
+  }
+  function target(ev){
+    return ev.target.closest?ev.target.closest(ZOOM):null;
+  }
+  document.addEventListener('click',function(ev){
+    if(ev.button||ev.metaKey||ev.ctrlKey||ev.shiftKey||ev.altKey) return;
+    var img=target(ev);
+    if(img){ ev.preventDefault(); open(img); }
+  });
+  document.addEventListener('keydown',function(ev){
+    if(ev.key!=='Enter'&&ev.key!==' ') return;
+    var img=target(ev);
+    if(img){ ev.preventDefault(); open(img); }
+  });
+})();</script></head>
+<body>
+<h1 id="mi-ni">mi-ni</h1>
+<blockquote>
+<p><strong><ruby>見<rt>み</rt>に</ruby> /mi·ni/</strong> — <em>with intent to see</em> <sup id="fnref:etymology"><a class="footnote-ref" href="#fn:etymology">1</a></sup></p>
+</blockquote>
+<p>mi-ni is a template repository and library for doing AI research. Features:</p>
+<ul>
+<li><strong>Local Python notebooks</strong> with Marimo, published to GitHub Pages with their figures served from a Hugging Face bucket</li>
+<li><strong>Remote GPU compute</strong> at the level of functions with <a href="https://modal.com">Modal</a></li>
+<li><strong>Detached, memoized experiments</strong> driven from a stateless CLI, so you (or an agent) can launch a run, close the laptop, and pick it up later</li>
+<li><strong>Agentic coding config</strong> for Claude Code</li>
+</ul>
+<p>Compute abstraction pattern:</p>
+<pre><code class="language-py"># app = LocalApparatus(&quot;my-experiment&quot;)
+app = ModalApparatus(&quot;my-experiment&quot;).w(gpu=&quot;L4&quot;)
+metrics = app.map(train, sweep_configs)
+app.volume.download(...)
+</code></pre>
+<p><a href="https://github.com/z0u/mi-ni">See z0u/mi-ni</a>.</p>
+<p>&nbsp;</p>
+<h2 id="published-notebooks">Published notebooks</h2>
+<p>Notebooks are automatically published to GitHub Pages; their figures and other heavy assets are served from a Hugging Face bucket (repointed at build time with one <code>&lt;base&gt;</code> tag).</p>
+<p>The notebooks build on each other, so they read well in order. Each entry carries a strip of the report's figures, in reading order.</p>
+<!-- These URLs are rewritten to point to the published notebooks, and the mini:figures markers become thumbnail strips (scripts/build_site.py) -->
+
+<h3 id="start-here">Start here</h3>
+<ul>
+<li>
+<p><a href="getting_started/">Getting started</a>: map a function over a sweep from a notebook, and swap local ↔ Modal compute without changing the code.</p>
+
+</li>
+</ul>
+<h3 id="the-detached-memoized-flow">The detached, memoized flow</h3>
+<ul>
+<li>
+<p><a href="pipeline/">Pipeline</a>: a multi-step experiment driven by the CLI — a prep step feeds a training sweep, and the report reads the durable results back.</p>
+<div class="fig-strip"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/a4ff28a389f7c89c6d2bc87157797018809167d1/exports/pipeline/_assets/cell_lEQa_plot-dark.png"><img src="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/a4ff28a389f7c89c6d2bc87157797018809167d1/exports/pipeline/_assets/cell_lEQa_plot-light.png" alt="Final validation loss against learning rate on a log x-axis. The curve is U-shaped: the middle learning rate reaches the lowest loss, and the extremes do worse — so the sweep has a clear best in the middle." title="cell_lEQa_plot" width="560" height="320" loading="lazy" tabindex="0" data-mini-zoom data-mini-full="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/a4ff28a389f7c89c6d2bc87157797018809167d1/exports/pipeline/_assets/cell_lEQa_plot-light.png" data-mini-full-dark="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/a4ff28a389f7c89c6d2bc87157797018809167d1/exports/pipeline/_assets/cell_lEQa_plot-dark.png"></picture></div>
+</li>
+<li>
+<p><a href="probe/">Probe</a>: reuses activations that a separate experiment (<a href="https://github.com/z0u/mi-ni/blob/main/docs/acts/experiment.py">acts</a>) shared through the content-addressed artifact store, by name.</p>
+
+</li>
+</ul>
+<h3 id="a-case-study-at-scale">A case study at scale</h3>
+<ul>
+<li>
+<p><a href="gpt-sweep/">Sweep over GPT architectures</a>: LayerNorm vs. hypersphere (nGPT) across learning rates. Adds hyperparameter schedules, role-based hardware routing, and artifacts published by name.</p>
+<div class="fig-strip"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/e587d5627985844bd6cbe7960f866f8b0523708b/exports/gpt-sweep/_assets/thumbs/plot-dark.png"><img src="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/e587d5627985844bd6cbe7960f866f8b0523708b/exports/gpt-sweep/_assets/thumbs/plot-light.png" alt="Three panels, one per peak learning rate. Each plots validation loss versus epoch for the baseline, nGPT, and nGPT (scalar) architectures, with the minimum of each curve marked. At the lowest learning rate the baseline edges ahead; at higher rates the two nGPT variants reach slightly lower loss and track each other almost exactly." title="plot" width="1136" height="330" loading="lazy" tabindex="0" data-mini-zoom data-mini-full="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/e587d5627985844bd6cbe7960f866f8b0523708b/exports/gpt-sweep/_assets/plot-light.png" data-mini-full-dark="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/e587d5627985844bd6cbe7960f866f8b0523708b/exports/gpt-sweep/_assets/plot-dark.png"></picture><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/e587d5627985844bd6cbe7960f866f8b0523708b/exports/gpt-sweep/_assets/thumbs/width-gating-dark.png"><img src="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/e587d5627985844bd6cbe7960f866f8b0523708b/exports/gpt-sweep/_assets/thumbs/width-gating-light.png" alt="Two panels sharing a y-axis. Left, converged validation loss against width (32, 64, 128 on a log axis) for three residual recipes. The additive step with a fixed gate (red) starts near 1.5 at width 32 and climbs steeply to about 3.1 at width 128; the additive step with a learnable gate (grey) and the normalized-LERP fix (teal) both stay flat and low near 1.35 at every width. Right, validation loss against epoch at width 128: the fixed-gate recipe falls during warmup then rises and sticks near 3.1, while the learnable-gate and normalized recipes fall smoothly together to about 1.34." title="width-gating" width="896" height="330" loading="lazy" tabindex="0" data-mini-zoom data-mini-full="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/e587d5627985844bd6cbe7960f866f8b0523708b/exports/gpt-sweep/_assets/width-gating-light.png" data-mini-full-dark="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/e587d5627985844bd6cbe7960f866f8b0523708b/exports/gpt-sweep/_assets/width-gating-dark.png"></picture></div>
+</li>
+<li>
+<p><a href="https://github.com/z0u/mi-ni/blob/main/docs/gpt.py">nanoGPT and nGPT, interactively</a>: the same models trained inline in one notebook (source only; it re-trains on every run).</p>
+</li>
+</ul>
+<h3 id="visualization-utilities">Visualization utilities</h3>
+<ul>
+<li>
+<p><a href="themed/">Themed (light/dark) plots</a>: the <code>@themed</code> decorator that every report above uses for dual-mode figures.</p>
+<div class="fig-strip"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/thumbs/plot_plain-dark.png"><img src="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/thumbs/plot_plain-light.png" alt="Plot" title="plot_plain" width="587" height="299" loading="lazy" tabindex="0" data-mini-zoom data-mini-full="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/plot_plain-light.png" data-mini-full-dark="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/plot_plain-dark.png"></picture><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/thumbs/plot_factory-dark.png"><img src="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/thumbs/plot_factory-light.png" alt="sin and cos" title="plot_factory" width="587" height="299" loading="lazy" tabindex="0" data-mini-zoom data-mini-full="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/plot_factory-light.png" data-mini-full-dark="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/plot_factory-dark.png"></picture><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/thumbs/cell_Xref_plot_raw-dark.png"><img src="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/thumbs/cell_Xref_plot_raw-light.png" alt="Damped sine wave" title="cell_Xref_plot_raw" width="587" height="299" loading="lazy" tabindex="0" data-mini-zoom data-mini-full="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/cell_Xref_plot_raw-light.png" data-mini-full-dark="https://huggingface.co/datasets/z0u/mi-ni-pub/resolve/19a10f8ccfc30f794b96d89266429a5041ba5388/exports/themed/_assets/cell_Xref_plot_raw-dark.png"></picture></div>
+</li>
+<li>
+<p><a href="subline_demo/">Sparkline text annotations</a>: per-token annotations with the sibling <code>subline</code> library.</p>
+
+</li>
+</ul>
+<div class="footnote">
+<hr />
+<ol>
+<li id="fn:etymology">
+<p>From 見に行く (mi-ni iku), meaning "to go for the purpose of seeing something."&#160;<a class="footnote-backref" href="#fnref:etymology" title="Jump back to footnote 1 in the text">&#8617;</a></p>
+</li>
+</ol>
+</div>
+</body>
+</html>
