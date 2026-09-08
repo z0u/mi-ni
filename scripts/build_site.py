@@ -29,7 +29,6 @@ from mini.reports import (
     insert_base,
     lightbox_chrome,
     load_pins,
-    PIXELS_ATTR,
     mark_figures,
     publish_lock,
     report_figures,
@@ -498,10 +497,6 @@ def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool
     for fig in strip.figures:
         alt, title = html.escape(fig.alt), html.escape(fig.stem)
         dims = f' width="{fig.width}" height="{fig.height}"' if fig.width and fig.height else ""
-        # The full-size figure's own pixels, so the lightbox opens at that size rather
-        # than fitting the viewport and settling once the image lands.
-        if fig.px_width and fig.px_height:
-            dims += f' {PIXELS_ATTR}="{fig.px_width}x{fig.px_height}"'
         light, dark = fig.light_thumb or fig.light, fig.dark_thumb or fig.dark
         # The thumbnail is a few KB and unreadable at strip size, so each one names the
         # full-size figure it was made from; clicking opens that in the lightbox, which
