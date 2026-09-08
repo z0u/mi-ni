@@ -61,9 +61,11 @@ __all__ = [
     "report_figures",
     "write_thumbnails",
     "mark_figures",
+    "stamp_figure_pixels",
     "set_lightbox",
     "lightbox_chrome",
     "ZOOM_ATTR",
+    "PIXELS_ATTR",
     "THUMBNAIL_META",
     "THUMBNAIL_DIR",
     "THUMBNAIL_HEIGHT",
@@ -509,6 +511,15 @@ _IMG_ALT_ATTR = re.compile(r'(?<![\w-])alt\s*=\s*\\?["\']((?:\\[^"\']|[^"\'\\])*
 _IMG_WIDTH_ATTR = re.compile(r'(?<![\w-])width\s*=\s*\\?["\']?(\d+)', re.IGNORECASE)
 _IMG_HEIGHT_ATTR = re.compile(r'(?<![\w-])height\s*=\s*\\?["\']?(\d+)', re.IGNORECASE)
 
+#: Stamped at export on every asset-served figure, as ``WxH``: the image's real pixel
+#: size. A tag's ``width``/``height`` are the figure's *physical* size — inches at the
+#: save dpi, in CSS pixels — so ``560x320`` can sit in front of a 1121x641 file, giving
+#: the shape and saying nothing about the resolution. Only the export holds the bytes to
+#: tell the two apart (:func:`stamp_figure_pixels`).
+PIXELS_ATTR = "data-mini-px"
+
+_IMG_PX_ATTR = re.compile(rf'(?<![\w-]){PIXELS_ATTR}\s*=\s*\\?["\'](\d+)x(\d+)', re.IGNORECASE)
+
 _LIGHT_SUFFIX = "-light.png"
 _DARK_SUFFIX = "-dark.png"
 
@@ -529,7 +540,7 @@ def _decode_attr(value: str) -> str:
 class ReportFigure:
     """One figure in a report's exported HTML, with its light/dark variants folded together.
 
-    ``light`` and ``dark`` are the bundle-relative asset URLs (``_assets/<stem>-light.png``); ``dark`` is ``None`` for an unthemed image. ``alt`` is the figure's own alt text, as authored. ``width``/``height`` are the CSS-pixel display size the export stamped on the ``<img>`` (see :func:`mini.vis.nb.themed_figure_html`), or ``None`` when the tag carried none.
+    ``light`` and ``dark`` are the bundle-relative asset URLs (``_assets/<stem>-light.png``); ``dark`` is ``None`` for an unthemed image. ``alt`` is the figure's own alt text, as authored. ``width``/``height`` are the CSS-pixel display size the export stamped on the ``<img>`` (see :func:`mini.vis.nb.themed_figure_html`), or ``None`` when the tag carried none. ``px_width``/``px_height`` are the image file's own pixel size (:data:`PIXELS_ATTR`), which the display size doesn't imply.
     """
 
     stem: str
@@ -538,6 +549,8 @@ class ReportFigure:
     alt: str = ""
     width: int | None = None
     height: int | None = None
+    px_width: int | None = None
+    px_height: int | None = None
     # The small copies :func:`write_thumbnails` made at export, when the bundle declares
     # them (:data:`THUMBNAIL_META`); ``None`` for a bundle exported before thumbnails.
     light_thumb: str | None = None
@@ -594,7 +607,10 @@ def report_figures(html: str, *, link: str = "_assets") -> list[ReportFigure]:
             stem, role = leaf[: -len(_DARK_SUFFIX)], "dark"
         else:
             stem, role = PurePosixPath(leaf).stem, "light"
-        entry = order.setdefault(stem, {"light": None, "dark": None, "alt": None, "width": None, "height": None})
+        entry = order.setdefault(
+            stem,
+            {"light": None, "dark": None, "alt": None, "width": None, "height": None, "px_w": None, "px_h": None},
+        )
         entry[role] = entry[role] or src
         if entry["alt"] is None and (alt := _IMG_ALT_ATTR.search(tag)) is not None:
             entry["alt"] = _decode_attr(alt.group(1))
@@ -602,6 +618,8 @@ def report_figures(html: str, *, link: str = "_assets") -> list[ReportFigure]:
         # the pair's sizes differ by at most a pixel of tight-bbox rounding.
         if entry["width"] is None and (w := _IMG_WIDTH_ATTR.search(tag)) and (h := _IMG_HEIGHT_ATTR.search(tag)):
             entry["width"], entry["height"] = w.group(1), h.group(1)
+        if entry["px_w"] is None and (px := _IMG_PX_ATTR.search(tag)) is not None:
+            entry["px_w"], entry["px_h"] = px.group(1), px.group(2)
     return [
         ReportFigure(
             stem,
@@ -610,6 +628,8 @@ def report_figures(html: str, *, link: str = "_assets") -> list[ReportFigure]:
             alt=e["alt"] or "",
             width=int(e["width"]) if e["width"] else None,
             height=int(e["height"]) if e["height"] else None,
+            px_width=int(e["px_w"]) if e["px_w"] else None,
+            px_height=int(e["px_h"]) if e["px_h"] else None,
             light_thumb=thumb(e["light"] or e["dark"]),
             dark_thumb=thumb(e["dark"]),
         )
@@ -714,6 +734,43 @@ def mark_figures(html: str, *, link: str = "_assets") -> str:
             return m[0]
         q = '"' if m["lt"] == "<" else '\\"'  # inside the blob the tag's own quotes are escaped
         return f"{m['lt']}img loading={q}lazy{q} tabindex={q}0{q} {ZOOM_ATTR}{attrs}{m['gt']}"
+
+    return _ANY_IMG_TAG.sub(repl, html)
+
+
+def stamp_figure_pixels(html: str, asset_dir: Path, *, link: str = "_assets") -> str:
+    """Record each asset-served figure's real pixel size on its ``<img>`` as :data:`PIXELS_ATTR`.
+
+    Runs at export, beside :func:`write_thumbnails` and for the same reason: a PNG's pixel count is in the file, and the export is the half of publishing that holds the file. What the tag already carries is the figure's physical size, so it fixes the shape and leaves the resolution open.
+
+    The lightbox spends it twice. It opens the panel at the figure's own size instead of filling the viewport and settling a moment later, once the bytes arrive and the size is finally knowable; and it stops the panel enlarging a figure past the pixels it has, on a screen wide enough to ask for that.
+
+    Only each file's header is read, so this costs a stat and a few bytes per figure. Idempotent; a figure whose file is missing or unreadable is left alone, and the lightbox falls back to fitting the viewport — which is what a bundle exported before this does.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    prefix = f"{link}/"
+    sizes: dict[str, str] = {}
+
+    def dims(leaf: str) -> str:
+        if leaf not in sizes:
+            try:
+                with Image.open(asset_dir / leaf) as im:
+                    sizes[leaf] = f"{im.width}x{im.height}"
+            except UnidentifiedImageError, OSError:
+                sizes[leaf] = ""
+        return sizes[leaf]
+
+    def repl(m: re.Match) -> str:
+        attrs = m["attrs"]
+        src = _IMG_SRC_ATTR.search(attrs)
+        if src is None or not src.group(1).startswith(prefix) or PIXELS_ATTR in attrs:
+            return m[0]
+        size = dims(src.group(1)[len(prefix) :])
+        if not size:
+            return m[0]
+        q = '"' if m["lt"] == "<" else '\\"'  # inside the blob the tag's own quotes are escaped
+        return f"{m['lt']}img {PIXELS_ATTR}={q}{size}{q}{attrs}{m['gt']}"
 
     return _ANY_IMG_TAG.sub(repl, html)
 
@@ -829,7 +886,10 @@ _LIGHTBOX_CSS = """
 dialog.mini-lightbox{border:0;padding:0;margin:auto;max-width:96vw;max-height:96vh;
   background:Canvas;color:CanvasText;border-radius:.5rem;box-shadow:0 1rem 3rem rgb(0 0 0/.45)}
 dialog.mini-lightbox::backdrop{background:rgb(0 0 0/.62);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
-dialog.mini-lightbox img{display:block;margin:0 auto;max-width:96vw;max-height:84vh;width:auto;height:auto}
+dialog.mini-lightbox img{display:block;margin:0 auto;max-width:96vw;max-height:84vh;width:auto;height:auto;
+  transition:filter .18s ease-out,opacity .18s ease-out,width .18s ease-out}
+dialog.mini-lightbox img.mini-lightbox-loading{filter:blur(4px) grayscale(.35);opacity:.55}
+@media (prefers-reduced-motion:reduce){dialog.mini-lightbox img{transition:none}}
 dialog.mini-lightbox figcaption{margin:0;padding:.5rem .75rem;max-width:70ch;
   font:italic .8125rem/1.5 system-ui,sans-serif;color:color-mix(in srgb,CanvasText 70%,transparent)}
 .mini-lightbox-close{position:absolute;top:.35rem;right:.35rem;width:1.9rem;height:1.9rem;
@@ -848,7 +908,7 @@ dialog.mini-lightbox figcaption{margin:0;padding:.5rem .75rem;max-width:70ch;
 _LIGHTBOX_JS = r"""
 (function(){
   if(!window.HTMLDialogElement) return;  // no dialog: the figures simply stay static
-  var ZOOM='[__ZOOM__]', dlg;
+  var ZOOM='[__ZOOM__]', PX='__PX__', dlg, seq=0;
   function chrome(){
     if(dlg) return dlg;
     dlg=document.createElement('dialog');
@@ -876,14 +936,60 @@ _LIGHTBOX_JS = r"""
     for(var i=0;i<pair.length;i++) if(pair[i].offsetParent) return pair[i].src;
     return img.src;
   }
+  function pixels(img){
+    // The figure file's own pixel size, recorded at export. Its width/height attributes
+    // are the *physical* size instead — inches at the save dpi — so they give the shape
+    // and never the resolution; only this says how large the figure can be drawn.
+    var m=/^(\d+)x(\d+)$/.exec(img.getAttribute(PX)||'');
+    return m ? {w:+m[1], h:+m[2]} : null;
+  }
+  function ratio(img){
+    // The shape to open at, before the panel has any bytes to measure: the file's pixels
+    // if the export recorded them, else the display size it stamped, else what the image
+    // on the page measures right now.
+    var px=pixels(img), w=px?px.w:+img.getAttribute('width'), h=px?px.h:+img.getAttribute('height');
+    if(!(w>0&&h>0)){ w=img.naturalWidth; h=img.naturalHeight; }
+    return (w>0&&h>0) ? w/h : 0;
+  }
+  function size(ar, px){
+    // As large as the viewport allows, and never past the figure's own pixels. Without a
+    // recorded pixel count that ceiling is unknown until the image is in hand — pass 0
+    // and the fit stands until it arrives.
+    if(!ar) return '';
+    return 'min(96vw,calc(84vh * '+ar.toFixed(4)+(px?'),'+px+'px':')')+')';
+  }
   function open(img){
     var d=chrome(), big=d.querySelector('img'), cap=d.querySelector('figcaption'),
-        fig=img.closest('figure'), own=fig&&fig.querySelector('figcaption');
-    big.src=fullSrc(img);
+        fig=img.closest('figure'), own=fig&&fig.querySelector('figcaption'),
+        full=fullSrc(img), shown=img.currentSrc||img.src, ar=ratio(img), px=pixels(img);
+    // Fix the box before any bytes arrive: an image that hasn't loaded has no intrinsic
+    // size, so without this the panel opens flat and jumps open when the figure lands.
+    // With the pixel count recorded the panel opens at its final size; without it, at the
+    // right shape, narrowing to fit the figure once that arrives. On a report the figure
+    // clicked *is* the full-size one, so its pixels are in hand either way.
+    big.style.aspectRatio = ar ? ar.toFixed(4) : '';
+    big.style.width = size(ar, (px&&px.w) || (shown===full ? img.naturalWidth : 0));
     big.alt=img.alt||'';
     cap.textContent=((own&&own.textContent)||img.alt||'').trim();
     cap.hidden=!cap.textContent;
+    // Start from the image the page is already showing — on the index a thumbnail the
+    // browser has cached, on a report the full-size figure itself — so the panel paints
+    // this frame rather than holding the figure opened before it. Blown up from a
+    // thumbnail it is soft, so it reads as a placeholder until the real one arrives.
+    var turn = ++seq;
+    big.src=shown;
+    big.classList.toggle('mini-lightbox-loading', shown!==full);
     d.showModal();
+    if(shown===full) return;
+    var pre=new Image();
+    // Swapping to a decoded image paints without an empty frame in between. A second
+    // click while this one loads takes the panel, so a stale arrival is dropped.
+    pre.onload=pre.onerror=function(){
+      if(turn!==seq) return;
+      if(pre.naturalWidth){ big.src=full; big.style.width=size(ar, (px&&px.w) || pre.naturalWidth); }
+      big.classList.remove('mini-lightbox-loading');
+    };
+    pre.src=full;
   }
   function target(ev){
     return ev.target.closest?ev.target.closest(ZOOM):null;
@@ -899,7 +1005,7 @@ _LIGHTBOX_JS = r"""
     if(img){ ev.preventDefault(); open(img); }
   });
 })();
-""".replace("__ZOOM__", ZOOM_ATTR)
+""".replace("__ZOOM__", ZOOM_ATTR).replace("__PX__", PIXELS_ATTR)
 
 
 def lightbox_chrome() -> str:

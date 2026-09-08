@@ -32,6 +32,7 @@ from mini.reports import (
     set_responsive,
     set_theme,
     stray_links,
+    stamp_figure_pixels,
     write_thumbnails,
     use_publisher,
 )
@@ -174,6 +175,30 @@ def test_write_thumbnails_is_deterministic_and_restamps(bundle):
     assert twice.count("mini-thumbnails") == 1
 
 
+def test_stamp_figure_pixels_records_the_file_size_the_tag_does_not_carry(bundle):
+    """A tag's width/height are the figure's physical size, so the lightbox can't tell how large the image may be drawn until the export measures the file."""
+    html, assets = bundle
+    # The report's own tag, and the same figure as Marimo buries it in the session blob.
+    html += '<p>{"html": "\\u003Cimg src=\\"_assets/cloud-dark.png\\" /\\u003E"}</p>'
+    out = stamp_figure_pixels(html, assets)
+    assert 'data-mini-px="800x600"' in out  # the plain tag
+    assert '\\u003Cimg data-mini-px=\\"800x600\\"' in out  # and the escaped one, quotes escaped to match
+    assert 'data-mini-px="100x50"' in out  # a small figure is measured like any other
+    assert out.count("data-mini-px") == 4  # the SVG and the dangling reference are left alone
+    assert stamp_figure_pixels(out, assets) == out  # idempotent, so a republish is a no-op commit
+
+    figs = {f.stem: f for f in report_figures(out)}
+    assert (figs["cloud"].px_width, figs["cloud"].px_height) == (800, 600)
+    assert (figs["diagram"].px_width, figs["diagram"].px_height) == (None, None)
+
+
+def test_lightbox_opens_at_the_figures_own_pixel_size(bundle):
+    """With the pixel count in the markup the panel opens at its final size; without one it opens at the right shape and narrows once the figure lands."""
+    js = lightbox_chrome()
+    assert "getAttribute(PX)" in js and "PX='data-mini-px'" in js
+    assert "(px&&px.w)" in js  # the ceiling, when the export recorded one
+
+
 def test_mark_figures_defers_and_marks_asset_images_in_both_spellings():
     """A report ships every figure on load, both variants of a themed pair included. The mark reaches the tags Marimo buries in its session blob as well as the ones written out as markup."""
     html = (
@@ -203,6 +228,16 @@ def test_set_lightbox_injects_one_overlay_before_the_styles_close():
     assert html.count("mini-lightbox") > 1 and html.index("mini-lightbox") < html.index("</head>")
     assert "showModal" in html  # a top-layer dialog, so no z-index race with Marimo's app layer
     assert "<a " not in lightbox_chrome()  # nothing that navigates away from the report
+
+
+def test_lightbox_holds_the_box_open_while_the_full_size_figure_loads():
+    js = lightbox_chrome()
+    # The figure's stamped size fixes the panel's shape before any bytes arrive, so it
+    # can't open flat, and the image on screen stands in meanwhile, so the panel can't
+    # be left showing the figure opened before it.
+    assert "aspectRatio" in js and "getAttribute('width')" in js
+    assert "mini-lightbox-loading" in js  # the placeholder reads as one until the real image lands
+    assert "big.src=full" in js and "pre.onload" in js  # swapped in only once decoded
 
 
 def test_set_lightbox_is_a_noop_without_a_head():

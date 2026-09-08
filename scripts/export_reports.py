@@ -27,6 +27,7 @@ from mini.reports import (  # noqa: E402
     report_notebooks,
     save_pins,
     set_provenance,
+    stamp_figure_pixels,
     write_thumbnails,
 )
 from mini.store import active_profile  # noqa: E402
@@ -79,8 +80,10 @@ def export_one(nb: Path) -> Path:
     if sidecar.exists():  # the render read store refs — cite their producers in a footer
         refs = json.loads(sidecar.read_text()).get("refs", {})
         html = set_provenance(html, refs)
-    # Small copies of every figure, for the index's strips: made here because this is the
-    # one step that holds the figure bytes (the site build fetches only the HTML).
+    # Small copies of every figure, for the index's strips, and each figure's own pixel
+    # size: both need the figure bytes, and this is the one step that holds them (the site
+    # build fetches only the HTML).
+    html = stamp_figure_pixels(html, assets)
     html, thumbs = write_thumbnails(html, assets)
     if thumbs:
         print(f"  thumbs {len(thumbs)} figure(s) -> {assets.relative_to(ROOT)}/thumbs/")
