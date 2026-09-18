@@ -12,7 +12,7 @@ EXPORTS_DIR = Path(__file__).parent.parent / ".mini" / "exports"
 
 _CSI = re.compile(r"\x1b\[([0-9;?]*)([A-Za-z])")
 
-REDACT: list[tuple[re.Pattern, str]] = [
+REDACT: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"https://modal\.com/apps/\S+"), "[modal.com/apps/…]"),
 ]
 
@@ -55,7 +55,8 @@ def _apply_terminal(text: str) -> str:  # noqa: C901
                     n = int(params) if params and params.isdigit() else 1
                     row = max(0, row - n)
                 elif cmd == "J" and params == "2":
-                    lines, row = [[]], 0
+                    lines = [[]]
+                    row = 0
                 # all other CSI (cursor pos, mode, hide/show cursor) — drop
                 i = m.end()
             else:

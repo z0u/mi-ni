@@ -18,13 +18,15 @@ Treat the dev pair as an engineering sandbox. Science runs and the reports they 
    uv run python -c "from huggingface_hub import HfApi; HfApi().create_bucket('<ns>/<store>-dev', private=True)"
    ```
 
-2. Add the profile table, in whichever file holds the production pair. If that is `pyproject.toml`, add `[tool.mini.profiles.dev]` there too, so the profile travels with the repo. If the pair lives in the gitignored `mini.local.toml`, as it does in this template's own checkout, put the profile table in that file.
+2. Add the profile table, in whichever file holds the production pair. If that is `pyproject.toml`, add `[tool.mini.profiles.dev]` there too, so the profile travels with the repo. If the pair lives in the gitignored `mini.local.toml`, as it does in this template's own checkout, put the profile table in that file. Name the Modal Environment in it too (`modal-environment = "dev"`), so a dev run's memo records and Volumes live apart from production's; without it, a dev run of an experiment that shares a name with a production one finds production's memo records and skips the work (`eng/environments.md`).
 
-3. Mint a dev-only token (human): a fine-grained Hugging Face token with read and write on the two dev repos and nothing else. It goes into the environments set aside for engineering work, such as a devcontainer, a Claude Code web environment, or the CI test job. Science environments keep their production tokens.
+3. Create the Modal Environment. Any session with a Modal token can do this: `uv run modal environment create dev`. Nothing else is created up front; the `Dict`s and Volumes appear on the first dev run.
 
-4. Point those environments at dev. A checkout configured by file sets `MINI_PROFILE=dev` in its environment, such as the devcontainer env or a shell profile. Some environments configure storage by variable rather than by file; a Claude Code web environment uses `MINI_STORE_BUCKET` and `MINI_PUBLISH_REPO`. Those have no table to select from, so set the two variables to the dev names, beside the dev token. Either way, the token is what makes forgetting safe: a session on a dev token that reaches for production fails on its first write.
+4. Mint a dev-only token (human): a fine-grained Hugging Face token with read and write on the two dev repos and nothing else. It goes into the environments set aside for engineering work, such as a devcontainer, a Claude Code web environment, or the CI test job. Science environments keep their production tokens.
 
-5. Check. `./go auth --check` should show `profile dev` and the dev bucket, and `uv run pytest -m hf` should run against the pair. The integration tests pick the `dev` profile themselves whenever one is defined, so they stop writing to production as soon as the table exists. Without a dev profile they use the active profile, or production, as before.
+5. Point those environments at dev. A checkout configured by file sets `MINI_PROFILE=dev` in its environment, such as the devcontainer env or a shell profile. Some environments configure storage by variable rather than by file; a Claude Code web environment uses `MINI_STORE_BUCKET`, `MINI_PUBLISH_REPO` and `MODAL_ENVIRONMENT`. Those have no table to select from, so set the two variables to the dev names, beside the dev token. Either way, the token is what makes forgetting safe: a session on a dev token that reaches for production fails on its first write.
+
+6. Check. `./go auth --check` should show `profile dev`, the dev pair, and the Modal Environment, and `uv run pytest -m hf` should run against the pair. The integration tests pick the `dev` profile themselves whenever one is defined, so they stop writing to production as soon as the table exists. Without a dev profile they use the active profile, or production, as before.
 
 ## What stays shared
 

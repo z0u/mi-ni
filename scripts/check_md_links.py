@@ -5,7 +5,7 @@ The skills and `eng/` docs navigate by relative link, and several carry a fragme
 
 Only *relative* targets are checked. An `http(s)://` or `mailto:` link needs the network to verify and goes stale for reasons outside this repo, which is a different job with a different failure rate.
 
-Two strips before any matching, both load-bearing. Fenced code blocks hold illustrative fragments that contain bracket-paren pairs — a backlog note's repro has `(x: Sequence[T])`, which reads as a link target otherwise. Inline code spans hold links quoted *as examples*: `.agents/skills/mi-ni/references/reports.md` deliberately shows ``[experiment](./experiment.py)`` as the shape a report author writes, and without the strip it is reported against whichever directory the doc happens to sit in.
+Two strips before any matching, both load-bearing. Fenced code blocks hold illustrative fragments that contain bracket-paren pairs — `todo/eng/ty-loses-pep695-alias.md`'s repro has `(x: Sequence[T])`, which reads as a link target otherwise. Inline code spans hold links quoted *as examples*: `.agents/skills/mi-ni/references/reports.md` deliberately shows ``[experiment](./experiment.py)`` as the shape a report author writes, and without the strip it is reported against whichever directory the doc happens to sit in.
 
 Anchors are matched against GitHub's slugs, since that is where these docs are read — `mini.reports.github_slug`, the same function `build_site.py` hands to Python-Markdown so a published page carries the ids GitHub would give it. So "Provenance & cost" is `#provenance--cost`: the removed `&` leaves the two spaces that become two hyphens. Explicit `id=`/`name=` attributes on inline HTML count as anchors too, which is how a hand-written target survives a heading rewrite.
 
@@ -21,6 +21,7 @@ import sys
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 from urllib.parse import unquote
 
 from mini.reports import github_slug
@@ -109,7 +110,7 @@ def strip_code(text: str) -> str:
     for line in text.split("\n"):
         if (m := FENCE.match(line)) is not None:
             if fence is None:
-                fence = m["fence"]
+                fence = cast(str, m["fence"])
                 out.append("")
                 continue
             # A closer matches the opener's kind and is at least as long; anything else is content.

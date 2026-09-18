@@ -347,8 +347,10 @@ def _memo_store_for(name: str, root: Path) -> MemoStore | None:
 
     from mini.modal_apparatus import ModalMemoStore, ModalRecordStore, control_dict_name
     from mini.modal_volume import ModalVolume
+    from mini.store import modal_environment
 
-    d = modal.Dict.from_name(control_dict_name(name))  # no create_if_missing: marking must not mint state
+    # No create_if_missing: marking must not mint state. Resolved in the profile's Environment, like the run was.
+    d = modal.Dict.from_name(control_dict_name(name), environment_name=modal_environment())
     try:
         d.hydrate()
     except modal.exception.NotFoundError:

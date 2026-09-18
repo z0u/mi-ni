@@ -13,16 +13,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # committed lock no longer describes. `exclude-newer` is what sharpens that: it counts
 # in relative days, so a CI re-lock weeks after the edit draws from a different eligible
 # set than the developer had, which is the reproducibility claim the cooldown exists to
-# make, arriving by the back door. So CI holds them fixed, and a stale lock is a red
-# build naming its own remedy (`uv lock` / `npm install`). Locally the default is off:
-# a half-finished dependency edit shouldn't be blocked from installing.
-LOCKED="${CI:+1}"
+# make, arriving by the back door. So the default holds them fixed, and a stale lock
+# fails naming its own remedy (`uv lock` / `npm install`). A dependency edit in
+# progress goes through `uv add` / `uv lock`, which re-lock on purpose, and `uv run`
+# still syncs on demand for one-off commands, so nothing needs the unlocked mode
+# routinely; `--no-locked` is there for the rare case.
+LOCKED=1
 
 show_usage() {
   echo "Usage: $0 [options]"
   echo "Options:"
   echo "  --locked, --no-locked fail on (or allow) a lockfile the manifest has outgrown"
-  echo "                        [default: --locked under \$CI, --no-locked otherwise]"
+  echo "                        [default: --locked]"
   echo "  --help                show this help message"
 }
 

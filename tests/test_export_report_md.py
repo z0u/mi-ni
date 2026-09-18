@@ -121,3 +121,21 @@ def test_a_local_link_that_resolves_nowhere_is_reported(dirs):
     nb_dir, out_dir = dirs
     md = "![x](public/.mini/report/gone.png)"
     assert localize_links(md, base=nb_dir, out_dir=out_dir) == (md, ["public/.mini/report/gone.png"])
+
+
+def test_a_sidecar_link_is_repointed_like_a_figure(dirs):
+    """The link `link_externalized` leaves behind names a file of the report's, so it travels too."""
+    nb_dir, out_dir = dirs
+    (nb_dir / "public" / ".mini" / "report" / "sublines.html").write_text("<figure/>")
+    md = "[Two sublines.](public/.mini/report/sublines.html?v=1a2b3c4d)"
+    out, unresolved = localize_links(md, base=nb_dir, out_dir=out_dir)
+    assert out == "[Two sublines.](../../docs/ex-1/public/.mini/report/sublines.html)"
+    assert unresolved == []
+
+
+def test_a_prose_link_is_left_as_the_author_wrote_it(dirs):
+    """Only asset-dir targets are repointed: a link to a sibling report is the reader's to resolve."""
+    nb_dir, out_dir = dirs
+    (nb_dir / "experiment.py").write_text("x = 1")
+    md = "see [the experiment](experiment.py)"
+    assert localize_links(md, base=nb_dir, out_dir=out_dir) == (md, [])

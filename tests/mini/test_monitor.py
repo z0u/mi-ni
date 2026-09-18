@@ -16,9 +16,10 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
+from mini import monitor
 from mini.experiment import Experiment
 from mini.local_apparatus import LocalApparatus
-from mini.monitor import drive_and_watch, watch
+from mini.monitor import _Bars, _progress, drive_and_watch, watch
 from mini.orchestration import TaskFailed, tick
 from mini.runs import RunState
 
@@ -239,3 +240,108 @@ def test_watch_surfaces_a_killed_worker(tmp_path: Path):
     assert isinstance(captured.get("exc"), ExceptionGroup)
     with suppress(ChildProcessError):
         os.waitpid(pid, 0)
+
+
+# ---------------------------------------------------------------------------
+# When the display repaints
+#
+# Rich erases every row and rewrites it on each frame, so a row is blank for a
+# moment each time — flicker, and worse the further down the row sits. The bars
+# therefore repaint only when a reader would see a difference. These tests read
+# that off the terminal stream: no bytes written means no frame drawn.
+# ---------------------------------------------------------------------------
+
+
+class _FakeClock:
+    """Stands in for the ``time`` module inside :mod:`mini.monitor`."""
+
+    def __init__(self, start: float = 1000.0):
+        self.t = start
+
+    def monotonic(self) -> float:
+        return self.t
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
+    """Fake the monitor's judgement of elapsed time, so a test crosses the repaint interval by moving the clock rather than by sleeping through it."""
+    fake = _FakeClock()
+    monkeypatch.setattr(monitor, "time", fake)
+    return fake
+
+
+def _terminal() -> tuple[Console, io.StringIO]:
+    """A console that believes it is an interactive terminal, so Rich emits its cursor and erase codes into a buffer we can measure."""
+    buf = io.StringIO()
+    return Console(file=buf, force_terminal=True, force_interactive=True, width=100), buf
+
+
+def test_a_display_nothing_has_moved_on_is_not_redrawn(clock: _FakeClock):
+    """The flicker case: ``watch`` polls twice a second and Rich would repaint ten times a second regardless, so most frames redrew a picture identical to the one on screen."""
+    recs = [_running_rec("t-a", step=3, total=10), _running_rec("t-b", step=7, total=10)]
+    console, buf = _terminal()
+    with _progress(console) as progress:
+        bars = _Bars(progress)
+        bars.update(recs)
+        painted = len(buf.getvalue())
+        for _ in range(20):  # twenty polls' worth, with neither the records nor the clock moving
+            bars.update(recs)
+        assert len(buf.getvalue()) == painted
+
+
+def test_a_bar_that_moves_is_redrawn_at_once(clock: _FakeClock):
+    """Suppressing the idle frames must not cost responsiveness: a step lands on screen at the poll that read it, not at the next tick of a timer."""
+    console, buf = _terminal()
+    with _progress(console) as progress:
+        bars = _Bars(progress)
+        bars.update([_running_rec("t-a", step=3, total=10)])
+        painted = len(buf.getvalue())
+        bars.update([_running_rec("t-a", step=4, total=10)])  # no time has passed at all
+        assert len(buf.getvalue()) > painted
+
+
+def test_a_running_bar_repaints_once_a_second_for_its_clock(clock: _FakeClock):
+    """The elapsed column counts in whole seconds, so a display whose only moving part is that clock earns one frame a second — and no more."""
+    recs = [_running_rec("t-a", step=3, total=10)]
+    console, buf = _terminal()
+    with _progress(console) as progress:
+        bars = _Bars(progress)
+        bars.update(recs)
+        painted = len(buf.getvalue())
+        for _ in range(9):  # a tenth of a second apart — Rich's own cadence
+            clock.t += 0.1
+            bars.update(recs)
+        assert len(buf.getvalue()) == painted, "redrew for a clock that had not ticked"
+
+        clock.t += 0.1  # a whole second, so the elapsed column now reads differently
+        bars.update(recs)
+        assert len(buf.getvalue()) > painted
+
+
+def test_a_settled_display_falls_quiet(clock: _FakeClock):
+    """Every task terminal: nothing is counting, so there is nothing left to repaint for however long the watch sits there."""
+    recs = [{"key": "t-a", "state": "done", "step": 10, "total": 10}]
+    console, buf = _terminal()
+    with _progress(console) as progress:
+        bars = _Bars(progress)
+        bars.update(recs)
+        painted = len(buf.getvalue())
+        clock.t += 3600
+        bars.update(recs)
+        assert len(buf.getvalue()) == painted
+
+
+def test_a_settled_bar_freezes_its_clock_once(clock: _FakeClock):
+    """Rich re-stamps the stop time on every ``stop_task`` call, so a watch that keeps polling a finished run would let its elapsed column creep on and leave a wrong final reading on screen."""
+    recs = [{"key": "t-a", "state": "done", "step": 10, "total": 10}]
+    console, _ = _terminal()
+    with _progress(console) as progress:
+        bars = _Bars(progress)
+        bars.update(recs)
+        (task,) = progress.tasks
+        stopped_at = task.stop_time
+        assert stopped_at is not None, "a settled task's clock was left running"
+        for _ in range(5):  # real sleeps: Rich stamps these from its own clock, not the fake one
+            time.sleep(0.01)
+            bars.update(recs)
+        assert task.stop_time == stopped_at

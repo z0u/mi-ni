@@ -22,7 +22,7 @@ The researcher who ran the experiment. They know the project, the apparatus and 
 
 Write your analysis to a file beside the document. Do not edit the document.
 
-**1. A drop-in `## Findings` section.** Ready to paste, meant to sit directly under the tl;dr. Every preregistered hypothesis, its verdict, and the one number that decides it, in the fewest words that stay precise. Use the report's own hypothesis IDs and condition names, and carry each gate inline so the section stands alone. Under 200 words. A reader who stops here knows what happened.
+**1. A drop-in `## Findings` section.** Ready to paste, meant to sit directly under the tl;dr. Every preregistered hypothesis, its verdict, and the one number that decides it, in the fewest words that stay precise. Use the report's own hypothesis IDs and condition names, and carry each gate inline so the section stands alone. Under 200 words. A reader who stops here knows what happened. Write it so it could be read aloud to a colleague: what each number means before the number, everyday words rather than statistic names, and say where the document's own Findings falls short of that.
 
 Say what happened, and leave to the analysis sections both the interpretation and the question of whether an outcome was predicted in advance.
 

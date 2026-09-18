@@ -12,6 +12,11 @@ create_if_missing  # unused variable (tests/mini/test_apparatus.py:271 — mimic
 Styler  # unused import (src/mini/temporal/dopesheet.py:13 — TYPE_CHECKING-only, used in overload return)
 ArrayLike  # unused import (src/mini/vis/plt.py:22 — TYPE_CHECKING-only, used in string annotations)
 local_store  # unused variable (tests/mini/test_store_gc.py — fixture requested for its side effect)
+modal_env_dev  # unused variable (tests/mini/test_apparatus.py — fixture requested for its side effect)
+_.log_message  # unused method (src/mini/report_print.py — http.server handler override, called by the base class)
+_.CropBox  # unused attribute (src/mini/report_print.py — pikepdf page box, set by assignment)
+_.create_artists  # unused method (src/mini/vis/plt.py — matplotlib HandlerBase override)
+fontsize  # unused variable (src/mini/vis/plt.py — create_artists' signature)
 
 # Pydantic metadata fields: written at construction, read only via serialization.
 author  # unused variable (src/experiment/config.py)

@@ -19,6 +19,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import cast
 
 from marimo_md_export.export import export_html, export_md, strip_header_from_frontmatter
 from marimo_md_export.inject import inject_outputs
@@ -26,7 +27,7 @@ from marimo_md_export.models import Cell
 from marimo_md_export.parse_html import _extract_session_cells_raw, extract_outputs
 from marimo_md_export.parse_md import collect_cells
 from marimo_md_export.transform import convert_admonitions as _convert_admonitions
-from mini.reports import is_stale, render_path
+from mini.reports import PUBLIC_LINK, is_stale, render_path
 
 _SPEC = importlib.util.spec_from_file_location("clean_marimo_md", Path(__file__).with_name("clean_marimo_md.py"))
 assert _SPEC and _SPEC.loader
@@ -49,7 +50,7 @@ def fenced_spans(md: str) -> list[tuple[int, int]]:
         stripped = line.lstrip()
         m = FENCE_RE.match(stripped)
         if m:
-            token = m.group(1)
+            token = cast(str, m.group(1))
             if open_fence is None:
                 open_fence, start = token, pos
             elif token[0] == open_fence[0] and len(token) >= len(open_fence) and not stripped[len(token) :].strip():
@@ -100,6 +101,17 @@ def check_sources_agree(cells: list[Cell], source_hashes: set[str]) -> None:
 
 MD_IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]*)\]\((?P<src>[^)\s]+)\)")
 
+# Where a `report_bundle` publisher's URLs point: the notebook's `public/.mini/<stem>/`
+# interactively (what a render sees), the bundle's `_assets/` under an export.
+ASSET_PREFIXES = (PUBLIC_LINK, "_assets")
+# A plain link — no leading `!` — into one of those dirs: the sidecar reference
+# `clean_marimo_md.link_externalized` writes in place of an inlined fragment. Prose links
+# are deliberately not matched; they name things the reader resolves for themselves,
+# whereas this one names a file of the report's that has to travel with the render.
+MD_ASSET_LINK_RE = re.compile(
+    rf"(?<!!)\[(?P<alt>[^\]]*)\]\((?P<src>(?:{'|'.join(re.escape(p) for p in ASSET_PREFIXES)})/[^)\s]+)\)"
+)
+
 
 def _local_path(src: str) -> str | None:
     """The relative path *src* names, or ``None`` if it doesn't name one at all.
@@ -123,6 +135,8 @@ def localize_links(md: str, *, base: Path, out_dir: Path) -> tuple[str, list[str
     Only images the report *inlined* pass through :func:`~clean_marimo_md.externalize_images`, which writes them beside the output. Everything a ``report_bundle`` publisher wrote is already a file on disk, so the export references it by a path relative to the notebook — ``public/.mini/<stem>/<name>`` — and the link resolves from the notebook's own directory and nowhere else. Rewriting it against the output's directory is what lets the render live under ``.mini/renders/`` (:func:`~mini.reports.render_path`) with its figures still viewable.
 
     ``<img>`` tags become Markdown images in the same pass, so every figure in the document reads the same way and its alt text — the point of a text render — is prose rather than an attribute. Returns the document and the srcs that named no file, which stay as they were.
+
+    Sidecar links (:func:`~clean_marimo_md.link_externalized`) are repointed alongside the images, since they name a file of the report's in the same way. They are recognised by their asset-dir prefix rather than by their syntax, so an author's prose link stays as written.
     """
     unresolved: list[str] = []
 
@@ -145,10 +159,15 @@ def localize_links(md: str, *, base: Path, out_dir: Path) -> tuple[str, list[str
         rel = rewrite(m.group("src"))
         return m.group(0) if rel is None else f"![{m.group('alt')}]({rel})"
 
+    def replace_asset_link(m: re.Match) -> str:
+        rel = rewrite(m.group("src"))
+        return m.group(0) if rel is None else f"[{m.group('alt')}]({rel})"
+
     # Markdown links first: the tag pass writes more of them, and a link this pass has
     # already placed relative to the output must not be resolved a second time.
+    md = MD_ASSET_LINK_RE.sub(replace_asset_link, md)
     md = MD_IMAGE_RE.sub(replace_md, md)
-    md = clean_marimo_md.IMG_RE.sub(replace_tag, md)
+    md = cast(str, clean_marimo_md.IMG_RE.sub(replace_tag, md))
     return md, unresolved
 
 

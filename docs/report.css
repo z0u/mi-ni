@@ -12,7 +12,7 @@
  * <figure class="mini-themed-figure-<hash>"> wrapping the light/dark <img> pair; the
  * visible one is display:block, so margin-inline:auto centres it. */
 .markdown figure,
- figure[class*="mini-themed-figure"] {
+figure[class*="mini-themed-figure"] {
   text-align: center;
 }
 .markdown figure img,
@@ -76,8 +76,9 @@ figure.report-figure > figcaption {
  * a single `--sw`, so the square tracks the same pair a `light_dark` figure uses. The two
  * hexes ride in separate properties because the element's own `style=` would outrank any
  * rule that tried to reassign `--sw` directly. Theme detection mirrors the themed-figure
- * CSS in mini.vis.nb: an explicit theme on <body> wins, and the OS preference applies only
- * where <body> states none. */
+ * CSS in mini.vis.nb: an explicit theme on the body element wins, and the OS preference
+ * applies only where the body states none. (No literal body tag in this comment: the
+ * export injects its chips after the first one it finds.) */
 .sw-themed {
   --sw: var(--sw-light);
 }
@@ -87,9 +88,55 @@ body.dark-theme .sw-themed {
   --sw: var(--sw-dark);
 }
 @media (prefers-color-scheme: dark) {
-  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme)
+  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(
+      .dark-theme
+    ):not(.light):not(.light-theme)
     .sw-themed {
     --sw: var(--sw-dark);
+  }
+}
+
+/* Markdown tables. Marimo right-aligns every cell, as if all were numbers; text reads
+ * better ragged-right, so cells start left and a numeric column opts in with `---:` in
+ * the Markdown (which lands as an inline text-align, outranking this). Cells sit at the
+ * top of their row, so a wrapped cell reads from the same line as its neighbours, and
+ * rows carry no stripe: the shading reads as meaning on paper. The selectors carry
+ * `.output` to outrank Marimo's own `.markdown table tr` and `tr:nth-child` rules. */
+.markdown table :is(th, td) {
+  text-align: left;
+}
+.output .markdown table :is(tr, th, td) {
+  vertical-align: top;
+}
+.output .markdown table tbody tr:nth-child(n) {
+  background: transparent;
+}
+
+/* A definition list (a glossary). Marimo's Markdown has no definition-list syntax, so a
+ * report writes the <dl> itself; this gives it the shape of one. */
+.markdown dl > dt {
+  font-weight: 600;
+  margin-top: 0.8em;
+}
+.markdown dl > dd {
+  margin-inline-start: 1.5em;
+  margin-block: 0.25em 0;
+}
+
+/* A status badge on the title page — `<mark class="draft">DRAFT</mark>` written before
+ * the h1 — floats to the top right. */
+.paragraph:has(+ h1) > mark:only-child {
+  float: right;
+  background: none;
+  color: var(--tw-prose-headings);
+  padding-inline: 0.25em;
+  font-family: var(--heading-font);
+  font-size: 2.25em;
+  font-weight: inherit;
+  line-height: 1.25;
+
+  &.draft {
+    opacity: 0.5;
   }
 }
 
@@ -123,10 +170,28 @@ body.dark-theme .sw-themed {
  * tables in Markdown. */
 .report-table-scroll {
   overflow-x: auto;
+  scrollbar-color: light-dark(#c1c1c1, #6b6b6b) transparent;
+  scrollbar-width: thin;
 }
 .markdown table.report-table,
 .report-table-scroll .report-table {
   white-space: nowrap;
+}
+
+/* Allow tables to be full-width, overflowing the containing column, and centered on the
+ * viewport. Marimo makes `.markdown table` the scroll box (`display: block; overflow:
+ * auto`), so the centering transform goes on the table itself: translating the scroll
+ * container leaves its scroll geometry alone, whereas translating its rows shifts the
+ * scrollable overflow and clips the leading columns of a table wider than the page.
+ * `max-content` (rather than `fit-content`) so the 50% margin doesn't halve the
+ * available width. The px terms clear Marimo's nav bars when it's not in fullscreen
+ * mode (42px left, 84px right; the -21px is half their difference), and could be
+ * smaller in exported reports. */
+.output .markdown table {
+  width: max-content;
+  max-width: calc(100vw - 126px);
+  margin-left: calc(50% - 21px);
+  transform: translateX(-50%);
 }
 
 /* Make details elements usable. My default they are styled as admonitions, which are
@@ -135,7 +200,8 @@ body.dark-theme .sw-themed {
 .markdown details {
   border-width: 0;
   border-radius: 0;
-  box-shadow: 4px 0px 0px 0px color-mix(in srgb, var(--border), transparent 0%) inset;
+  box-shadow: 4px 0px 0px 0px color-mix(in srgb, var(--border), transparent 0%)
+    inset;
   transition: 0.3s;
 
   > summary {
@@ -166,7 +232,7 @@ body.dark-theme .sw-themed {
 }
 
 .output .footnote {
-  >ol>li {
+  > ol > li {
     font-size: 0.9em;
     transition: 0.3s;
     opacity: 0.5;
@@ -180,5 +246,127 @@ body.dark-theme .sw-themed {
     &:hover {
       opacity: 1;
     }
+  }
+}
+
+/* Print / PDF. Tuned for reading and annotating on a reMarkable 2, whose screen is
+ * 157.8 × 210.4 mm (1404 × 1872 px at 226 ppi). The page is that wide, so it fills the
+ * screen with no letterboxing and 1pt on the page is 1pt on the device; it is far
+ * taller, so a section (which starts a fresh page, below) is one long page to scroll
+ * within, and the swipe between pages is the swipe between sections. Not meant for
+ * paper. The height below is for the browser's print dialog (headers/footers off): the
+ * export (`mini.report_print`) prints taller than this, until no section breaks across
+ * pages, and then clips each page to its content, so a short section is a short page. */
+@media print {
+  @page {
+    size: 158mm 1010mm;
+    margin: 10mm 20mm 12mm;
+  }
+  /* Marimo's print rule zeroes the page margin and pads #App instead, which only pads
+   * the first and last page. Real page margins apply to every page, so undo that. */
+  #App {
+    padding: 0 !important;
+  }
+  /* The content panel is a flex item; its automatic minimum width is the widest thing
+   * inside it, so one wide table would push the whole column past the page edge. */
+  [data-panel] {
+    min-width: 0;
+  }
+  nav[data-mini-banner] {
+    display: none;
+  }
+
+  /* Type. Marimo sizes everything in rem, so the root size scales the whole page —
+   * headings, admonitions, tables, code — in proportion. 11pt body on a ~120mm
+   * column is about 60 characters a line. */
+  html {
+    font-size: 11pt;
+  }
+  .prose,
+  .markdown,
+  .markdown .paragraph,
+  .markdown li {
+    /* Spacious, for hand-written annotations. */
+    line-height: 2.5;
+  }
+
+  /* Ink. Half-transparent text is faint on e-ink, so lift the muted elements, and darken
+   * links: Marimo's link blue prints as a mid grey that reads as faded text. */
+  .output .footnote > ol > li,
+  .output .footnote .footnote-backref {
+    opacity: 0.85;
+  }
+  .output .markdown a,
+  .output .markdown a:visited {
+    color: #1d3f78;
+  }
+
+  /* Each top-level section starts a fresh page, so the reader swipes between sections and
+   * scrolls within one. The title cell has no h2, so the first page is the title, the
+   * findings, and whatever else precedes the first section. */
+  .markdown h2 {
+    break-before: page;
+  }
+
+  /* Keep things together. A hint rather than a rule: a block taller than a page still
+   * breaks. Headings already carry break-after: avoid from Marimo. */
+  .admonition,
+  figure,
+  pre,
+  blockquote,
+  .report-table-scroll,
+  .markdown details {
+    break-inside: avoid;
+  }
+  .admonition-title,
+  figcaption:first-child {
+    break-after: avoid;
+  }
+  figcaption:last-child {
+    break-before: avoid;
+  }
+  tr {
+    break-inside: avoid;
+  }
+  thead {
+    display: table-header-group;
+  }
+
+  /* Figures are always the light variant. The themed-figure CSS (mini.vis.nb) picks
+   * the pair by the page theme; paper has one. */
+  figure[class*="mini-themed-figure"] .mini-themed-img-light {
+    display: block !important;
+  }
+  figure[class*="mini-themed-figure"] .mini-themed-img-dark {
+    display: none !important;
+  }
+
+  /* Tables. Nothing scrolls on paper, so the screen tricks come off: the horizontal
+   * scroll box, the nowrap that fed it, and the viewport-relative margins that let a
+   * table overflow the text column. A Markdown table becomes a real table again (Marimo
+   * makes it a scrolling block), so auto layout can wrap its cells to fit the column,
+   * and the type is a step smaller so more columns fit before they do. A swatch stays
+   * with its word (join them with a non-breaking space). The selectors
+   * carry `.output` to outrank Marimo's own `.markdown table` rule, which loads later. */
+  .report-table-scroll {
+    overflow: visible;
+  }
+  .output .markdown table,
+  .output .report-table {
+    display: table;
+    overflow: visible;
+    white-space: normal;
+    font-size: 0.8em;
+    width: auto;
+    max-width: 100%;
+    margin-inline: 0;
+    transform: none;
+  }
+  .output :is(.markdown, .report-table-scroll) table.report-table {
+    font-size: 0.75em;
+  }
+  /* Cell padding is the widest thing in a nine-column table once the words wrap. */
+  .output :is(.markdown table, .report-table) :is(th, td) {
+    padding-inline: 0.35em;
   }
 }

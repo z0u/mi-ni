@@ -27,6 +27,10 @@ Escalate rather than run another round when a reviewer reverses a decision an ea
 
 Also stop and escalate for anything structural a reviewer couldn't fix itself, and for a disagreement about how a result should be read.
 
+## The read-back check
+
+Cheap, and worth running after the render once the interpretive sections are in. Hand the Markdown render to a fresh agent with no other context and ask it to explain the report back in plain words: what was found, what each number means, what we make of it. Compare that explanation to the Findings and Discussion in the report. Where they differ, consider updating the report: a good read-back is the register the report should be in, and a read-back that gets a result wrong has found a sentence the report needs to say more plainly.
+
 ## The prose passes
 
 Prose gets two passes regardless of whether a review round runs — see "Collaborating on a report" in SKILL.md for when they apply. No reviewer agent is involved. In one turn:

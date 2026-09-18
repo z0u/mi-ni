@@ -21,8 +21,10 @@ from pathlib import Path, PurePosixPath
 import markdown as md_lib
 
 from mini.reports import (
+    PDF_TYPE,
     PUBLISH_LOCK,
     ReportFigure,
+    alternates,
     export_dir,
     export_key,
     github_slug,
@@ -264,7 +266,16 @@ class _Bundle:
     html: str | None
     base_href: str | None = None  # externalize: the CDN dir the report's _assets/ resolve against
     assets: Path | None = None  # localize: the local _assets/ dir to copy beside the HTML
+    pdf: Path | None = None  # localize: the printed report.pdf to copy beside the HTML, if the export made one
     notes: tuple[str, ...] = ()
+
+    @property
+    def pdf_url(self) -> str | None:
+        """The PDF's href, from the ``<link rel="alternate">`` the export stamped; relative, so the ``<base>`` (or the copy beside the page) serves it."""
+        if self.html is None:
+            return None
+        href = alternates(self.html).get(PDF_TYPE)
+        return href if href and (self.base_href is not None or self.pdf is not None) else None
 
 
 def _read_bundle(nb: Path, *, store, pins: dict[str, str], externalizing: bool) -> _Bundle:
@@ -281,7 +292,9 @@ def _read_bundle(nb: Path, *, store, pins: dict[str, str], externalizing: bool) 
             nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
             return _Bundle(None, notes=(f"  ! {key}: not exported locally — run `./go preview {nb_rel}` (skipping)",))
         assets = bundle / ASSET_LINK
-        return _Bundle((bundle / "index.html").read_text("utf-8"), assets=assets if assets.is_dir() else None)
+        html = (bundle / "index.html").read_text("utf-8")
+        pdf = bundle / alternates(html).get(PDF_TYPE, "")
+        return _Bundle(html, assets=assets if assets.is_dir() else None, pdf=pdf if pdf.is_file() else None)
 
     notes: list[str] = []
     revision = pins.get(key)
@@ -306,6 +319,7 @@ class FigureStrip:
     key: str
     base_href: str | None
     figures: tuple[ReportFigure, ...]
+    pdf: str | None = None  # the printed rendition, relative to the bundle (``report.pdf``), when the export made one
 
 
 def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, FigureStrip]:
@@ -333,18 +347,19 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
             print(note)
         if bundle.html is None:
             continue
-        strips[key] = FigureStrip(key, bundle.base_href, tuple(report_figures(bundle.html, link=ASSET_LINK)))
+        figures = tuple(report_figures(bundle.html, link=ASSET_LINK))
+        strips[key] = FigureStrip(key, bundle.base_href, figures, pdf=bundle.pdf_url)
         from_dir = nb.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
         from_dir = "" if from_dir == "." else from_dir
         nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
 
-        html = _resolve_html_links(bundle.html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
+        html = resolve_html_links(bundle.html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
         html = mark_figures(html, link=ASSET_LINK)  # defer offscreen figures; mark them zoomable
         html = set_lightbox(html)  # click a figure for the full-size image, over a dimmed page
         html = set_theme(html)  # follow the visitor's device, not the exporter's setting
         html = set_responsive(html)  # fit narrow screens; drop Marimo's watermark
         index_url, source_url = _nav_urls(links, key=key, nb_rel=nb_rel, externalizing=externalizing)
-        html = set_banner(html, index_url=index_url, source_url=source_url)
+        html = set_banner(html, index_url=index_url, source_url=source_url, pdf_url=bundle.pdf_url)
         html = set_report_styles(html, report_css)  # last, so shared report rules win ties
         if bundle.base_href:
             html = insert_base(html, bundle.base_href)
@@ -354,6 +369,8 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
 
         if bundle.assets is not None:
             shutil.copytree(bundle.assets, dest.parent / ASSET_LINK, dirs_exist_ok=True)
+        if bundle.pdf is not None:
+            shutil.copy2(bundle.pdf, dest.parent / bundle.pdf.name)
         print(f"  {key} -> _site/{key}/index.html{' [+base]' if bundle.base_href else ''}")
     return strips
 
@@ -371,7 +388,7 @@ def _nav_urls(links: LinkResolver, *, key: str, nb_rel: str, externalizing: bool
     return index_url, source_url
 
 
-def _resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, out_dir: str, externalizing: bool) -> str:
+def resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, out_dir: str, externalizing: bool) -> str:
     """Rewrite resolvable author links in *html*; warn on the ones left dangling."""
     mapping: dict[str, str] = {}
     for token in stray_links(html, link=ASSET_LINK):
@@ -480,13 +497,13 @@ def _marker_key(token: str, links: LinkResolver, *, from_dir: str) -> str | None
 
 
 def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool) -> str:
-    """A report's thumbnail strip: each figure a lazy image, themed via ``<picture>``.
+    """A report's thumbnail strip: each figure a lazy image, themed via ``<picture>``, opening with its PDF.
 
-    Empty for a report with no asset-served figures (nothing to show, so no box). Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Clicking one opens the full-size figure in the lightbox (:func:`~mini.reports.lightbox_chrome`) rather than linking to the PNG: a link navigates away, and the browser paints the figure's transparent background on its white canvas — wrong in dark mode — where the overlay can carry a themed one.
+    Empty for a report with no asset-served figures and no PDF (nothing to show, so no box). The PDF, when the export printed one (the ``<link rel="alternate">`` in the bundle's head), is a page-shaped chip at the head of the strip, where it is never scrolled out of view: the strip and the report's nav chip link the same file, at the same base as the figures. Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Clicking one opens the full-size figure in the lightbox (:func:`~mini.reports.lightbox_chrome`) rather than linking to the PNG: a link navigates away, and the browser paints the figure's transparent background on its white canvas — wrong in dark mode — where the overlay can carry a themed one.
     """
     import html
 
-    if not strip.figures:
+    if not strip.figures and not strip.pdf:
         return ""
     base = (
         strip.base_href
@@ -494,16 +511,18 @@ def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool
         else f"{PurePosixPath(os.path.relpath(strip.key, from_dir or '.')).as_posix()}/"
     )
     parts = []
+    if strip.pdf:
+        parts.append(f'<a class="fig-strip-pdf" href="{base}{strip.pdf}" title="Read the report as a PDF">PDF</a>')
     for fig in strip.figures:
         alt, title = html.escape(fig.alt), html.escape(fig.stem)
-        dims = f' width="{fig.width}" height="{fig.height}"' if fig.width and fig.height else ""
+        size = f' width="{fig.width}" height="{fig.height}"' if fig.width and fig.height else ""
         light, dark = fig.light_thumb or fig.light, fig.dark_thumb or fig.dark
         # The thumbnail is a few KB and unreadable at strip size, so each one names the
         # full-size figure it was made from; clicking opens that in the lightbox, which
         # is what lets the strip offer the image without a link that navigates to it.
         full = f' data-mini-full="{base}{fig.light}"' + (f' data-mini-full-dark="{base}{fig.dark}"' if fig.dark else "")
         img = (
-            f'<img src="{base}{light}" alt="{alt}" title="{title}"{dims}'
+            f'<img src="{base}{light}" alt="{alt}" title="{title}"{size}'
             f' loading="lazy" tabindex="0" data-mini-zoom{full}>'
         )
         if dark:

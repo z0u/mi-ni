@@ -4,6 +4,7 @@
 ``marimo-md-export`` (see ``pyproject.toml``) already does the hard part of converting a notebook to Markdown with all string interpolation resolved. But cells that build their output programmatically (``mo.md(f"...")`` composed with ``mo.hstack``/callouts/tables, or run through the same renderer as ``mo.md``) come out as raw HTML fragments rather than Markdown, and figures are inlined as base64 PNGs. This script re-processes that output:
 
 - drops the notebook frontmatter and ``<style>`` blocks
+- replaces each inlined HTML/SVG fragment that has a sidecar (``mini.reports.externalize_html``) with a link to that file, described by the element's ``aria-label``
 - externalizes inlined images (the light-theme variant only) to sibling files, referenced with normal ``![alt](...)`` Markdown
 - converts ``<marimo-tex>`` spans to ``$...$`` / ``$$...$$``
 - converts footnote refs/definitions to Markdown footnote syntax
@@ -21,10 +22,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import html
 import re
-from pathlib import Path
+import sys
+from pathlib import Path, PurePosixPath
 
 from markdownify import MarkdownConverter
+from mini.reports import ASSET_MARKER
 
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n+", re.DOTALL)
 STYLE_RE = re.compile(r"<style>.*?</style>\n?", re.DOTALL)
@@ -34,6 +38,11 @@ IMG_RE = re.compile(r"<img\b[^>]*>")
 IMG_ATTR_RE = re.compile(r'([\w-]+)="([^"]*)"')
 DATA_URI_RE = re.compile(r"data:(image/[\w.+-]+);base64,(.*)", re.DOTALL)
 IMG_EXT_BY_MIME = {"image/png": "png", "image/svg+xml": "svg", "image/jpeg": "jpg"}
+
+# The opening tag of an element carrying a sidecar URL (mini.reports.externalize_html).
+# `[^>]*` twice so the marker may sit anywhere in the tag's attributes.
+ASSET_EL_RE = re.compile(rf'<(?P<tag>[a-zA-Z][\w.:-]*)\b[^>]*\s{ASSET_MARKER}="[^"]*"[^>]*>')
+IMAGE_SUFFIXES = {".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"}
 
 TEX_INLINE_RE = re.compile(r"<marimo-tex class=\"arithmatex\">\|\|\((.*?)\|\|\)</marimo-tex>", re.DOTALL)
 TEX_BLOCK_RE = re.compile(r"<marimo-tex class=\"arithmatex\">\|\|\[(.*?)\|\|\]</marimo-tex>", re.DOTALL)
@@ -191,6 +200,32 @@ def image_alt(raw: str) -> str:
     return re.sub(r"\s+", " ", raw).strip().replace("[", "(").replace("]", ")")
 
 
+def link_externalized(text: str) -> str:
+    """Replace each fragment that has a sidecar with a link to it, in place of its markup.
+
+    A report inlines some figures as SVG rather than as an ``<img>`` — subline strips, the swatch table — because inlined markup participates in the page's CSS, which a referenced file can't. That is right for the page and wrong for this document: on a report with eight of them the path data is more than half the render, sitting between the paragraphs a reader is here for. :func:`~mini.reports.externalize_html` has already written each one out as a plain file beside the PNGs and stamped its URL on the element, so the whole element can go and the link stand for it.
+
+    The link's text is the element's ``aria-label``, which is the description a screen reader gets and the closest thing these fragments have to alt text; failing that, the sidecar's stem, and a warning, since an undescribed figure is as opaque to a reader of the page as to a reader of this. A sidecar that is itself an image (``.svg``) is written as an image; an ``.html`` one as a plain link, which is what it is.
+    """
+    out: list[str] = []
+    pos = 0
+    while (m := ASSET_EL_RE.search(text, pos)) is not None:
+        out.append(text[pos : m.start()])
+        attrs = dict(IMG_ATTR_RE.findall(m.group(0)))
+        url = html.unescape(attrs[ASSET_MARKER])
+        leaf = PurePosixPath(url.partition("?")[0]).name
+        if label := attrs.get("aria-label"):
+            alt = image_alt(html.unescape(label))
+        else:
+            alt = PurePosixPath(leaf).stem
+            print(f"WARNING: {leaf} carries no aria-label; the render links it as {alt!r}", file=sys.stderr)
+        bang = "!" if PurePosixPath(leaf).suffix in IMAGE_SUFFIXES else ""
+        out.append(f"\n\n{bang}[{alt}]({url})\n\n")
+        pos = m.end() if m.group(0).endswith("/>") else find_balanced(text, m.start(), m.group("tag"))
+    out.append(text[pos:])
+    return "".join(out)
+
+
 def externalize_images(text: str, assets_dir: Path, rel_dir: str) -> str:
     """Write the light-theme variant of each inlined image to ``assets_dir``, as ``![alt](...)``."""
     used_names: set[str] = set()
@@ -294,6 +329,9 @@ def reflow(text: str) -> str:
 
 def clean(text: str, assets_dir: Path, rel_dir: str, do_reflow: bool = True) -> str:
     text = FRONTMATTER_RE.sub("", text)
+    # Before anything reaches inside these fragments: the whole element goes, so the
+    # passes below never have to reckon with a page of SVG (or its own <style> block).
+    text = link_externalized(text)
     text = STYLE_RE.sub("", text)
     text = EMPTY_COMMENT_RE.sub("", text)
     text = externalize_images(text, assets_dir, rel_dir)

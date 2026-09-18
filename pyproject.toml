@@ -3,7 +3,15 @@ name = "mi-ni"
 version = "2.0"
 description = "AI experiments"
 readme = "README.md"
-requires-python = ">=3.14"
+# The floor names a patch version on purpose: uv discards prerelease information from
+# a `requires-python` bound inside the same minor series, so `>=3.14` and `>=3.14.0` are
+# both satisfied by a 3.14.0 release candidate, as is `.python-version` holding `3.14`.
+# A container with an rc in its uv cache then builds the venv on it and never fetches
+# the final release — which surfaces as a wall of tracebacks from whatever dependency
+# calls a stdlib signature the rc lacked (pydantic and `typing._eval_type`, 2026-09-11),
+# reading as a code problem rather than an interpreter one. `.1` is the one bound that
+# truncation can't reach. It costs us 3.14.0 final, excluded along with its prereleases.
+requires-python = ">=3.14.1"
 dependencies = [
     "cloudpickle>=3.1.2",
     "datasets>=3.0.0",  # Hugging Face Datasets
@@ -41,6 +49,9 @@ dev = [
     "marimo-md-export>=0.8.0",
     "markdownify>=1.2.3",
     "pandas-stubs",
+    "pikepdf>=10.13.0.post1",
+    "playwright>=1.62.0",
+    "pypdfium2>=5.13.0",
     "pytest-asyncio>=0.25.3",
     "pytest-timeout>=2.3",
     "pytest-xdist>=3.6",
@@ -119,6 +130,38 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 namespace = true
+
+[tool.ty.rules]
+# Flags an assignment whose value is *assignable* to the declared type but not a
+# *subtype* of it, which in practice means one thing: an `Any` landed in a typed
+# slot. `Any` is assignable to everything, so the ordinary `invalid-assignment`
+# check waves it through and a wrong type can travel a long way before anything
+# notices. Turning it on caught one of those on its first run (see the notes in
+# `todo/eng/ty-unsound-assignment.md`).
+unsound-assignment = "error"
+
+[[tool.ty.overrides]]
+# Reports annotate the first binding out of an untyped dict — `epochs: int =
+# c["epochs"]` — and that annotation *is* the point: it is the author saying what
+# shape the dict has, and Marimo copies it onto every downstream cell signature
+# (see the `style-py` skill). The rule reads the same line as an unsound
+# assignment, so it argues with the house convention rather than finding bugs.
+include = ["docs/**/*.py"]
+
+[tool.ty.overrides.rules]
+unsound-assignment = "ignore"
+
+[[tool.ty.overrides]]
+# Off here for a cost reason rather than a style one: the findings under
+# `src/experiment/` sit in `equinox` boundaries on the training path, and mini
+# keys a memoized task on the *source text* of every project helper it reaches.
+# Editing them re-fingerprints every training task the published demo reports
+# read, and a stale DONE record re-runs. The fix is written up in
+# `todo/eng/ty-unsound-assignment.md`; it wants a session with a re-run budget.
+include = ["src/experiment/**/*.py"]
+
+[tool.ty.overrides.rules]
+unsound-assignment = "ignore"
 
 [tool.ruff]
 line-length = 120

@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager, nullcontext
 from functools import wraps
 from itertools import count
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Iterable, TypeVar, override
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Iterable, TypeVar, cast, override
 
 if TYPE_CHECKING:
     from mini.gc import GcIO
@@ -50,6 +50,7 @@ from mini.store import (
     _cas_key,
     _hf_token,
     active_profile,
+    modal_environment,
     publish_repo,
     store_bucket,
     store_context,
@@ -73,6 +74,31 @@ def control_dict_name(name: str) -> str:
     Module-level so a client can address the control plane without constructing a ``ModalApparatus`` (e.g. the CLI's other-backend peek on an empty read).
     """
     return f"mini-cp-{name}"
+
+
+_warned_shared_state = False
+
+
+def _warn_if_profile_shares_modal_state() -> None:
+    """Warn once when a storage profile is active but names no Modal Environment.
+
+    The storage pair is the profile's own, but without a ``modal-environment`` the memo records and Volume are Modal's default Environment — shared with the base configuration. A run of an experiment name that already ran there reads as memoized while its artifacts go to the profile's bucket. Saying so once is the fallback for a profile that hasn't been given an Environment yet; the fix is one key in the profile's table.
+    """
+    global _warned_shared_state
+    profile = active_profile()
+    if not profile or modal_environment() or _warned_shared_state:
+        return
+    _warned_shared_state = True
+    log.warning(
+        "%s=%r but no modal-environment is configured for it — Modal memo state and Volumes are shared "
+        "with the base configuration, so an experiment name that already ran there reads as memoized "
+        "while its artifacts go to the %s bucket. Add `modal-environment` to [tool.mini.profiles.%s] "
+        "(see the mi-ni skill's storage reference).",
+        PROFILE_ENV,
+        profile,
+        profile,
+        profile,
+    )
 
 
 def _modal_auth_error_message() -> str:
@@ -163,7 +189,7 @@ def _attach_hf_cache(fn_kwargs: dict[str, Any]) -> None:
 
     The env var rides in a Secret rather than on the image so a user-supplied ``.w(image=...)`` still gets it.
     """
-    cache = modal.Volume.from_name(HF_CACHE_VOLUME, create_if_missing=True)
+    cache = modal.Volume.from_name(HF_CACHE_VOLUME, environment_name=modal_environment(), create_if_missing=True)
     fn_kwargs["volumes"] = {**fn_kwargs.get("volumes", {}), HF_CACHE_MOUNT: cache}
     fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), modal.Secret.from_dict({"HF_HOME": HF_CACHE_MOUNT})]
 
@@ -187,7 +213,8 @@ class ModalRecordStore(RecordStore):
 
     @classmethod
     def from_name(cls, name: str) -> ModalRecordStore:
-        return cls(modal.Dict.from_name(name, create_if_missing=True))
+        """The control plane named *name*, in the profile's Modal Environment (see :func:`~mini.store.modal_environment`)."""
+        return cls(modal.Dict.from_name(name, environment_name=modal_environment(), create_if_missing=True))
 
     def read(self, key: str) -> dict[str, Any] | None:
         return self._d.get(key)
@@ -371,7 +398,7 @@ def _modal_task_entry(
 
     fn, args, hooks = _cp.loads(blob)
     store = MemoStore(Path(mount_point), records=ModalRecordStore.from_name(dict_name))
-    volume = _modal.Volume.from_name(volume_name)
+    volume = _modal.Volume.from_name(volume_name, environment_name=modal_environment())
     # With MINI_STORE_BUCKET set (passed in via a Modal Secret), put/get hit the
     # shared HF bucket — so another experiment, local or remote, reads these bytes
     # back with no shared Volume; the warm cache goes to container-local disk, not
@@ -489,6 +516,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         # ``_worker_fn_name``), so the Modal dashboard names each task usefully.
         self._memo_fns: dict[str, modal.Function] = {}
         self._image: modal.Image | None = None  # lazily built default; see _ensure_image
+        _warn_if_profile_shares_modal_state()
 
     def __str__(self) -> str:
         return f'Modal apparatus "{self.app.name}"'
@@ -603,8 +631,9 @@ class ModalApparatus(Apparatus[ModalVolume]):
         app_id: str | None = None
         watchdog_s = self.modal_fn_kwargs.get("watchdog")
         watchdog_grace_s = self.modal_fn_kwargs.get("watchdog_grace")
-        with self.app.run(detach=True):
-            app_id = getattr(self.app, "app_id", None)  # the ephemeral app instance, for cost attribution
+        with self.app.run(detach=True, environment_name=modal_environment()):
+            # the ephemeral app instance, for cost attribution
+            app_id = cast(str | None, getattr(self.app, "app_id", None))
             for key, gen, fn, args, hooks in batch:
                 blob = cloudpickle.dumps((fn, args, hooks))
                 fc = workers[key].spawn(
@@ -695,7 +724,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
 
         image: modal.Image = self._ensure_image()
         with modal.enable_output():
-            async with self.app.run():
+            async with self.app.run(environment_name=modal_environment()):
                 await image.build.aio(self.app)
 
         async with modal.Queue.ephemeral() as progress_queue:
@@ -707,7 +736,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
                 kwargs=kwargs,
             )
 
-            async with display, self.app.run():
+            async with display, self.app.run(environment_name=modal_environment()):
                 if url := _app_page_url(self.app):
                     print(f"View app at {url}")
                 async with _startup_watchdog(display, startup_timeout):
@@ -742,7 +771,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         fn_kwargs: dict[str, Any] = {**self.modal_fn_kwargs}
         fn_kwargs.setdefault("max_containers", 1)  # interactive default; memo path stays unbounded
         fn_kwargs["image"] = self._ensure_image()
-        startup_timeout: float = fn_kwargs.pop("startup_timeout", STARTUP_TIMEOUT_SECONDS)
+        startup_timeout: float = cast(float, fn_kwargs.pop("startup_timeout", STARTUP_TIMEOUT_SECONDS))
         if isinstance(self._volume, ModalVolume):
             volumes = fn_kwargs.get("volumes", {})
             fn_kwargs["volumes"] = {

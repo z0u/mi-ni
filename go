@@ -6,12 +6,25 @@ SELF="${BASH_SOURCE[0]}"
 PROJECT_ROOT="$( cd -- "$( dirname -- "$SELF" )" &> /dev/null && pwd )"
 SCRIPT_DIR="$PROJECT_ROOT/scripts"
 
+# uv older than this can't parse the relative `exclude-newer` cooldown in
+# pyproject.toml: it silently drops the cutoff, re-resolves, and rewrites
+# uv.lock. Fail loudly instead. (`required-version` in [tool.uv] can't do this
+# job, because the same parse failure discards that whole table.)
+MIN_UV='0.11'
+if command -v uv >/dev/null 2>&1; then
+    have_uv="$(uv --version 2>/dev/null | awk '{print $2}')"
+    if [[ "$(printf '%s\n%s\n' "$MIN_UV" "$have_uv" | sort -V | head -n1)" != "$MIN_UV" ]]; then
+        echo "$SELF: uv $have_uv is too old (need >= $MIN_UV); it would re-resolve uv.lock. Upgrade: uv self update" >&2
+        exit 1
+    fi
+fi
+
 is_marimo_notebook() {
     [[ "${1:-}" == *.py && -f "${1:-}" ]] && grep -q 'marimo\.App(' "$1"
 }
 
 show_usage() {
-    echo "usage: $SELF [-h] {install,auth,check,open,render,preview,publish,site,todo,worktrees} ..."
+    echo "usage: $SELF [-h] {install,auth,check,deps,open,render,preview,publish,site,todo,worktrees} ..."
 }
 
 show_help() {
@@ -20,9 +33,10 @@ show_help() {
     cat <<-EOF
 		New checkout? Start with: $0 install
 
-		  install [--locked]:  install dependencies (uv sync) and git hooks
-		                       --locked fails on a lockfile its manifest has outgrown,
-		                       rather than re-resolving it (the default under \$CI)
+		  install [--no-locked]:
+		                       install dependencies (uv sync) and git hooks
+		                       fails on a lockfile its manifest has outgrown, rather than
+		                       re-resolving it; --no-locked lets it re-resolve
 		  auth    [--check]:   set up credentials; --check just probes
 		  check   [--lint] [--format] [--typecheck] [--test] [--links] [--fix]:
 		                       run checks in parallel (default: all without --fix)
@@ -30,6 +44,11 @@ show_help() {
 		                       advisory, and outside check: dead | annotations
 		  links   [...paths]:  relative doc links and #anchors that no longer resolve
 		                       (default: every .md we author)
+		  deps    [--audit] [--actions] [--updates]:
+		                       dependency review (default: all three) — advisories from
+		                       uv audit and npm audit, Action pins against their newest
+		                       upstream tag, and upgrades available to packages we declare.
+		                       Read-only; the upgrade check is a --dry-run
 		  open    <file> [--browser]:
 		                       open a Marimo notebook for live editing — watches the file so
 		                       the IDE stays the editor, and prints a URL that lands in the
@@ -39,9 +58,11 @@ show_help() {
 		                       figures as ![alt](path) links — for reading a report as a document
 		                       (skips reports newer than their inputs; --force re-renders)
 		  preview [...nbs] [--no-serve] [--force] [--port N]:
-		                       export stale reports, assemble the site with local assets
-		                       (never touches the network), and serve it
-		  publish <nbs|--all>: export reports and sync their bundles to the publish tier
+		                       export stale reports (each with a report.pdf beside its
+		                       index.html, for review on paper or e-ink), assemble the site
+		                       with local assets (never touches the network), and serve it
+		  publish <nbs|--all>: export reports and sync their bundles (PDF included) to the
+		                       publish tier
 		  site:                assemble the public site from *published* bundles into _site/
 		                       (for CI; read-only, never runs a notebook)
 		  strays  [...paths]:  Marimo cells that end on a docstring, which publishes it as
@@ -76,6 +97,10 @@ case "${1:-}" in
     dead|deadcode)
         shift
         "$SCRIPT_DIR/deadcode.sh" "$@"
+        ;;
+    deps|dependencies)
+        shift
+        "$SCRIPT_DIR/deps.sh" "$@"
         ;;
     link|links)
         shift

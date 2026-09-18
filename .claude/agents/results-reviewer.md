@@ -25,6 +25,8 @@ Whether the experiment was worth running is settled; don't reopen it. The questi
 
 - Claims are proportionate to the evidence: one seed, one task, one architecture, in a synthetic setting, supports a narrower statement than the discussion often reaches for. Trim over-claiming rather than adding hedges.
 - Alternative explanations for the headline result are named and, where the data can, addressed.
+- A verdict that was never in doubt is not evidence for a mechanism. Where a scored statistic is the quantity the treatment optimizes, or a monotone function of it, the pass says only that the weight was large enough; a claim built on it ("the regularizer contains this statistic, so it explains the gain") outruns the data. Flag such a gate, and check the claim against a statistic the treatment does not touch by construction.
+- A factor's side effects are accounted for in the reading. Where a factor also changes a normalizer, a denominator, or the size of a set something is averaged over, a result attributed to the factor's named effect may belong to the side effect instead. Say so unless another arm separates the two, and name which arm does.
 - Negative and null results are reported as findings in their own right, with what they rule out.
 - The report should not prescribe future work, nor state plans we haven't made. "The next experiment will test X" — written in the present indicative, these read as established facts. The report should say what _this_ experiment demonstrated, and stop there. If a follow-up genuinely belongs in the text, mark it as a possibility, not a promise ("this could be tested by..."), and keep the claim to what we actually know.
 
@@ -33,6 +35,7 @@ Whether the experiment was worth running is settled; don't reopen it. The questi
 - **Captions read like captions.** A caption decodes the ink — what the rows, columns, marks, and shading mean, and how to read an unusual encoding. Extended analysis, findings, and interpretation belong in prose cells near the figure, in paragraph form. When a caption has grown into an argument, move the argument into prose and leave the decoding behind.
 - **Figure titles belong in the caption**, as its opening phrase, not drawn inside the figure with `fig.suptitle`. Panel labels within a figure (`ax.set_title`) are a different thing and should stay.
 - **Every table has a caption too**, on the same terms as a figure's.
+- **Tabular data is displayed in a chart too**, or a comment says why not.
 - **Panels that don't need to share axes should be separate nested figures**, each with a short subtitle-only caption, grouped under one outer caption. Only a shared scale, axis, or colorbar justifies packing them into one image.
 - Every figure has alt text (see the `alt-text` skill), and the alt text does not merely restate the caption.
 - Each figure and table is referenced from the prose, and the reference says what to look at.

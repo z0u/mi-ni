@@ -8,14 +8,19 @@ description: |
 
 Design the experiment with the human, and draft the report skeleton before writing any experiment code. The skeleton doubles as the analysis plan: writing it before the data exists lets a later "we predicted X and found Y" carry weight, because the prediction is verifiably older than the result.
 
-The skeleton is usually a text-only notebook. It runs: intro (the question, why it matters, lineage from earlier experiments), a `Findings` section left empty until the results land, a "How to read this draft" note, the method (data spec, measurements), the hypotheses with decision thresholds, analysis sections (consider having one section per hypothesis), an "Exploratory analyses" section, and a discussion.
+The skeleton is usually a text-only notebook. Findings come first and method last, so a reader meets evidence early and nothing is stated twice. It runs: the tl;dr; `Findings`, which in a draft is an index of the hypotheses with the verdicts blank; a "How to read this draft" note; a short intro (the question, why it matters, lineage from earlier experiments — about 250 words); the glossary and the conditions table, plus a paragraph on the intervention if there is one, which is all a reader needs to parse a result; one section per hypothesis, each opening with its frozen prediction and followed by the placeholder for its evidence and verdict; an "Exploratory analyses" section; a discussion of implications, about 200 words; and then the rest of the method (data spec, calibration, measurement definitions), which the results refer back to.
 
 Conventions:
 
-- Placeholders are admonitions marked `TODO`. Each states what its figure or table will show (axes, panels), the hypothesis it scores, the expected pattern, and what a contrary result would look like. The marker is greppable, so no placeholder survives to publication; results replace placeholders in place, so review reads as a prediction → observation diff.
-- Hypotheses are falsifiable: state the measurement, the threshold, and which outcomes count as partial.
+- Placeholders are admonitions marked `TODO`, one under each section's prediction. Each states what its figure or table will show (axes, panels); the prediction above it already says what pattern is expected and what a contrary result looks like, so the placeholder does not repeat them. The marker is greppable, so no placeholder survives to publication; results replace placeholders in place, so review reads as a prediction → observation diff.
+- Almost always, tabular data should be accompanied by a figure. Tables look like a wall of text to a human; charts are easier to interpret.
+- Hypotheses are falsifiable and plainly worded. Each is an expectation a colleague could restate from memory: what we expect to see, the one number we will look at, and what would change our mind. Reserve a hard gate, with a partial band and tie-breaks, for a hypothesis a decision hangs on (which operating point is adopted, whether a risk row closes); the others are predictions written down before the run and checked after it, in a sentence. Precision in the wording does not buy correctness in the design, and the trial-protocol register has cost days per experiment without catching the misses that mattered.
+- Where a selection rule adopts a point or a condition, it carries every gate the hypotheses do. A rule that checks most of them adopts a point that fails the rest.
+- A result section reads as expectation, then what we saw, then what we make of it. The gate arithmetic goes in a `details` block or the method.
+- A prediction lives at the top of its own result section and nowhere else: no standalone `## Hypotheses` block. A reviewer reads them in sequence through the `Findings` index, and in a draft the sections are consecutive anyway, with only a placeholder between them. A block up front would state every gate a second time before its section states it again.
 - A constants-only `experiment.py` is marked `DESIGN_ONLY = True`. Landing the design constants — grid sizes, thresholds, schedules — as a module during preregistration lets the report import them instead of restating numbers the code will later own. But `tests/mini/test_experiments_e2e.py` globs every `docs/**/experiment.py` and asserts it loads into a named experiment with a callable `main(ctx)`, which a design module doesn't have yet; `DESIGN_ONLY = True` at module level skips that check. Delete the line in the same change that adds the DAG, or the implemented experiment silently loses its load coverage.
-- Freeze the hypotheses once the skeleton is agreed (immaterial edits aside), and say so in the report under "How to read this draft": results replace placeholders, and anything conceived after seeing the data goes under "Exploratory analyses", marked as post hoc.
+- Freeze the hypotheses once the skeleton is agreed (immaterial edits aside), and say so in the report under "How to read this draft", quoting the commit — with the predictions spread over their sections, that hash is what says they were fixed in advance. Results replace placeholders, and anything conceived after seeing the data goes under "Exploratory analyses", marked as post hoc.
+- The discussion interprets. It may refer to a result and never requotes it: the verdict and its deciding number live in the result section and in `Findings`.
 - Avoid over-claiming in the analysis and discussion. An experiment may _inform_ the next, but committing to an interpretation now can close off the follow-up.
 - A claim stated before its evidence exists gets paid for twice, once where it is stated and once where it is met. That is inherent to preregistration and worth the cost for hypotheses and thresholds, and not for anything else, so keep rationales, caveats, and worked reasoning at the point of use rather than in the method. Where a restatement is unavoidable, quote the frozen line rather than paraphrasing it, since a paraphrase drifts.
 - Numbers in prose earn their place by being part of an argument. A coordinate the reader looks up, a constant of the apparatus, or a value derivable from an adjacent table belongs in a table or in the method, with the prose referring to it. Writing the same quantity out in two sections is how two roundings of it end up in the report.
@@ -23,16 +28,20 @@ Conventions:
 Example:
 
 ```md
-## Hypotheses
+## Findings
 
-- **H1.** Describe what we're testing (no title).
+- [Short name for H1 (H1)](#short-name-for-h1-h1) —
+- [Short name for H2 (H2)](#short-name-for-h2-h2) —
 
-<!-- Then in the results/analysis section further down... -->
+<!-- Then, one section per hypothesis... -->
 
 ## Short name for H1 (H1)
 
+**H1.** The prediction: the measurement, the gate, the partial band, and what a contrary result would mean.
+<!-- Note: outdated; see todo/style/lighter-preregistration-hypotheses.md -->
+
 /// admonition | TODO
-Describe what is needed (figure, table, expectations).
+What the figure and table will show (axes, panels).
 ///
 ```
 
@@ -40,7 +49,7 @@ Describe what is needed (figure, table, expectations).
 
 Some questions are about choosing an operating point in a space too large to give every point a hypothesis: a regularizer's weight, a temperature, how much of an intervention to apply and when. A *survey* is the experiment type for those. It preregisters the search plan instead of an outcome, and it scores nothing.
 
-What makes a search credible is the same thing that makes preregistration work — the analysis was fixed before the data existed. So freeze the procedure, in place of `## Hypotheses`:
+What makes a search credible is the same thing that makes preregistration work — the analysis was fixed before the data existed. So freeze the procedure in a `## Search plan` section, where a scored report's result sections would begin:
 
 - **The space.** Each dimension with its bounds and its scale (log for weights and temperatures).
 - **The sampling rule**, with its seed, so the trial list can be reviewed before the run. Prefer Sobol (`scipy.stats.qmc`) over uniform draws: it fills the box more evenly, so the one-dimensional marginals are less lumpy for the same budget. SciPy only reaches us through scikit-learn, so declare it when the first survey lands.
@@ -54,9 +63,9 @@ With those fixed, everything the survey reports is a deterministic function of t
 
 Two rules make the type safe to publish.
 
-**Nothing a survey reports may be quoted as a result.** It proposes an operating point; the next preregistered experiment adopts that point, scores it at fresh seeds, and reports the survey's value beside the confirmed one. The gap is the winner's-curse correction — a search's best trial wins partly on merit and partly on lucky seeds, so re-measuring is what turns a proposal into a number. That handoff already happens informally, whenever a follow-up runs at the operating point an earlier experiment landed on; naming it makes the proposing half publishable.
+**Nothing a survey reports may be quoted as a result.** It proposes an operating point; the next preregistered experiment adopts that point, scores it at fresh seeds, and reports the survey's value beside the confirmed one. The gap is the winner's-curse correction — a search's best trial wins partly on merit and partly on lucky seeds, so re-measuring is what turns a proposal into a number. That handoff already happens informally, whenever a follow-up runs at the operating point an earlier experiment found; naming it makes the proposing half publishable.
 
-**Publish every trial**, including the ones that went nowhere. Selective reporting is what would make a large search worthless, and a complete table settles it. Memoization means the data is there anyway.
+**Publish every trial**, including the ones that went nowhere. Selective reporting is what would make a large search worthless, and a complete table settles it. Memoization means the data is there anyway. The trials a report publishes are on production storage; the dev pair is for prototyping, and a run made there is repeated on production before the freeze (the `mi-ni` skill's storage reference).
 
 Then report the landscape rather than the winner. "The effect holds above 0.5 for the weight anywhere in [0.05, 0.4]" is worth more than "0.12 was best": it is what the next experiment inherits, and a wide plateau is itself a result, since it says the method does not need careful tuning.
 
@@ -65,7 +74,7 @@ Then report the landscape rather than the winner. "The effect holds above 0.5 fo
 Same skeleton, with three differences.
 
 - `## Findings` becomes `## Observations` — same place, same brevity, but each line carries its noise floor where a verdict would carry its gate, and one line names the proposed operating point.
-- `## Hypotheses` becomes `## Search plan`.
+- The search plan is one `## Search plan` block, where a scored report's first result section would sit, since there are no hypotheses to spread over sections.
 - `### Conditions` becomes the space specification plus the full trial table. This is the convention that has to bend: elsewhere the report imports hand-justified condition dicts and renders them as prose, which is why there's no generic grid builder, and a hundred trials can't each carry a docstring. So the justification attaches to the dimension rather than the level, and the trial table is generated from stored results.
 
 Say "survey" in the first clause of the tl;dr and label it the same way in `docs/index.md`. Naming and numbering follow the usual experiment sequence.
@@ -75,14 +84,18 @@ Say "survey" in the first clause of the tl;dr and label it the same way in `docs
 ## Best practices
 
 - Choose a measurement site by a criterion independent of the statistic you're judging.
+- A gate is informative only if a reader cannot predict its direction from the method section alone. Ask what the treatment optimizes and whether the scored statistic is that quantity, a monotone function of it, or independent of it; only the third is a test of the mechanism. One of our reports scored a statistic under a regularizer _defined_ as a penalty on that same statistic, so "the term lowers it" could only ever say the weight was large enough, and it passed preregistration and a review round before anyone noticed. Score something the treatment does not touch by construction (the task metric, a held-out probe, a downstream selectivity), and keep the optimized quantity as a manipulation check.
+- A factor changes more than the thing it is named for. Before writing its hypothesis, list everything it alters, and look hardest at normalizers, denominators, and anything averaged over a set whose size the factor changes. One of our arms was read as a pure narrowing of a regularizer's reach, but the term divided by the realized mask, so one position instead of four also made each pull ~3.9× stronger; the reading survived only because another arm happened to separate the two. A quick test: if the factor were renamed after its side effect instead of its intent, would the hypothesis still read as written? If not, either fix the design so the side effect goes away (normalize by a fixed count) or report the matching invariants for every arm, as with bracketing above.
 - Ablate before you search, and **bracket rather than survey** when the ablation needs a value you haven't found yet. Removing a schedule means running a constant instead, and which constant you pick can decide the answer. Rather than matching on one invariant (area, maximum, or endpoint — each defensible, each a different condition), choose flat levels that straddle the schedule's own range. If the schedule beats every constant in its range, no constant substitutes for the shape, whatever the optimum turns out to be; if one wins, the schedule dimensions go away and you have a better operating point too. Report the matching invariants for every arm instead of matching on one, so the results can say which was the active ingredient. Each dimension deleted this way is much cheaper than searching it.
-- (more in [`todo/science/`](/todo/science/README.md))
+- (more in `/todo-science.md`)
 
 ## Collaborating on a report
 
 The human wants to be involved in the writing, so the skeleton is a review artifact in its own right. Iterate on it together in a PR before any experiment code lands (although feel free to run small prototypes that don't get committed). This is where the hypotheses and thresholds get agreed and frozen.
 
 When results arrive, fill the report in order of stakes rather than all at once. The mechanical sections, where the number either clears its threshold or it doesn't, can be filled in one pass. Pause for a discussion round before writing the prose where interpretation lives, since that is the part the human most wants a hand in, and the part most likely to over-reach.
+
+Write the interpretive prose as an explanation first. Before touching the notebook, write the Findings and Discussion as a message to the human, as if explaining the results to them over lunch: lead with what we found in one plain sentence, say what each number means before giving it, use the same everyday words throughout (the model forgets the concept; the output stops depending on it) rather than the statistic names, gloss each statistic once in a phrase, and say what we make of it and what we would do next. Paste that into the report as the first draft of those sections and add the template expressions afterwards. The polishing passes then run on the result. This is a workflow rule rather than a style rule, because the chat explanation is the register the report should have had from the first draft, and sentence-level polish does not change the register a draft was written in.
 
 Whatever you have written, run a review round over it before handing back to the human, covering the sections that are done. Say in the request which sections are in scope, so a `TODO` in a section whose turn hasn't come isn't read as an omission.
 
@@ -119,17 +132,17 @@ Directly under the tl;dr, and above the intro prose. Every preregistered hypothe
 ```md
 ## Findings
 
-**H1 (task cost) — holds.** Largest holdout accuracy gap from control,
-across all seven conditions: 0.0013. Gate: 0.02.
+<!-- Note: outdated; see todo/style/report-register-explain-it-over-lunch.md -->
+
+**H1 (task cost) — holds.** Largest holdout accuracy gap from control, across all seven conditions: 0.0013. Gate: 0.02.
 
 **H3 (attribution) — fails.** Both main effects clear 0.1, but the
-second effect (+0.141) is smaller than the first (+0.221), not larger;
-the ordering holds within every seed.
+second effect (+0.141) is smaller than the first (+0.221), not larger; the ordering holds within every seed.
 ```
 
-The tl;dr says which way it came out; this says what happened. A reader who stops here should be able to tell that three of four hypotheses missed, without reading a discussion to find out. Without it, a reader gets nothing until they have read the whole report.
+The tl;dr says which way it came out; this says what happened, in words that could be read aloud to a colleague. A reader who stops here should be able to tell that three of four hypotheses missed, without reading a discussion to find out. Without it, a reader gets nothing until they have read the whole report.
 
-Verdicts only. Interpretation, mechanism, and whether an outcome was named in advance belong to the analysis sections. In a preregistration draft the heading goes in empty, since writing it is the first thing to do when results land.
+Verdicts only. Interpretation, mechanism, and whether an outcome was named in advance belong to the analysis sections. Link each line to its section, so this doubles as the report's index. In a preregistration draft it is only that: one line per hypothesis, ID and short name linking to the section, verdict blank. That is where a reviewer sees every prediction in one place, and writing the verdicts in is the first thing to do when results land.
 
 Two consequences for the rest of the report. The discussion no longer opens by re-deriving the results, because they are above it — it interprets, and nothing else. And a section that cannot supply its own line here has a gap worth fixing: if a verdict or its deciding number is missing, or first appears in some other section, that is the section's problem rather than the summary's.
 

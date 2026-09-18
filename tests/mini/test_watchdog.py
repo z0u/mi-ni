@@ -149,6 +149,31 @@ def test_phase_only_ever_widens_the_threshold():
     assert wd._threshold() == 10.0
 
 
+def test_a_phase_covers_the_stamps_that_open_and_close_it(clock: _FakeClock):
+    """Declaring a span writes to the control plane — a store-wide ``flock`` locally, a network round trip on Modal — and that write makes no step progress either.
+
+    So it has to run under the span's own budget. With a stamp outside it, a task that emits its last step and then declares an upload can be aborted by the tight step threshold while writing the very record that says why it is pausing — one sub-second stall on CI run 34319699866, blamed on the 0.25s step watchdog rather than on the 30s phase the task had just opened.
+    """
+    stalls: list[str] = []
+    exits: list[int] = []
+    wd = Watchdog(0.2, stalls.append, _exit=exits.append)
+    governing: list[float] = []
+
+    def record(**fields: Any) -> bool:  # stands in for a slow control-plane write
+        governing.append(wd._threshold())
+        clock.t += 0.5  # the write outlasts the tight step threshold…
+        time.sleep(0.25)  # …and several polls land while it is in flight
+        return True
+
+    phase = _phase_hook(wd, record)
+    with wd:
+        wd.poke(3, 3)  # the last step is emitted, so the tight 0.2s timeout is in force
+        with phase("upload checkpoint", 30.0):
+            pass
+    assert governing == [30.0, 30.0]  # both stamps ran with the span's budget in force
+    assert (exits, stalls) == ([], [])
+
+
 def test_stall_during_grace_names_the_grace(clock: _FakeClock):
     stalls: list[str] = []
     exits: list[int] = []

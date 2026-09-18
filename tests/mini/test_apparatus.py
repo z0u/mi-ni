@@ -120,7 +120,7 @@ class MockModalApp:
 
         return decorator
 
-    def run(self):
+    def run(self, **kwargs):
         """Return an async context manager (no-op)."""
         return contextlib.AsyncExitStack()
 
@@ -137,7 +137,7 @@ def _make_local():
 def _make_modal(monkeypatch):
     monkeypatch.setattr("modal.Queue", MockModalQueue)
     monkeypatch.setattr("modal.enable_output", contextlib.nullcontext)
-    monkeypatch.setattr("modal.Volume.from_name", lambda name, create_if_missing=False: MockModalVolume())  # noqa
+    monkeypatch.setattr("modal.Volume.from_name", lambda name, **kw: MockModalVolume())  # noqa
     app = ModalApparatus(cast(modal.App, MockModalApp()))
     # Provide a mock image to avoid real Modal API calls in tests
     app.modal_fn_kwargs["image"] = MockModalImage()
@@ -193,7 +193,7 @@ def test_modal_auth_error_has_actionable_message(monkeypatch):
         del args, kwargs
         raise modal.exception.AuthError("not authenticated")
         # pyrefly: ignore [unreachable]
-        yield  # noqa: V201  # pragma: no cover  — the yield is what makes this an async generator
+        yield  # noqa  # pragma: no cover — the yield is what makes this an async generator
 
     monkeypatch.setattr(app, "_amap", broken_amap)
 
@@ -231,7 +231,7 @@ def test_memo_worker_mounts_hf_cache(monkeypatch):
 def test_attach_hf_cache_preserves_user_mounts_and_secrets(monkeypatch):
     from mini.modal_apparatus import HF_CACHE_MOUNT, _attach_hf_cache
 
-    monkeypatch.setattr("modal.Volume.from_name", lambda name, create_if_missing=False: MockModalVolume())
+    monkeypatch.setattr("modal.Volume.from_name", lambda name, **kw: MockModalVolume())
     monkeypatch.setattr("modal.Secret.from_dict", lambda d: ("secret", d))
     fn_kwargs = {"volumes": {"/vol": "user-vol"}, "secrets": ["user-secret"]}
     _attach_hf_cache(fn_kwargs)
@@ -519,7 +519,7 @@ def test_liveness_settled_states(monkeypatch, record, fake, alive):
 
 
 def test_reap_settles_timeout_killed_modal_task(monkeypatch, tmp_path):
-    """End to end: a timeout-killed call's RUNNING record settles FAILED on reap, so ``status``/``watch`` can't read it as running forever (z0u/sca2#20)."""
+    """End to end: a timeout-killed call's RUNNING record settles FAILED on reap, so ``status``/``watch`` can't read it as running forever (sca2#20)."""
     from mini.memo import MemoStore
 
     store = MemoStore(tmp_path / "exp")
@@ -591,3 +591,77 @@ def test_local_env_reaches_the_task_worker_subprocess(tmp_path, monkeypatch):
     captured.clear()
     spawn_taskworker(tmp_path, "k")  # no env → inherit, unchanged from before
     assert captured["env"] is None
+
+
+# ---------------------------------------------------------------------------
+# Modal Environment — every named lookup resolves in the profile's Environment
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def modal_env_dev(monkeypatch):
+    """`MODAL_ENVIRONMENT=dev` with no project config in the way, and the once-only warning reset."""
+    from mini import modal_apparatus
+
+    monkeypatch.setenv("MINI_NO_PROJECT_CONFIG", "1")
+    monkeypatch.setenv("MODAL_ENVIRONMENT", "dev")
+    monkeypatch.setattr(modal_apparatus, "_warned_shared_state", False)
+
+
+def test_named_lookups_carry_the_modal_environment(monkeypatch, modal_env_dev):
+    """The Dict, the per-experiment Volume and the HF cache Volume all resolve in the configured Environment.
+
+    That is the whole mechanism: a dev profile's memo records and Volume live beside production's rather than under the same names, so an experiment name that already ran in production isn't memoized in dev.
+    """
+    from mini.modal_apparatus import HF_CACHE_VOLUME, ModalRecordStore, _attach_hf_cache
+    from mini.modal_volume import ModalVolume
+
+    seen: list[tuple[str, str, str | None]] = []
+    monkeypatch.setattr(
+        "modal.Dict.from_name", lambda name, **kw: seen.append(("dict", name, kw.get("environment_name"))) or {}
+    )
+    monkeypatch.setattr(
+        "modal.Volume.from_name",
+        lambda name, **kw: seen.append(("volume", name, kw.get("environment_name"))) or MockModalVolume(),
+    )
+    monkeypatch.setattr("modal.Secret.from_dict", lambda d: ("secret", d))
+    ModalRecordStore.from_name("mini-cp-exp")
+    ModalVolume("exp", create=False)
+    _attach_hf_cache({})
+    assert seen == [("dict", "mini-cp-exp", "dev"), ("volume", "exp", "dev"), ("volume", HF_CACHE_VOLUME, "dev")]
+
+
+def test_the_detached_app_runs_in_the_modal_environment(monkeypatch, modal_env_dev, tmp_path: Path):
+    """`spawn_tasks` opens the app context in the same Environment its objects were resolved in."""
+    from mini.memo import MemoStore
+    from mini.modal_apparatus import ModalApparatus
+
+    runs: list[dict] = []
+
+    class App(MockModalApp):
+        def run(self, **kwargs):
+            runs.append(kwargs)
+            return contextlib.nullcontext()
+
+    monkeypatch.setattr("modal.Volume.from_name", lambda name, **kw: MockModalVolume())
+    monkeypatch.setattr("modal.Secret.from_dict", lambda d: ("secret", d))
+    app = ModalApparatus(cast(modal.App, App())).w(image="mock-image")
+    app.spawn_tasks(MemoStore(tmp_path), [])
+    assert runs == [{"detach": True, "environment_name": "dev"}]
+
+
+def test_a_profile_without_a_modal_environment_warns_once(monkeypatch, caplog):
+    """A dev profile that names no Environment shares Modal state with production — say so, once, on the first apparatus."""
+    from mini import modal_apparatus
+    from mini.modal_apparatus import ModalApparatus
+
+    monkeypatch.setenv("MINI_NO_PROJECT_CONFIG", "1")
+    monkeypatch.setenv("MINI_PROFILE", "dev")
+    monkeypatch.delenv("MODAL_ENVIRONMENT", raising=False)
+    monkeypatch.setattr(modal_apparatus, "_warned_shared_state", False)
+    monkeypatch.setattr("modal.Volume.from_name", lambda name, **kw: MockModalVolume())
+    with caplog.at_level("WARNING", logger="mini.modal_apparatus"):
+        ModalApparatus(cast(modal.App, MockModalApp()))
+        ModalApparatus(cast(modal.App, MockModalApp())).clone()
+    warnings = [r for r in caplog.records if "modal-environment" in r.getMessage()]
+    assert len(warnings) == 1 and "profiles.dev" in warnings[0].getMessage()

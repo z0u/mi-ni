@@ -545,7 +545,7 @@ def _scan_code(
                 module = _resolve_relative(pkg, ins.argval, level)
                 pending = None if fromlist else ""
             case "IMPORT_FROM":
-                pending = ins.argval
+                pending = cast(str, ins.argval)
             case op if op in _STORES and module and pending is not None:
                 bound[ins.argval] = (module, pending or None)
                 pending = None

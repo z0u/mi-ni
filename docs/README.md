@@ -8,7 +8,7 @@ This directory contains executable experiment notebooks and source files for the
 
 Notebooks (`.py`) are the primary content, and the only thing in Git; the exported HTML is never committed.
 
-`./go publish` exports each notebook to a self-contained bundle (`index.html` plus a name-keyed `_assets/`), and mirrors it to the HF bucket under `exports/<key>/`. The export also writes a small copy of every figure under `_assets/thumbs/` and declares them in the HTML, so an index page's figure strips (a `mini:figures` marker in a Markdown file; see [`build_site.py`](../scripts/build_site.py)) cost a few KB per figure rather than the full-size PNG. The site build then defers every figure until it scrolls into view, and makes it click-to-enlarge in an overlay — both from the HTML alone, so they apply to reports published before either existed. The key is the notebook's docs-relative path without the suffix, so `docs/overview.py` becomes `overview` and `docs/foo/bar.py` becomes `foo/bar`. A notebook named `report.py` is the exception: it takes its directory as the key, so `docs/foo/report.py` becomes `foo`, and a one-report experiment publishes at `foo/` rather than the redundant `foo/report/`.
+`./go publish` exports each notebook to a self-contained bundle (`index.html` plus a name-keyed `_assets/`, and a `report.pdf` printed from the page for reading on paper or e-ink), and mirrors it to the HF bucket under `exports/<key>/`. The export also writes a small copy of every figure under `_assets/thumbs/` and declares them in the HTML, so an index page's figure strips (a `mini:figures` marker in a Markdown file; see [`build_site.py`](../scripts/build_site.py)) cost a few KB per figure rather than the full-size PNG; a strip opens with a chip linking the report's PDF when the bundle declares one. The site build then defers every figure until it scrolls into view, and makes it click-to-enlarge in an overlay — both from the HTML alone, so they apply to reports published before either existed. The key is the notebook's docs-relative path without the suffix, so `docs/overview.py` becomes `overview` and `docs/foo/bar.py` becomes `foo/bar`. A notebook named `report.py` is the exception: it takes its directory as the key, so `docs/foo/report.py` becomes `foo`, and a one-report experiment publishes at `foo/` rather than the redundant `foo/report/`.
 
 With a git-backed publish tier (`[tool.mini] publish-repo`), publishing also records the commit sha that the bundle landed as into `publish.lock`. Commit that file. Under a storage profile (`MINI_PROFILE=dev`; the `mi-ni` skill's storage reference) the pins go to a gitignored `.mini/publish.<profile>.lock` instead, so an engineering publish never moves the production record. The site serves each report at its pinned revision, so a publish from a branch deploys nothing until the pin reaches main; the PR preview serves the branch's pins meanwhile. On the single-bucket default there is no history to pin, so no lock is written and the site serves whatever was synced last.
 
@@ -28,7 +28,7 @@ Images, SVGs, and the like are copied as-is into `_site/`.
 
 ### Shared report styles
 
-[`report.css`](./report.css) is one stylesheet for cross-report polish: centering narrow figures, `.sw` color swatches (see the `style-fig` skill), `.report-table` headings, and `.report-subline-row`.
+[`report.css`](./report.css) is one stylesheet for cross-report polish: centering narrow figures, `.sw` color swatches (see the `style-fig` skill), `.report-table` headings, and `.report-subline-row`. Its `@media print` block sizes the page for e-ink (a reMarkable 2). The export prints each report through it (`mini.report_print`), on a page grown until every section fits on one and then clipped to its content, so a bundle carries a `report.pdf` and the published page links it from the nav chip; the `report-render` skill prints the same way for checking a print-style edit. The PDF is baked at export like the figures, so a print-style edit reaches an old report's PDF on its next publish.
 
 Each report points at it with `marimo.App(css_file="…/report.css")`, so it shows live in edit mode and bakes into the export. The build re-inlines it from source as well (`mini.reports.set_report_styles`), so editing `report.css` restyles every published report without re-exporting any notebook. Keep it small and selector-scoped, since it layers on top of Marimo's own CSS.
 
@@ -37,7 +37,8 @@ Each report points at it with `marimo.App(css_file="…/report.css")`, so it sho
 ```
 docs/
 ├── README.md                This file (excluded from build)
-├── report.css               Shared report stylesheet (baked via css_file + re-inlined at build)
+├── report.css               Shared report stylesheet (baked via css_file + re-inlined at build;
+│                            its @media print block shapes each bundle's report.pdf)
 ├── publish.lock             Export key → pinned publish-tier revision (written by ./go publish)
 ├── index.md                 Built as _site/index.html
 ├── getting_started.py       Marimo notebook → exported bundle, served at _site/getting_started/

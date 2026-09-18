@@ -398,7 +398,8 @@ def test_self_referential_global_does_not_recurse(load_module):
     """A module-level container holding the task itself (a registry pattern) must not send the collector into infinite recursion."""
     src = "CALLBACKS = []\n\ndef task(x):\n    return len(CALLBACKS) + x\n\nCALLBACKS.append(task)\n"
     mod = load_module("tasks", src, "a")
-    assert task_key_parts(mod.task, (1,))  # completes; no RecursionError
+    key, _ = task_key_parts(mod.task, (1,))  # completes; no RecursionError
+    assert key
 
 
 def test_parts_split_code_from_inputs(load_module):

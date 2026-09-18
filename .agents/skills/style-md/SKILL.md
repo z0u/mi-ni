@@ -13,7 +13,7 @@ Wrapping: keep each paragraph on one line — very wide — and let the editor s
 
 ## Links
 
-A target starting with `/` resolves from the **repository** root, not the filesystem or domain root — GitHub rewrites it to the current ref, and VS Code resolves it against the workspace root. Prefer that form whenever a link leaves its own directory: `/eng/determinism.md` says where it lands, where `../../../../eng/determinism.md` only says how far to climb. Keep `./sibling.md` for a file alongside, and `../` where the relationship is the point — a `references/` doc pointing at the `SKILL.md` that owns it, say.
+A target starting with `/` resolves from the **repository** root, not the filesystem or domain root — GitHub rewrites it to the current ref, and VS Code resolves it against the workspace root. Prefer that form whenever a link leaves its own directory: `/eng/determinism.md` says where it lands, where `../../../../eng/determinism.md` only says how far to climb. Keep `./sibling.md` for a file alongside, and `../` where the relationship is the point — a `references/` doc pointing at the `SKILL.md` that owns it, or one backlog set pointing at another.
 
 An `#anchor` into a heading works in both places, since GitHub and the published site slug a heading the same way. Add an explicit `<span id="user-content-..."></span>` to a heading only when the link has to survive the heading being reworded — a link from a published post, say.
 
@@ -64,3 +64,39 @@ But _do_ use multiline strings; these are automatically `dedent`ed:
 ```
 
 Multiline strings are also supported by the `@themed(..., alt_text=..., caption=...)` decorator (see `style-fig`).
+
+### Interpolation and indentation
+
+Marimo dedents a cell's source when it stores and runs it, and it never touches the inside of a string literal. So an interpolated value keeps whatever indentation was baked into it, and once the surrounding Markdown has been dedented to column 0, four leading spaces in that value make the block a code fence — the table you built renders as its own raw HTML:
+
+```patch
+- _r = f"{prose(res)}\n\n    {table(res)}"
+- mo.md(f"""
+-     {_r}
+- """)
++ mo.md(rf"""
++ {prose(res)}
++
++ {table(res)}
++ """)
+```
+
+Two rules follow. Build the Markdown inline in the cell that displays it, rather than assembling pre-formatted fragments in one branch and dropping them into a template in another — that puts the indentation somewhere you can't see it. And let every interpolated value be flush left, with no leading whitespace of its own.
+
+### The shape of a section
+
+A section of a report reads best as three cells: the heading on its own with zero interpolation (so it renders as soon as the notebook opens and reaches the TOC), then the background and prediction, then the results. Guard the results cell with a raise rather than `mo.stop`:
+
+```python
+@app.cell(hide_code=True)
+def _(res):
+    if res is None:
+        raise mo.MarimoStopError(mo.md(RESULTS_TO_COME))
+    mo.md(rf"""
+    **Results.** {h1_prose(res)}
+
+    {h1_figure(res)}
+    """)
+```
+
+The raise stops the cell the same way `mo.stop` does, and it narrows `res` for everything below, which `mo.stop` (a plain call returning `None`) cannot. Keep the placeholder itself in the setup cell, so every unfinished section shows the same admonition.
