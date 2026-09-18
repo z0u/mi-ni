@@ -19,3 +19,8 @@ Open, in rough order:
 - A theme toggle on the page (the figures and swatches already honour `body[data-theme]`), self-hosted fonts, and a table-of-contents option.
 - The pending mark after `stop()` shows the root name (`summary`), not the expression (`summary.m_line`); Jinja's undefined does not carry the path.
 - The cache is project-wide and keyed by function name and inputs, so two documents defining a same-named cell function with the same inputs share a key and thrash the on-disk record (never serving each other's value, since the source fingerprint differs). Key by document as well if that turns up.
+
+## Notes
+
+**2026-09-18, Fable (with Sandy)** — Ported one real report: sca2's ex-2.1.12 (475 lines of Marimo; four cells, five figures, an HTML table, admonitions, footnotes, a `stop()` guard), by hand in about an hour. Prose paragraphs came out identical to `./go render`'s, numbers included, and the ten PNGs byte-identical to the Marimo export's. Timings on the cloud sandbox: cold fresh process 10.0 s against 25.5 s for the Marimo bundle export (with its PDF), warm fresh process 4.7 s (all of it the store's `get_refs` over the network plus 0.8 s of imports; the figures were memo hits), same-process re-render with nothing changed 20 ms, PDF +1 s. Two things the port surfaced: a docstring under a constant is top-level prose (wants a lint), and the woven `index.md` carries each figure's `<style>` block, which is the plain-Markdown target item above. The format question is settled by the port: the `.py` spelling carried it, so the `.md` parser can go. Findings and the publishing seam are in sca2's `todo/eng/literate-reports.md`.
+
