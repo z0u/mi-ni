@@ -58,11 +58,10 @@ plot_factory(x)
 """
 ## Direct call
 
-Useful for one-off plots, or when wrapping a function defined elsewhere. Here the cell's code is hidden (`# %% hide`), which is how a report shows a figure without its plumbing.
+Useful for one-off plots, or when wrapping a function defined elsewhere.
 """
 
 
-# %% hide
 def _plot_raw() -> plt.Figure:
     fig, ax = plt.subplots(figsize=(6, 3))
     ax.plot(x, np.sin(x) * np.exp(-x / 6), color=light_dark("#2a6e3a", "#7ad49a"), lw=2)

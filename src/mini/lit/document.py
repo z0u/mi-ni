@@ -3,7 +3,7 @@ Literate documents: prose and executable Python cells, woven into one document.
 
 A document comes in two spellings of the same thing:
 
-- **Python** (``.py``, the recommended one): a plain module, so ruff, ty, and the IDE see every cell. A top-level string literal is prose, and the code between two prose strings is a cell. A ``# %%`` comment at column 0 (the percent format, so VS Code offers "Run Cell" on it) is optional: it splits a cell, and carries that cell's options (``# %% hide``). Metadata is ``# key: value`` comment lines at the top of the file (``# title:``, ``# code: hide``). Write prose with math or other backslashes as a raw string (``r'''…'''``).
+- **Python** (``.py``, the recommended one): a plain module, so ruff, ty, and the IDE see every cell. A top-level string literal is prose, and the code between two prose strings is a cell. Metadata is ``# key: value`` comment lines at the top of the file (``# title:``, ``# code: hide``). Write prose with math or other backslashes as a raw string (``r'''…'''``).
 - **Markdown** (``.md``): a fenced block whose info string is ``{python}`` is a cell; everything else is prose, and the same keys go in ``---`` front matter.
 
 Cells run top to bottom in one shared namespace, and the prose between them is a Jinja template rendered against that namespace *as it stands at that point*, so ``{{ best.mean }}``-style interpolation, ``{% for %}`` loops for tables, and helper calls like ``{{ h2_figure(res) }}`` all work without a notebook runtime. The result of weaving is plain Markdown (:attr:`Woven.markdown`), which :mod:`mini.lit.page` turns into HTML.
@@ -22,7 +22,6 @@ import re
 import sys
 import textwrap
 import time
-import tokenize
 import traceback
 import types
 from dataclasses import dataclass
@@ -36,9 +35,8 @@ from mini.reports import Publisher, current_publisher, use_publisher
 __all__ = ["Document", "Prose", "Cell", "Woven", "Stop", "stop", "parse", "Runner"]
 
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-MARKER_RE = re.compile(r"^# %%(.*)$")
 HEADER_RE = re.compile(r"^#\s*([\w-]+):\s*(.+?)\s*$")
-CELL_INFO_RE = re.compile(r"^\s*\{python\}(.*)$")
+CELL_INFO_RE = re.compile(r"^\s*\{python\}\s*$")
 FRONT_MATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 H1_RE = re.compile(r"^# (.+)$", re.MULTILINE)
 
@@ -53,7 +51,6 @@ class Prose:
 class Cell:
     source: str
     line: int
-    options: frozenset[str] = frozenset()
 
     @property
     def digest(self) -> str:
@@ -103,7 +100,7 @@ class _Splitter:
         self._buf: list[str] = []
         self._buf_line = 1
         self._fence: str | None = None  # the open fence token, cell or not
-        self._cell_opts: frozenset[str] | None = None  # set while the open fence is a cell
+        self._in_cell = False  # whether the open fence is a cell
 
     def _closes(self, token: str, info: str) -> bool:
         f = self._fence
@@ -111,7 +108,7 @@ class _Splitter:
 
     def _flush(self, as_cell: bool) -> None:
         if as_cell:
-            self.segments.append(Cell("".join(self._buf), self._buf_line, self._cell_opts or frozenset()))
+            self.segments.append(Cell("".join(self._buf), self._buf_line))
         elif self._buf:
             self.segments.append(Prose("".join(self._buf), self._buf_line))
         self._buf = []
@@ -120,26 +117,24 @@ class _Splitter:
         m = FENCE_RE.match(line)
         if m and self._fence is None:
             self._fence = m.group(1)
-            if cm := CELL_INFO_RE.match(m.group(2)):
+            if CELL_INFO_RE.match(m.group(2)):
                 self._flush(as_cell=False)
-                self._cell_opts = frozenset(cm.group(1).split())
+                self._in_cell = True
                 self._buf_line = i + 1
                 return
         elif m and self._closes(m.group(1), m.group(2)):
             self._fence = None
-            if self._cell_opts is not None:
+            if self._in_cell:
                 self._flush(as_cell=True)
-                self._cell_opts = None
+                self._in_cell = False
                 self._buf_line = i + 1
                 return
         if not self._buf:
-            self._buf_line = i if self._cell_opts is None else self._buf_line
+            self._buf_line = self._buf_line if self._in_cell else i
         self._buf.append(line)
 
     def finish(self) -> list[Prose | Cell]:
-        self._flush(
-            as_cell=self._cell_opts is not None
-        )  # an unterminated cell is kept, as CommonMark keeps an unterminated fence
+        self._flush(as_cell=self._in_cell)  # an unterminated cell is kept, as CommonMark keeps an unterminated fence
         return self.segments
 
 
@@ -153,11 +148,10 @@ def parse(path: Path | str, text: str | None = None) -> Document:
 def _parse_py(path: Path, text: str) -> Document:
     """The Python spelling.
 
-    Metadata is the run of ``# key: value`` comment lines before the first code. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements is a cell. A ``# %%`` comment at column 0 (found by tokenizing, so one inside a string is text) also starts a cell, and carries its options, which last until the next marker or prose; Jupytext's ``[markdown]`` tag is tolerated and ignored. A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
+    Metadata is the run of ``# key: value`` comment lines before the first code. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements is a cell (comments alone are not one). A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
     """
     lines = text.splitlines(keepends=True)
     segments: list[Prose | Cell] = []
-    opts: frozenset[str] = frozenset()
     cursor = 1
 
     def cell(start: int, end: int) -> None:  # the code on lines start..end, as a cell if there is any
@@ -166,31 +160,16 @@ def _parse_py(path: Path, text: str) -> Document:
             body, start = body[1:], start + 1
         while body and not body[-1].strip():
             body = body[:-1]
-        if any(line.strip() and not line.lstrip().startswith("#") for line in body):  # comments alone are not a cell
-            segments.append(Cell("".join(body), start, opts))
+        if any(line.strip() and not line.lstrip().startswith("#") for line in body):
+            segments.append(Cell("".join(body), start))
 
-    for line, end, payload in _py_events(path, text):
-        cell(cursor, line - 1)
-        if isinstance(payload, frozenset):
-            opts = payload
-        else:
-            segments.append(Prose(textwrap.dedent(payload.value.value).strip("\n") + "\n", line))
-            opts = frozenset()
-        cursor = end + 1
-    cell(cursor, len(lines))
-    return Document(path, _py_header(text), tuple(segments))
-
-
-def _py_events(path: Path, text: str) -> list[tuple[int, int, Any]]:
-    """The cell boundaries in order: ``(line, end line, payload)``, the payload a marker's options or a prose statement."""
-    events: list[tuple[int, int, Any]] = []
-    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
-        if tok.type == tokenize.COMMENT and tok.start[1] == 0 and (m := MARKER_RE.match(tok.string)):
-            events.append((tok.start[0], tok.start[0], frozenset(m.group(1).replace("[markdown]", " ").split())))
     for node in ast.parse(text, str(path)).body:
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-            events.append((node.lineno, node.end_lineno or node.lineno, node))
-    return sorted(events, key=lambda e: e[0])
+            cell(cursor, node.lineno - 1)
+            segments.append(Prose(textwrap.dedent(node.value.value).strip("\n") + "\n", node.lineno))
+            cursor = (node.end_lineno or node.lineno) + 1
+    cell(cursor, len(lines))
+    return Document(path, _py_header(text), tuple(segments))
 
 
 def _py_header(text: str) -> dict[str, str]:
@@ -412,7 +391,7 @@ class Runner:
 
     def _cell_markdown(self, doc: Document, cell: Cell, out: CellOutput) -> list[str]:
         parts = []
-        if "show" in cell.options or (doc.show_code and "hide" not in cell.options):
+        if doc.show_code:
             parts.append(_code_block(cell.source))
         if out.stdout:
             parts.append(f'<pre class="stdout">{html.escape(out.stdout)}</pre>\n')

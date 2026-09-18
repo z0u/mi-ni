@@ -6,7 +6,7 @@ r"""
 
 This page exercises what a report needs: interpolated numbers, a table built by a loop, math, footnotes, admonitions, a cached figure, and an early stop that leaves the rest of the document readable. Cell code is hidden by default here (`# code: hide` at the top of the file), the way a report hides its plumbing.
 
-The file is plain Python, so ruff, ty, and the IDE see every cell. A top-level string is prose (this paragraph is one), and the code between two of them is a cell; a `# %%` line is only needed to hide one cell's code or to split a cell.
+The file is plain Python, so ruff, ty, and the IDE see every cell. A top-level string is prose (this paragraph is one), and the code between two of them is a cell.
 """
 
 import time

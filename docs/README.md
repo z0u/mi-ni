@@ -20,7 +20,7 @@ Three ways past it, in rising order of permanence: `git push --no-verify` gets a
 
 ### Literate documents (prototype)
 
-A literate document is a plain Python file where a top-level string literal is prose (a template over the cells' namespace) and the code between prose strings is a cell, with `# title:` and `# code: hide` as comment lines at the top; ruff, ty, and the IDE see every cell. A `# %%` marker is optional: it splits a cell or sets its options (`# %% hide`), and VS Code offers "Run Cell" on it. The same document can be spelled as Markdown with ```` ```{python} ```` fences. `./go lit render docs/lit/tour.py` weaves it to `.mini/lit/<key>/` (HTML, Markdown, and `--pdf`); `./go lit serve` re-weaves on save with live reload. See `mini.lit` and `todo/eng/literate-documents.md` for the design and what is still open. A literate `.py` has no `marimo.App(`, so the site build ignores it as it does any other plain module; a literate `.md` is skipped explicitly.
+A literate document is a plain Python file where a top-level string literal is prose (a template over the cells' namespace) and the code between prose strings is a cell, with `# title:` and `# code: hide` as comment lines at the top; ruff, ty, and the IDE see every cell. The same document can be spelled as Markdown with ```` ```{python} ```` fences. `./go lit render docs/lit/tour.py` weaves it to `.mini/lit/<key>/` (HTML, Markdown, and `--pdf`); `./go lit serve` re-weaves on save with live reload. See `mini.lit` and `todo/eng/literate-documents.md` for the design and what is still open. A literate `.py` has no `marimo.App(`, so the site build ignores it as it does any other plain module; a literate `.md` is skipped explicitly.
 
 ### Markdown files
 

@@ -158,7 +158,7 @@ class Publisher:
         self._refs[name] = producer
         dest = self.asset_dir / PROVENANCE_ASSET
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(f"{PROVENANCE_ASSET}.tmp")
+        tmp = dest.with_name(f"{PROVENANCE_ASSET}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps({"refs": self._refs}, sort_keys=True, indent=1))
         tmp.replace(dest)
 
@@ -183,7 +183,7 @@ class Publisher:
         self.log.append(leaf)
         dest = self.asset_dir / leaf
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(f"{leaf}.tmp")
+        tmp = dest.with_name(f"{leaf}.{os.getpid()}.tmp")  # per process, so concurrent writers never share a temp file
         tmp.write_bytes(blob)
         tmp.replace(dest)  # atomic + overwrite-in-place: a re-render replaces, never piles up
         if serve and self.virtualize and (served := _virtual_url(dest)) is not None:

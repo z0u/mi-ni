@@ -21,8 +21,11 @@ from mini.runs import data_root
 __all__ = ["render", "Rendered", "to_pdf", "output_dir"]
 
 
-def output_dir(doc: Path) -> Path:
-    """``.mini/lit/<key>/``, where the key is the document's path under ``docs/`` without its suffix (``report.md`` takes its directory's name)."""
+def output_dir(doc: Path, *, live: bool = False) -> Path:
+    """``.mini/lit/<key>/``, where the key is the document's path under ``docs/`` without its suffix (``report.py`` takes its directory's name).
+
+    The live server writes to ``.mini/lit-live/<key>/`` instead: its page carries a reload script and versioned asset URLs, so it is a different artifact from a render, and keeping the trees apart means a ``render`` while the server is up never overwrites the page a browser is watching.
+    """
     doc = doc.resolve()
     root = data_root().parent
     try:
@@ -30,7 +33,7 @@ def output_dir(doc: Path) -> Path:
     except ValueError:
         rel = Path(doc.name)
     key = rel.parent if rel.stem == "report" and rel.parent != Path(".") else rel.with_suffix("")
-    return data_root() / "lit" / key
+    return data_root() / ("lit-live" if live else "lit") / key
 
 
 @dataclass
@@ -57,7 +60,7 @@ def render(
     *live* is the interactive setting: asset URLs carry a content stamp so a browser shows a re-drawn figure, and a re-drawn figure may replace one of the same name. Pass the previous call's *runner* to re-run only the cells that changed.
     """
     path = Path(doc).resolve()
-    out = (out_dir or output_dir(path)).resolve()
+    out = (out_dir or output_dir(path, live=live)).resolve()
     out.mkdir(parents=True, exist_ok=True)
     publish = Publisher(asset_dir=out / "_assets", link="_assets", strict=not live, versioned=live)
     if runner is None:
@@ -77,7 +80,7 @@ def render(
 
 
 def _write(path: Path, text: str) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")  # per process, so two writers never share a temp file
     tmp.write_text(text)
     tmp.replace(path)
 

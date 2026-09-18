@@ -30,7 +30,7 @@ class TestParse:
                 ---
                 # H
 
-                ```{python} show
+                ```{python}
                 x = 1
                 ```
                 after
@@ -42,7 +42,7 @@ class TestParse:
         assert not doc.show_code
         assert [type(s).__name__ for s in doc.segments] == ["Prose", "Cell", "Prose"]
         cell = doc.cells[0]
-        assert cell == Cell("x = 1\n", line=8, options=frozenset({"show"}))
+        assert cell == Cell("x = 1\n", line=8)
         assert doc.segments[2] == Prose("after\n", line=10)
 
     def test_title_from_h1_and_display_fences_are_prose(self, tmp_path):
@@ -99,9 +99,9 @@ class TestWeave:
         assert "- item 1\n- item 2\n- item 3\n" in w.markdown
 
     def test_hidden_code(self, tmp_path):
-        p = write(tmp_path, "---\ncode: hide\n---\n```{python}\nsecret = 1\n```\n```{python} show\nshown = 2\n```\n")
+        p = write(tmp_path, "---\ncode: hide\n---\n```{python}\nsecret = 1\n```\nafter {{ secret }}\n")
         md = Runner(p).weave().markdown
-        assert "secret" not in md and "shown = 2" in md
+        assert "secret = 1" not in md and "after 1" in md
 
     def test_stop_renders_rest_with_pending_marks(self, tmp_path):
         p = write(
@@ -262,6 +262,15 @@ class TestRender:
         assert "v is 2" in (tmp_path / "out" / "index.md").read_text()
         assert r.woven.errors == []
 
+    def test_live_output_is_a_separate_tree(self, tmp_path, monkeypatch):
+        from mini.lit.render import output_dir
+
+        (tmp_path / "pyproject.toml").touch()
+        monkeypatch.chdir(tmp_path)
+        doc = tmp_path / "docs" / "foo" / "report.py"
+        assert output_dir(doc) == tmp_path / ".mini" / "lit" / "foo"
+        assert output_dir(doc, live=True) == tmp_path / ".mini" / "lit-live" / "foo"
+
     def test_page_without_math_skips_katex(self):
         assert "katex" not in page(to_html("plain"), title="t")
 
@@ -273,7 +282,7 @@ class TestRender:
 
 
 class TestParsePy:
-    def test_header_markers_and_string_prose(self, tmp_path):
+    def test_header_and_string_prose(self, tmp_path):
         doc = parse(
             write(
                 tmp_path,
@@ -285,12 +294,12 @@ class TestParsePy:
                 # H
                 """
 
-                # %% show
+                # a comment belongs to the cell below
                 x = 1
                 """
                 after {{ x }}
                 """
-                y = 2  # a new cell, with default options again
+                y = 2
                 ''',
                 name="doc.py",
             )
@@ -299,22 +308,22 @@ class TestParsePy:
         assert doc.title == "T" and not doc.show_code
         assert doc.segments == (
             Prose("# H\n", 4),
-            Cell("x = 1\n", 9, frozenset({"show"})),
+            Cell("# a comment belongs to the cell below\nx = 1\n", 8),
             Prose("after {{ x }}\n", 10),
-            Cell("y = 2  # a new cell, with default options again\n", 13),
+            Cell("y = 2\n", 13),
         )
 
-    def test_strings_in_code_and_markers_in_strings_are_not_boundaries(self, tmp_path):
+    def test_strings_in_code_are_not_prose(self, tmp_path):
         doc = parse(
             write(
                 tmp_path,
                 '''
                 def f():
                     """a docstring"""
-                    return "# %% not a marker"
+                    return "# %% not special"
 
                 s = """
-                # %% nor this
+                nor this
                 """
                 r"""prose with \\(x\\)"""
                 ''',
@@ -322,20 +331,15 @@ class TestParsePy:
             )
         )
         assert [type(s).__name__ for s in doc.segments] == ["Cell", "Prose"]
-        assert isinstance(doc.segments[0], Cell) and doc.segments[0].source.count("# %%") == 2
+        assert isinstance(doc.segments[0], Cell) and doc.segments[0].source.count('"""') == 4
         assert doc.segments[1] == Prose("prose with \\(x\\)\n", 8)
 
     def test_weaves_like_the_markdown_spelling(self, tmp_path):
         p = write(
             tmp_path,
-            '"""\n# Doc\n"""\n# %%\nxs = [1, 2]\n"""\n{% for x in xs %}\n- {{ x }}\n{% endfor %}\n"""\n',
+            '"""\n# Doc\n"""\nxs = [1, 2]\n"""\n{% for x in xs %}\n- {{ x }}\n{% endfor %}\n"""\n',
             name="doc.py",
         )
         w = Runner(p).weave()
         assert w.errors == []
         assert "# Doc\n" in w.markdown and "- 1\n- 2\n" in w.markdown and "```python\nxs = [1, 2]\n```" in w.markdown
-
-    def test_jupytext_markdown_tag_is_ignored(self, tmp_path):
-        p = write(tmp_path, '# %% [markdown] hide\n"""\nprose\n"""\n# %%\nz = 1\n', name="doc.py")
-        doc = parse(p)
-        assert doc.segments == (Prose("prose\n", 2), Cell("z = 1\n", 6))

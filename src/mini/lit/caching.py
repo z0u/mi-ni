@@ -14,6 +14,7 @@ import dataclasses
 import functools
 import hashlib
 import logging
+import os
 import pickle
 from pathlib import Path
 from typing import Any, Callable, ParamSpec, TypeVar, overload
@@ -106,7 +107,7 @@ def memo(fn: Callable[P, R] | None = None, /, *, version: str | None = None) -> 
             _hot[key, evidence] = rec
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                tmp = path.with_suffix(".tmp")
+                tmp = path.with_suffix(f".{os.getpid()}.tmp")  # per process: two renders may cache the same key at once
                 tmp.write_bytes(pickle.dumps(rec))
                 tmp.replace(path)
             except Exception as e:  # an unpicklable value still returns; it just isn't cached across processes

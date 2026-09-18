@@ -17,7 +17,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--pdf", action="store_true", help="also print the page to index.pdf with headless Chromium")
     s = sub.add_parser("serve", help="watch the document, re-render on save, and serve it with live reload")
     s.add_argument("doc", type=Path)
-    s.add_argument("-o", "--out", type=Path, default=None)
+    s.add_argument("-o", "--out", type=Path, default=None, help="output directory (default .mini/lit-live/<key>/)")
     s.add_argument("--port", type=int, default=8765)
     args = ap.parse_args(argv)
 
