@@ -21,6 +21,7 @@ dependencies = [
     "imageio-ffmpeg>=0.6.0",  # for video support in matplotlib
     "jax>=0.6",  # accelerated array computing and program transformation
     "jaxtyping>=0.2.38",
+    "jinja2>=3.1.6",
     "marimo>=0.19.10",  # interactive notebooks
     "matplotlib>=3.10.0",  # plotting and visualization
     "modal[api-proxy-support]>=1.5.1",  # remote (cloud) GPU compute; the extra (new in 1.5.1) lets its gRPC tunnel via HTTPS_PROXY (cloud sandboxes)

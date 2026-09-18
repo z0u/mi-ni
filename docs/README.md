@@ -18,6 +18,10 @@ Three ways past it, in rising order of permanence: `git push --no-verify` gets a
 
 `./go site` (CI) then assembles `_site/` from the pinned bundles, serving each report at `_site/<key>/index.html`, with the URL `<key>/`. `./go preview` assembles the same site locally: it exports stale reports to `.mini/exports/` and copies their assets beside the HTML, so it works offline.
 
+### Literate documents (prototype)
+
+A Markdown file with ```` ```{python} ```` fences is a literate document rather than a page: the fences are cells, run top to bottom, and the prose between them is a template over the cells' namespace. `./go lit render docs/lit/tour.md` weaves it to `.mini/lit/<key>/` (HTML, Markdown, and `--pdf`); `./go lit serve` re-weaves on save with live reload. See `mini.lit` and `todo/eng/literate-documents.md` for the design and what is still open. The site build skips these files for now.
+
 ### Markdown files
 
 Markdown (`.md`) is converted to HTML and written to `_site/` at the same relative path. Links to a report's `.py` are rewritten to its rendered `<key>/` page. This `README.md` is excluded from the build.

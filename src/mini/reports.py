@@ -146,6 +146,9 @@ class Publisher:
     # ref name -> the producer stamped on it (or None) — every store ref the report
     # resolved while rendering, mirrored to the PROVENANCE_ASSET sidecar.
     _refs: dict[str, dict[str, Any] | None] = field(default_factory=dict, compare=False, repr=False)
+    # Every leaf written, in order — so a caller can tell which assets one stretch of
+    # work produced (``mini.lit.caching`` records them beside a cached value).
+    log: list[str] = field(default_factory=list, compare=False, repr=False)
 
     def note_ref(self, name: str, producer: dict[str, Any] | None) -> None:
         """Record that the report resolved store ref *name*, written by *producer*.
@@ -177,6 +180,7 @@ class Publisher:
                 "name= to disambiguate (the asset name is the stable URL now, with no content hash)"
             )
         self._written[leaf] = sha
+        self.log.append(leaf)
         dest = self.asset_dir / leaf
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(f"{leaf}.tmp")
