@@ -6,7 +6,7 @@ A document comes in two spellings of the same thing:
 - **Python** (``.py``, the recommended one): a plain module, so ruff, ty, and the IDE see every cell. A top-level string literal is prose, and the code between two prose strings is a cell. Metadata is ``# key: value`` comment lines at the top of the file (``# title:``, and ``# code: show`` to include cell source in the output). Write prose with math or other backslashes as a raw string (``r'''…'''``).
 - **Markdown** (``.md``): a fenced block whose info string is ``{python}`` is a cell; everything else is prose, and the same keys go in ``---`` front matter.
 
-Cells run top to bottom in one shared namespace, and the prose between them is a Jinja template rendered against that namespace *as it stands at that point*, so ``{{ best.mean }}``-style interpolation, ``{% for %}`` loops for tables, and helper calls like ``{{ h2_figure(res) }}`` all work without a notebook runtime. The result of weaving is plain Markdown (:attr:`Woven.markdown`), which :mod:`mini.lit.page` turns into HTML.
+Cells run top to bottom in one shared namespace, and the prose between them is rendered against that namespace *as it stands at that point*. A plain string is a Jinja template, so ``{{ best.mean }}``-style interpolation, ``{% for %}`` loops for tables, and helper calls like ``{{ h2_figure(res) }}`` all work without a notebook runtime. An f-string (``rf'''…{best.mean:.2f}…'''``, in the ``.py`` spelling) is evaluated as the Python it is, one field at a time, so the names it reads are visible to ruff, ty, vulture, and go-to-definition; it is never templated, so a literal brace in one is doubled as usual. The result of weaving is plain Markdown (:attr:`Woven.markdown`), which :mod:`mini.lit.page` turns into HTML.
 
 Only two things here are not plain Python or plain Markdown: a cell's last expression is displayed (a ``str`` is Markdown, an object with ``_repr_html_`` is HTML, a matplotlib figure is saved and shown), and :func:`stop` ends execution early — the rest of the prose still renders, with every unresolved name shown as a *pending* mark, so a preregistration reads whole before its results exist.
 """
@@ -35,7 +35,7 @@ import jinja2
 
 from mini.reports import Publisher, current_publisher, use_publisher
 
-__all__ = ["Document", "Prose", "Cell", "Woven", "Stop", "stop", "parse", "Runner"]
+__all__ = ["Document", "Prose", "Cell", "Woven", "Stop", "stop", "parse", "is_literate_document", "Runner"]
 
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 HEADER_RE = re.compile(r"^#\s*([\w-]+):\s*(.+?)\s*$")
@@ -46,8 +46,10 @@ H1_RE = re.compile(r"^# (.+)$", re.MULTILINE)
 
 @dataclass(frozen=True)
 class Prose:
-    text: str
+    text: str  # dedented; for an f-string, its fields shown as ``{expr}`` placeholders
     line: int
+    fstring: ast.JoinedStr | None = None  # set for an f-string: evaluated in the namespace rather than templated
+    indent: str = ""  # what dedenting removed, to remove again from an f-string's evaluated text
 
 
 @dataclass(frozen=True)
@@ -153,10 +155,20 @@ def _parse_py(path: Path, text: str) -> Document:
     """The Python spelling.
 
     Metadata is the run of ``# key: value`` comment lines before the first code. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements is a cell (comments alone are not one). A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
+
+    An f-string at the top level is prose too, evaluated rather than templated (see :meth:`Runner._prose`): its text here carries each field as a ``{expr}`` placeholder, which is also how it renders past a :func:`stop`.
     """
     lines = text.splitlines(keepends=True)
     segments: list[Prose | Cell] = []
     cursor = 1
+
+    def prose(node: ast.expr, line: int) -> Prose | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return Prose(_dedent(node.value), line)
+        if isinstance(node, ast.JoinedStr):
+            raw = _fstring_text(node)
+            return Prose(_dedent(raw), line, fstring=node, indent=_indent_of(raw))
+        return None
 
     def cell(start: int, end: int) -> None:  # the code on lines start..end, as a cell if there is any
         body = lines[start - 1 : end]
@@ -168,12 +180,55 @@ def _parse_py(path: Path, text: str) -> Document:
             segments.append(Cell("".join(body), start))
 
     for node in ast.parse(text, str(path)).body:
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+        if isinstance(node, ast.Expr) and (seg := prose(node.value, node.lineno)) is not None:
             cell(cursor, node.lineno - 1)
-            segments.append(Prose(textwrap.dedent(node.value.value).strip("\n") + "\n", node.lineno))
+            segments.append(seg)
             cursor = (node.end_lineno or node.lineno) + 1
     cell(cursor, len(lines))
     return Document(path, _py_header(text), tuple(segments))
+
+
+def _dedent(text: str) -> str:
+    return textwrap.dedent(text).strip("\n") + "\n"
+
+
+def _indent_of(text: str) -> str:
+    """The common leading whitespace :func:`textwrap.dedent` would remove from *text*."""
+    indents = [m.group(1) for m in re.finditer(r"(?m)^([ \t]*)(?=\S)", text)]
+    if not indents:
+        return ""
+    first = min(indents, key=len)
+    return first if all(i.startswith(first) for i in indents) else ""
+
+
+def _fstring_text(node: ast.JoinedStr) -> str:
+    """An f-string's source text with each field as a ``{expr}`` placeholder (literal braces single, as they read)."""
+    return "".join(_piece_text(v) for v in node.values)
+
+
+def _piece_text(piece: ast.expr) -> str:
+    if isinstance(piece, ast.FormattedValue):
+        return "{" + _field_source(piece) + "}"
+    assert isinstance(piece, ast.Constant), piece  # an f-string is constants and fields, nothing else
+    return str(piece.value)
+
+
+def _field_source(field: ast.FormattedValue) -> str:
+    s = ast.unparse(field.value)
+    if field.conversion != -1:
+        s += "!" + chr(field.conversion)
+    if isinstance(field.format_spec, ast.JoinedStr):
+        s += ":" + _fstring_text(field.format_spec)
+    return s
+
+
+def is_literate_document(path: str | Path) -> bool:
+    """Whether *path* is a literate ``.py`` rather than an ordinary module: it opens with a ``# title:`` header.
+
+    The publishing checks use this to tell a document beside a report from one of the report's inputs. The ``.md`` spelling is not distinguished from any other Markdown file here.
+    """
+    p = Path(path)
+    return p.suffix == ".py" and "title" in _py_header(p.read_text("utf-8", errors="ignore"))
 
 
 def _py_header(text: str) -> dict[str, str]:
@@ -525,10 +580,39 @@ class Runner:
         return Woven(doc, md, list(outputs), time.perf_counter() - t0, cells_run=cells_run, running=cell)
 
     def _prose(self, seg: Prose, ns: dict[str, Any], *, lenient: bool) -> str:
+        """Prose rendered against the namespace: an f-string evaluated field by field, anything else as a Jinja template.
+
+        *lenient* is the state past a :func:`stop`: a Jinja name that is missing renders as a pending mark (:class:`_Pending`), and an f-string field that fails to evaluate renders as one too, with its source as the label, while the fields that do evaluate still show their values.
+        """
         try:
+            if seg.fstring is not None:
+                text = self._eval_fstring(seg.fstring, ns, lenient=lenient)
+                return _dedent(re.sub(rf"(?m)^{re.escape(seg.indent)}", "", text) if seg.indent else text)
             return self._template(seg.text, _LENIENT if lenient else _STRICT).render(ns)
-        except jinja2.TemplateError as e:
+        except Exception as e:
             return _error_block(f"{self.path}:{seg.line}: {type(e).__name__}: {e}")
+
+    def _eval_fstring(self, node: ast.JoinedStr, ns: dict[str, Any], *, lenient: bool) -> str:
+        parts: list[str] = []
+        for v in node.values:
+            if not isinstance(v, ast.FormattedValue):
+                parts.append(_piece_text(v))
+                continue
+            try:
+                value = eval(compile(ast.Expression(v.value), str(self.path), "eval"), ns)
+                if v.conversion != -1:
+                    value = {"s": str, "r": repr, "a": ascii}[chr(v.conversion)](value)
+                spec = (
+                    self._eval_fstring(v.format_spec, ns, lenient=lenient)
+                    if isinstance(v.format_spec, ast.JoinedStr)
+                    else ""
+                )
+                parts.append(format(value, spec))
+            except Exception:
+                if not lenient:
+                    raise
+                parts.append(f'<mark class="pending">{html.escape(_field_source(v))}</mark>')
+        return "".join(parts)
 
 
 def _code_block(source: str) -> str:

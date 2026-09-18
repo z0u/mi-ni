@@ -453,3 +453,74 @@ class TestParsePy:
         w = Runner(p).weave()
         assert w.errors == []
         assert "# Doc\n" in w.markdown and "- 1\n- 2\n" in w.markdown and "```python\nxs = [1, 2]\n```" in w.markdown
+
+
+class TestFStringProse:
+    """A top-level f-string is prose evaluated as Python, so its names are real references."""
+
+    def test_fields_are_evaluated_and_the_text_dedented(self, tmp_path):
+        p = write(
+            tmp_path,
+            '''
+            # title: F
+
+            x = 3.14159
+            names = ["a", "b"]
+
+            rf"""
+                x is {x:.2f}, names are {", ".join(names)}, spec {x:{"." + str(1) + "f"}}, braces {{literal}}.
+
+                - {names[0]!r}
+            """
+
+            y = x * 2
+
+            f"""y is {y:.1f}."""
+            ''',
+            name="doc.py",
+        )
+        doc = parse(p)
+        assert [type(s).__name__ for s in doc.segments] == ["Cell", "Prose", "Cell", "Prose"]
+        seg = doc.segments[1]
+        assert isinstance(seg, Prose) and seg.fstring is not None
+        assert (
+            seg.text
+            == "x is {x:.2f}, names are {', '.join(names)}, spec {x:{'.' + str(1) + 'f'}}, braces {literal}.\n\n- {names[0]!r}\n"
+        )
+        w = Runner(p).weave(doc)
+        assert w.errors == [] and w.cells_run == 2
+        assert "x is 3.14, names are a, b, spec 3.1, braces {literal}.\n\n- 'a'\n" in w.markdown
+        assert "y is 6.3." in w.markdown
+
+    def test_past_a_stop_each_unresolved_field_is_a_pending_mark(self, tmp_path):
+        p = write(
+            tmp_path,
+            '''
+            known = 1
+            stop("_pending_")
+            res = 2
+
+            f"""known {known} and {res.mean:.2f} then {known + res}."""
+            ''',
+            name="doc.py",
+        )
+        w = Runner(p).weave()
+        assert w.stopped and w.errors == []
+        assert (
+            'known 1 and <mark class="pending">res.mean:.2f</mark> then <mark class="pending">known + res</mark>.'
+            in w.markdown
+        )
+
+    def test_a_failing_field_is_an_error_at_the_document_line(self, tmp_path):
+        p = write(tmp_path, 'x = "s"\n\nf"""bad {x:.2f}"""\n', name="doc.py")
+        w = Runner(p).weave()
+        assert w.errors == []  # prose errors are shown in place rather than stopping the document
+        assert 'class="error"' in w.markdown and "doc.py:3: ValueError" in w.markdown
+
+    def test_is_literate_document_needs_the_title_header(self, tmp_path):
+        assert parse(write(tmp_path, '# title: T\n\n"""p"""\n', name="lit.py")).title == "T"
+        assert importlib.import_module("mini.lit").is_literate_document(tmp_path / "lit.py")
+        assert not importlib.import_module("mini.lit").is_literate_document(write(tmp_path, "x = 1\n", name="mod.py"))
+        assert not importlib.import_module("mini.lit").is_literate_document(
+            write(tmp_path, "# title: T\n", name="doc.md")
+        )

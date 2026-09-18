@@ -14,7 +14,7 @@ MIN_UV='0.11'
 if command -v uv >/dev/null 2>&1; then
     have_uv="$(uv --version 2>/dev/null | awk '{print $2}')"
     if [[ "$(printf '%s\n%s\n' "$MIN_UV" "$have_uv" | sort -V | head -n1)" != "$MIN_UV" ]]; then
-        echo "$SELF: uv $have_uv is too old (need >= $MIN_UV); it would re-resolve uv.lock. Upgrade: uv self update" >&2
+        echo "$SELF: uv $have_uv is too old (need >= $MIN_UV); it would re-resolve uv.lock. Upgrade: uv tool install uv --force (from PyPI; uv self update needs the GitHub API, which the web sandbox blocks)" >&2
         exit 1
     fi
 fi
