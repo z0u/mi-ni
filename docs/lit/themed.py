@@ -5,10 +5,9 @@
 
 `themed` wraps a plot function to render in both light and dark modes, producing a single HTML element that switches on `prefers-color-scheme`. The same function runs twice — once per theme — so you can use `light_dark()` inside to pick theme-dependent values.
 
-This page is the `docs/themed.py` notebook, rewritten as a literate document: a plain Python file where each `# %%` starts a cell and each top-level string is prose.
+This page is the `docs/themed.py` notebook, rewritten as a literate document: a plain Python file where each top-level string is prose and the code between them is a cell.
 """
 
-# %%
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -25,7 +24,6 @@ The simplest form: `@themed` with no arguments. A cell's last expression is disp
 """
 
 
-# %%
 @themed
 def plot_plain() -> plt.Figure:
     fig, ax = plt.subplots(figsize=(6, 3))
@@ -43,7 +41,6 @@ Pass keyword arguments to set `alt_text`, `caption`, `max_width`, or custom styl
 """
 
 
-# %%
 @memo
 @themed(alt_text="sin and cos", caption="Two sinusoids, a quarter period apart.")
 def plot_factory(x: np.ndarray) -> plt.Figure:

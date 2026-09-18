@@ -54,8 +54,8 @@ show_help() {
 		                       the IDE stays the editor, and prints a URL that lands in the
 		                       app view; anything else opens in \$EDITOR
 		  lit     render <doc.py> [--pdf] | serve <doc.py> [--port N]:
-		                       weave a literate document (mini.lit: a .py with # %% cells and
-		                       string prose, or a .md with {python} fences) to .mini/lit/<key>/,
+		                       weave a literate document (mini.lit: a .py with string prose
+		                       between cells, or a .md with {python} fences) to .mini/lit/<key>/,
 		                       or serve it with live reload while you edit
 		  render  [...nbs] [--force]:
 		                       render each report to readable Markdown at .mini/renders/<key>.md,

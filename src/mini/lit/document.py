@@ -3,7 +3,7 @@ Literate documents: prose and executable Python cells, woven into one document.
 
 A document comes in two spellings of the same thing:
 
-- **Python** (``.py``, the recommended one): a plain module, so ruff, ty, and the IDE see every cell. A ``# %%`` comment at column 0 starts a cell (VS Code and Jupytext's percent format, so "Run Cell" works too); a top-level string literal is prose. Options ride on the marker (``# %% hide``), and metadata is ``# key: value`` comment lines at the top of the file (``# title:``, ``# code: hide``). Write prose with math or other backslashes as a raw string (``r'''…'''``).
+- **Python** (``.py``, the recommended one): a plain module, so ruff, ty, and the IDE see every cell. A top-level string literal is prose, and the code between two prose strings is a cell. A ``# %%`` comment at column 0 (the percent format, so VS Code offers "Run Cell" on it) is optional: it splits a cell, and carries that cell's options (``# %% hide``). Metadata is ``# key: value`` comment lines at the top of the file (``# title:``, ``# code: hide``). Write prose with math or other backslashes as a raw string (``r'''…'''``).
 - **Markdown** (``.md``): a fenced block whose info string is ``{python}`` is a cell; everything else is prose, and the same keys go in ``---`` front matter.
 
 Cells run top to bottom in one shared namespace, and the prose between them is a Jinja template rendered against that namespace *as it stands at that point*, so ``{{ best.mean }}``-style interpolation, ``{% for %}`` loops for tables, and helper calls like ``{{ h2_figure(res) }}`` all work without a notebook runtime. The result of weaving is plain Markdown (:attr:`Woven.markdown`), which :mod:`mini.lit.page` turns into HTML.
@@ -153,7 +153,7 @@ def parse(path: Path | str, text: str | None = None) -> Document:
 def _parse_py(path: Path, text: str) -> Document:
     """The Python spelling.
 
-    Metadata is the run of ``# key: value`` comment lines before the first code. A ``# %%`` comment at column 0 (found by tokenizing, so one inside a string is text) starts a cell and carries its options, which last until the next marker; Jupytext's ``[markdown]`` tag is tolerated and ignored. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements and markers is a cell. A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
+    Metadata is the run of ``# key: value`` comment lines before the first code. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements is a cell. A ``# %%`` comment at column 0 (found by tokenizing, so one inside a string is text) also starts a cell, and carries its options, which last until the next marker or prose; Jupytext's ``[markdown]`` tag is tolerated and ignored. A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
     """
     lines = text.splitlines(keepends=True)
     segments: list[Prose | Cell] = []
@@ -175,6 +175,7 @@ def _parse_py(path: Path, text: str) -> Document:
             opts = payload
         else:
             segments.append(Prose(textwrap.dedent(payload.value.value).strip("\n") + "\n", line))
+            opts = frozenset()
         cursor = end + 1
     cell(cursor, len(lines))
     return Document(path, _py_header(text), tuple(segments))

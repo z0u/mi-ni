@@ -290,7 +290,7 @@ class TestParsePy:
                 """
                 after {{ x }}
                 """
-                y = 2  # still under the marker's options
+                y = 2  # a new cell, with default options again
                 ''',
                 name="doc.py",
             )
@@ -301,7 +301,7 @@ class TestParsePy:
             Prose("# H\n", 4),
             Cell("x = 1\n", 9, frozenset({"show"})),
             Prose("after {{ x }}\n", 10),
-            Cell("y = 2  # still under the marker's options\n", 13, frozenset({"show"})),
+            Cell("y = 2  # a new cell, with default options again\n", 13),
         )
 
     def test_strings_in_code_and_markers_in_strings_are_not_boundaries(self, tmp_path):

@@ -6,10 +6,9 @@ r"""
 
 This page exercises what a report needs: interpolated numbers, a table built by a loop, math, footnotes, admonitions, a cached figure, and an early stop that leaves the rest of the document readable. Cell code is hidden by default here (`# code: hide` at the top of the file), the way a report hides its plumbing.
 
-The file is plain Python, so ruff, ty, and the IDE see every cell. A `# %%` line starts a cell, and a top-level string is prose; this paragraph is one.
+The file is plain Python, so ruff, ty, and the IDE see every cell. A top-level string is prose (this paragraph is one), and the code between two of them is a cell; a `# %%` line is only needed to hide one cell's code or to split a cell.
 """
 
-# %%
 import time
 from dataclasses import dataclass
 
@@ -76,7 +75,6 @@ The gate of {{ GATE }} comes from the reference experiment, quoted here from the
 The slow part of a re-render is usually the figures. `@memo` caches the rendered HTML keyed by the plot function's source and its arguments (arrays included), and remembers the PNGs it wrote, so the next render, even in a fresh process, skips the draw. This one sleeps for a second to make the point.
 """
 
-# %%
 rng = np.random.default_rng(0)
 samples = {c.name: rng.normal(c.mean, c.spread, c.seeds) for c in CONDS}
 
@@ -107,7 +105,6 @@ conditions_figure(samples, GATE)
 A preregistration is written before its results exist. `stop()` ends execution with a message, and every later interpolation renders as a pending mark instead of an error, so the whole document still reads.
 """
 
-# %%
 results = None
 if results is None:
     stop("/// admonition | Results to come\n    type: warning\nThe experiment has not been published yet.\n///")
