@@ -109,7 +109,10 @@ SANDBOX_CHROMIUM = "/opt/pw-browsers/chromium"
 
 
 def _chromium() -> str | None:
-    """The first Chromium that exists: ``$CHROMIUM`` (or ``$PLAYWRIGHT_CHROMIUM``, as the Marimo exports spell it), the sandbox's, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place)."""
+    """The first Chromium that exists: ``$CHROMIUM`` (or ``$PLAYWRIGHT_CHROMIUM``, as the Marimo exports spell it), the sandbox's, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place).
+
+    In the cache we take the headless shell ahead of the full browser: it prints the same PDF, and it links against a smaller set of shared libraries, so it starts in containers where the full build cannot (a missing ``libatk-bridge`` or ``libcups`` leaves the loader unable to start a binary that is sitting right there).
+    """
     for c in (
         os.environ.get("CHROMIUM") or os.environ.get("PLAYWRIGHT_CHROMIUM"),
         SANDBOX_CHROMIUM,
@@ -121,9 +124,10 @@ def _chromium() -> str | None:
         if c and (Path(c).is_file() or shutil.which(c)):
             return c
     pw_cache = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache" / "ms-playwright")
-    for c in sorted(pw_cache.glob("chromium-*/chrome-*/chrome"), reverse=True):
-        if c.is_file():
-            return str(c)
+    for pattern in ("chromium_headless_shell-*/chrome-*/headless_shell", "chromium-*/chrome-*/chrome"):
+        for c in sorted(pw_cache.glob(pattern), reverse=True):
+            if c.is_file():
+                return str(c)
     return None
 
 
@@ -133,18 +137,20 @@ def to_pdf(html_path: Path, pdf_path: Path | None = None) -> Path:
     if exe is None:
         raise RuntimeError(CHROMIUM_HINT)
     pdf_path = pdf_path or html_path.with_suffix(".pdf")
-    subprocess.run(
-        [
-            exe,
-            "--headless=new",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--no-pdf-header-footer",
-            f"--print-to-pdf={pdf_path}",
-            html_path.resolve().as_uri(),
-        ],
-        check=True,
-        capture_output=True,
-        timeout=120,
-    )
+    argv = [
+        exe,
+        "--headless=new",
+        "--no-sandbox",
+        "--disable-gpu",
+        "--no-pdf-header-footer",
+        f"--print-to-pdf={pdf_path}",
+        html_path.resolve().as_uri(),
+    ]
+    done = subprocess.run(argv, capture_output=True, timeout=120)
+    if done.returncode != 0:
+        # 127 from a binary that is present means the loader could not resolve its shared libraries, so say so: the bare exit code reads like a missing file.
+        why = f"{exe} exited {done.returncode}"
+        if done.returncode == 127 and Path(exe).is_file():
+            why += f" — it exists but could not start, most likely a missing shared library (`ldd {exe} | grep 'not found'`)"
+        raise RuntimeError(f"{why}\n{done.stderr.decode(errors='replace').strip()}")
     return pdf_path

@@ -391,6 +391,10 @@ class TestChromium:
         chrome.parent.mkdir(parents=True)
         chrome.touch()
         assert r._chromium() == str(chrome)
+        shell = tmp_path / "chromium_headless_shell-1243" / "chrome-linux-arm64" / "headless_shell"
+        shell.parent.mkdir(parents=True)
+        shell.touch()
+        assert r._chromium() == str(shell)  # the headless shell wins over the full browser in the cache
         monkeypatch.setattr(r.shutil, "which", lambda name: "/usr/bin/chromium" if name == "chromium" else None)
         assert r._chromium() == "chromium"
         exe = tmp_path / "my-chrome"
