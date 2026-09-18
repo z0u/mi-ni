@@ -13,6 +13,14 @@
 # Safe to run repeatedly; the container state is cached after it completes, so
 # subsequent sessions skip the slow paths.
 #
+# A web session that clones more than one repository puts them side by side under
+# a working directory with no .claude/settings.json of its own, so this hook is never
+# registered there: CLAUDE_PROJECT_DIR is unset, and none of the below happens. The
+# tell is `./go` refusing with "uv ... is too old" (the image's uv then also picks a
+# pre-release Python for the venv). The remedy is to run it by hand from the repo:
+#
+#     CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR=$PWD .claude/hooks/session-start.sh
+#
 set -euo pipefail
 
 # Web-only. Local checkouts and the dev container manage their own tooling

@@ -62,4 +62,6 @@ For the backlogs, prefer `./go todo --grep anneal`, which skips settled items.
 
 Resources (compute, storage, etc.): find out what you can access with `./go auth --check`.
 
+If `./go` refuses because `uv` is too old, the session-start hook did not run (a web session with more than one repository has no project settings at its root, so no hooks load). Run it by hand from the repository: `CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR=$PWD .claude/hooks/session-start.sh`. It upgrades `uv` from PyPI (`uv self update` needs the GitHub API, which the sandbox blocks) and syncs the venv.
+
 Take care to not leak secrets into the chat transcript. To see which environment variables are set (e.g. "is there an `HF_*` token?"), use `compgen -v HF_` (bash builtin).

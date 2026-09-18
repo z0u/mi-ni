@@ -1,4 +1,4 @@
-"""``python -m mini.lit``: render a literate document (``.py`` or ``.md``), or serve it with live reload."""
+"""``python -m mini.lit``: render a literate script, or serve it with live reload."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also print the page to index.pdf with headless Chromium (one on $PATH, or $CHROMIUM)",
     )
-    s = sub.add_parser("serve", help="watch the document, re-render on save, and serve it with live reload")
+    s = sub.add_parser("serve", help="watch the script, re-render on save, and serve it with live reload")
     s.add_argument("doc", type=Path)
     s.add_argument("-o", "--out", type=Path, default=None, help="output directory (default .mini/lit-live/<key>/)")
     s.add_argument("--port", type=int, default=8765)

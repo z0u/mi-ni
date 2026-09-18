@@ -1,5 +1,5 @@
 """
-Watch a document, re-weave it on save, and serve it with a live reload.
+Watch a script, re-weave it on save, and serve it with a live reload.
 
 The editor stays whatever you write in; the browser is the viewer. The page goes to ``.mini/lit-live/<key>/``, apart from where ``render`` writes, so the two can run at once (they share only the memo cache, which is content-keyed). One process holds the :class:`~mini.lit.document.Runner` (so unchanged cells are not re-run and ``@memo`` hits are in memory), polls the document and the ``.py`` files beside it for changes, rewrites ``index.html`` when something moved, and answers a long-poll from the page so the browser reloads the moment a build lands. A sibling ``.py`` edit (a helper module beside the document) drops that module from ``sys.modules`` and resets the runner, since any cell may have imported it.
 

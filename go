@@ -14,7 +14,7 @@ MIN_UV='0.11'
 if command -v uv >/dev/null 2>&1; then
     have_uv="$(uv --version 2>/dev/null | awk '{print $2}')"
     if [[ "$(printf '%s\n%s\n' "$MIN_UV" "$have_uv" | sort -V | head -n1)" != "$MIN_UV" ]]; then
-        echo "$SELF: uv $have_uv is too old (need >= $MIN_UV); it would re-resolve uv.lock. Upgrade: uv self update" >&2
+        echo "$SELF: uv $have_uv is too old (need >= $MIN_UV); it would re-resolve uv.lock. Upgrade: uv tool install uv --force (from PyPI; uv self update needs the GitHub API, which the web sandbox blocks)" >&2
         exit 1
     fi
 fi
@@ -54,8 +54,8 @@ show_help() {
 		                       the IDE stays the editor, and prints a URL that lands in the
 		                       app view; anything else opens in \$EDITOR
 		  lit     render <doc.py> [--pdf] | serve <doc.py> [--port N]:
-		                       weave a literate document (mini.lit: a .py with string prose
-		                       between cells, or a .md with {python} fences) to .mini/lit/<key>/,
+		                       weave a literate script (mini.lit: a .py with string prose
+		                       between cells) to .mini/lit/<key>/,
 		                       or serve it with live reload while you edit
 		  render  [...nbs] [--force]:
 		                       render each report to readable Markdown at .mini/renders/<key>.md,
@@ -182,7 +182,7 @@ case "${1:-}" in
         done
         if [[ ${#nbs[@]} -eq 0 ]]; then
             echo "render what? name one or more report notebooks, e.g." 1>&2
-            echo "  $0 render docs/pipeline/report.py" 1>&2
+            echo "  $0 render docs/m2/ex-2.1.1/report.py" 1>&2
             exit 2
         fi
         for nb in "${nbs[@]}"; do
