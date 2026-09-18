@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import functools
 import hashlib
 import html
 import io
@@ -217,27 +218,48 @@ def stop(message: str = "") -> NoReturn:
 
 
 class _Pending(jinja2.Undefined):
-    """An undefined name after :func:`stop`: renders as a mark, and absorbs calls, attributes, and items so ``{{ fig(res).x }}`` renders as one mark rather than raising."""
+    """An undefined name after :func:`stop`: renders as a mark, and absorbs whatever is done to it.
+
+    Calls, attributes, items, arithmetic, and comparisons all give the same mark back, and a filter handed one returns it (see :func:`_absorbing`), so ``{{ "%.3f"|format(fig(res).x * 100) }}`` renders as one mark rather than raising. Iteration is empty, so a ``{% for %}`` table has no rows, and it is false in an ``{% if %}``.
+    """
 
     def __str__(self) -> str:
         return f'<mark class="pending">{html.escape(self._undefined_name or "…")}</mark>'
 
-    def __call__(self, *a: Any, **k: Any) -> _Pending:  # ty: ignore[invalid-method-override]
+    def _absorb(self, *a: Any, **k: Any) -> _Pending:
         return self
+
+    __call__ = __getitem__ = _absorb  # ty: ignore[invalid-method-override]
+    __add__ = __radd__ = __sub__ = __rsub__ = __mul__ = __rmul__ = __truediv__ = __rtruediv__ = _absorb  # ty: ignore[invalid-method-override]
+    __floordiv__ = __rfloordiv__ = __mod__ = __rmod__ = __pow__ = __rpow__ = __neg__ = __pos__ = _absorb  # ty: ignore[invalid-method-override]
+    __lt__ = __le__ = __gt__ = __ge__ = _absorb  # ty: ignore[invalid-method-override]
 
     def __getattr__(self, name: str) -> _Pending:
         if name.startswith("__"):
             raise AttributeError(name)
         return self
 
-    def __getitem__(self, key: Any) -> _Pending:  # ty: ignore[invalid-method-override]
-        return self
-
     def __iter__(self):
         return iter(())
 
+    def __len__(self) -> int:
+        return 0
+
     def __bool__(self) -> bool:
         return False
+
+
+def _absorbing(filter_fn: Callable[..., Any]) -> Callable[..., Any]:
+    """*filter_fn*, returning the pending mark instead of running when any argument is one (``format`` would ask it for a float)."""
+
+    @functools.wraps(filter_fn)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        for v in (*args, *kwargs.values()):
+            if isinstance(v, _Pending):
+                return v
+        return filter_fn(*args, **kwargs)
+
+    return wrapped
 
 
 def _environment(undefined: type[jinja2.Undefined]) -> jinja2.Environment:
@@ -255,6 +277,7 @@ def _environment(undefined: type[jinja2.Undefined]) -> jinja2.Environment:
 
 _STRICT = _environment(jinja2.StrictUndefined)
 _LENIENT = _environment(_Pending)
+_LENIENT.filters = {name: _absorbing(f) for name, f in _LENIENT.filters.items()}
 
 
 @dataclass

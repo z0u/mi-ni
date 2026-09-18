@@ -147,6 +147,22 @@ class TestWeave:
         assert 'Value <mark class="pending">summary</mark> and <mark class="pending">fig</mark>.' in w.markdown
         assert len(w.outputs) == 1
 
+    def test_pending_absorbs_filters_arithmetic_and_comparisons(self, tmp_path):
+        p = write(
+            tmp_path,
+            """
+            ```{python}
+            stop()
+            ```
+            {{ "%.3f"|format(res.mean) }} {{ res.mean * 100 + 1 }} {{ res|length }} {{ "yes" if res.x > 2 else "no" }}
+            {% for r in res.rows %}row{% endfor %}{{ res.rows|join(", ") }}
+            """,
+        )
+        w = Runner(p).weave()
+        mark = '<mark class="pending">res</mark>'
+        assert f"{mark} {mark} {mark} no\n{mark}\n" in w.markdown
+        assert "Error" not in w.markdown
+
     def test_error_points_at_document_line_and_stops(self, tmp_path):
         p = write(tmp_path, "intro\n\n```{python}\nx = 1\n1 / 0\n```\nafter {{ x }}\n")
         w = Runner(p).weave()
