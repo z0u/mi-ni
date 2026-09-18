@@ -1,4 +1,4 @@
-"""``python -m mini.lit``: render a literate document, or serve it with live reload."""
+"""``python -m mini.lit``: render a literate document (``.py`` or ``.md``), or serve it with live reload."""
 
 from __future__ import annotations
 

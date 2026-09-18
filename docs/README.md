@@ -20,7 +20,7 @@ Three ways past it, in rising order of permanence: `git push --no-verify` gets a
 
 ### Literate documents (prototype)
 
-A Markdown file with ```` ```{python} ```` fences is a literate document rather than a page: the fences are cells, run top to bottom, and the prose between them is a template over the cells' namespace. `./go lit render docs/lit/tour.md` weaves it to `.mini/lit/<key>/` (HTML, Markdown, and `--pdf`); `./go lit serve` re-weaves on save with live reload. See `mini.lit` and `todo/eng/literate-documents.md` for the design and what is still open. The site build skips these files for now.
+A literate document is a plain Python file where a `# %%` comment starts a cell and a top-level string literal is prose (a template over the cells' namespace), with `# title:` and `# code: hide` as comment lines at the top; ruff, ty, and the IDE see every cell, and VS Code's "Run Cell" works on the markers. The same document can be spelled as Markdown with ```` ```{python} ```` fences. `./go lit render docs/lit/tour.py` weaves it to `.mini/lit/<key>/` (HTML, Markdown, and `--pdf`); `./go lit serve` re-weaves on save with live reload. See `mini.lit` and `todo/eng/literate-documents.md` for the design and what is still open. A literate `.py` has no `marimo.App(`, so the site build ignores it as it does any other plain module; a literate `.md` is skipped explicitly.
 
 ### Markdown files
 

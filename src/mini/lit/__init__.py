@@ -1,8 +1,8 @@
 """
-Literate documents without a notebook runtime: Markdown with ``{python}`` cells, Jinja in the prose, and a disk cache for the slow parts.
+Literate documents without a notebook runtime: a plain ``.py`` with ``# %%`` cells and string-literal prose (or Markdown with ``{python}`` fences), Jinja in the prose, and a disk cache for the slow parts.
 
-    python -m mini.lit render docs/foo/report.md      # → .mini/lit/foo/index.html (+ index.md)
-    python -m mini.lit serve  docs/foo/report.md      # watch, re-weave on save, live reload
+    python -m mini.lit render docs/foo/report.py      # → .mini/lit/foo/index.html (+ index.md)
+    python -m mini.lit serve  docs/foo/report.py      # watch, re-weave on save, live reload
 
 See :mod:`mini.lit.document` for the format and execution model, :mod:`mini.lit.caching` for the cache, and :mod:`mini.lit.page` for the Markdown dialect.
 """

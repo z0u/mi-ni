@@ -1,7 +1,7 @@
 """
 Watch a document, re-weave it on save, and serve it with a live reload.
 
-The editor stays whatever you write in; the browser is the viewer. One process holds the :class:`~mini.lit.document.Runner` (so unchanged cells are not re-run and ``@memo`` hits are in memory), polls the document and the ``.py`` files beside it for changes, rewrites ``index.html`` when something moved, and answers a long-poll from the page so the browser reloads the moment a build lands. A sibling ``.py`` edit drops that module from ``sys.modules`` and resets the runner, since any cell may have imported it.
+The editor stays whatever you write in; the browser is the viewer. One process holds the :class:`~mini.lit.document.Runner` (so unchanged cells are not re-run and ``@memo`` hits are in memory), polls the document and the ``.py`` files beside it for changes, rewrites ``index.html`` when something moved, and answers a long-poll from the page so the browser reloads the moment a build lands. A sibling ``.py`` edit (a helper module beside the document) drops that module from ``sys.modules`` and resets the runner, since any cell may have imported it.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ def serve(
     threading.Thread(target=_watch, args=(doc, poll, rendered.runner.reset, rebuild), daemon=True).start()
     handler = type("Handler", (_Handler,), {"state": state})
     server = ThreadingHTTPServer((host, port), partial(handler, directory=str(out)))
-    print(f"Serving {doc.name} at http://localhost:{port}  (Ctrl-C to stop)")
+    print(f"Serving {doc.name} at http://localhost:{port}  (Ctrl-C to stop)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -117,7 +117,7 @@ def _watch(doc: Path, poll: float, reset: Callable[[], None], rebuild: Callable[
         if now == seen:
             continue
         for f in {k for k in now.keys() | seen.keys() if now.get(k) != seen.get(k)}:
-            if f.suffix == ".py":
+            if f.suffix == ".py" and f != doc:  # a sibling module (the document itself is the runner's business)
                 for name, mod in list(sys.modules.items()):
                     if getattr(mod, "__file__", None) == str(f):
                         del sys.modules[name]
@@ -133,5 +133,6 @@ def _report(r: Rendered) -> None:
     w = r.woven
     note = f", {len(w.errors)} error(s)" if w.errors else (", stopped early" if w.stopped else "")
     print(
-        f"{r.doc.path.name}: {w.cells_run} cell(s) run, woven in {w.seconds * 1e3:.0f} ms, page in {r.seconds * 1e3:.0f} ms{note}"
+        f"{r.doc.path.name}: {w.cells_run} cell(s) run, woven in {w.seconds * 1e3:.0f} ms, page in {r.seconds * 1e3:.0f} ms{note}",
+        flush=True,
     )

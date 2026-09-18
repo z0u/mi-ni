@@ -53,8 +53,9 @@ show_help() {
 		                       open a Marimo notebook for live editing — watches the file so
 		                       the IDE stays the editor, and prints a URL that lands in the
 		                       app view; anything else opens in \$EDITOR
-		  lit     render <doc.md> [--pdf] | serve <doc.md> [--port N]:
-		                       weave a literate Markdown document (mini.lit) to .mini/lit/<key>/,
+		  lit     render <doc.py> [--pdf] | serve <doc.py> [--port N]:
+		                       weave a literate document (mini.lit: a .py with # %% cells and
+		                       string prose, or a .md with {python} fences) to .mini/lit/<key>/,
 		                       or serve it with live reload while you edit
 		  render  [...nbs] [--force]:
 		                       render each report to readable Markdown at .mini/renders/<key>.md,

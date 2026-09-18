@@ -66,12 +66,12 @@ class TestParse:
         )
         assert doc.title == "The title"
         assert doc.cells == []
-        assert "nested" in doc.segments[0].text
+        assert isinstance(doc.segments[0], Prose) and "nested" in doc.segments[0].text
 
     def test_longer_fence_closes_a_cell_with_backticks(self, tmp_path):
         doc = parse(write(tmp_path, '````{python}\ns = "```"\n````\ntail\n'))
         assert doc.cells[0].source == 's = "```"\n'
-        assert doc.segments[-1].text == "tail\n"
+        assert doc.segments[-1] == Prose("tail\n", 4)
 
 
 class TestWeave:
@@ -129,7 +129,7 @@ class TestWeave:
         p = write(tmp_path, "intro\n\n```{python}\nx = 1\n1 / 0\n```\nafter {{ x }}\n")
         w = Runner(p).weave()
         assert len(w.errors) == 1
-        assert f'File "{p}", line 5' in w.errors[0].error
+        assert f'File "{p}", line 5' in (w.errors[0].error or "")
         assert "ZeroDivisionError" in w.markdown
         assert "after 1" in w.markdown  # x was bound before the error, prose still renders
 
@@ -270,3 +270,72 @@ class TestRender:
         assert 'class="admonition note"' in html
         assert 'class="footnote"' in html
         assert "<table>" in html
+
+
+class TestParsePy:
+    def test_header_markers_and_string_prose(self, tmp_path):
+        doc = parse(
+            write(
+                tmp_path,
+                '''
+                # title: T
+                # code: hide
+
+                """
+                # H
+                """
+
+                # %% show
+                x = 1
+                """
+                after {{ x }}
+                """
+                y = 2  # still under the marker's options
+                ''',
+                name="doc.py",
+            )
+        )
+        assert doc.meta == {"title": "T", "code": "hide"}
+        assert doc.title == "T" and not doc.show_code
+        assert doc.segments == (
+            Prose("# H\n", 4),
+            Cell("x = 1\n", 9, frozenset({"show"})),
+            Prose("after {{ x }}\n", 10),
+            Cell("y = 2  # still under the marker's options\n", 13, frozenset({"show"})),
+        )
+
+    def test_strings_in_code_and_markers_in_strings_are_not_boundaries(self, tmp_path):
+        doc = parse(
+            write(
+                tmp_path,
+                '''
+                def f():
+                    """a docstring"""
+                    return "# %% not a marker"
+
+                s = """
+                # %% nor this
+                """
+                r"""prose with \\(x\\)"""
+                ''',
+                name="doc.py",
+            )
+        )
+        assert [type(s).__name__ for s in doc.segments] == ["Cell", "Prose"]
+        assert isinstance(doc.segments[0], Cell) and doc.segments[0].source.count("# %%") == 2
+        assert doc.segments[1] == Prose("prose with \\(x\\)\n", 8)
+
+    def test_weaves_like_the_markdown_spelling(self, tmp_path):
+        p = write(
+            tmp_path,
+            '"""\n# Doc\n"""\n# %%\nxs = [1, 2]\n"""\n{% for x in xs %}\n- {{ x }}\n{% endfor %}\n"""\n',
+            name="doc.py",
+        )
+        w = Runner(p).weave()
+        assert w.errors == []
+        assert "# Doc\n" in w.markdown and "- 1\n- 2\n" in w.markdown and "```python\nxs = [1, 2]\n```" in w.markdown
+
+    def test_jupytext_markdown_tag_is_ignored(self, tmp_path):
+        p = write(tmp_path, '# %% [markdown] hide\n"""\nprose\n"""\n# %%\nz = 1\n', name="doc.py")
+        doc = parse(p)
+        assert doc.segments == (Prose("prose\n", 2), Cell("z = 1\n", 6))

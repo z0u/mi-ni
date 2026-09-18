@@ -1,7 +1,12 @@
 """
-Literate documents: Markdown with executable Python cells, woven into one document.
+Literate documents: prose and executable Python cells, woven into one document.
 
-A document is a Markdown file. A fenced block whose info string is ``{python}`` is a *cell*; everything else is prose. Cells run top to bottom in one shared namespace, and the prose between them is a Jinja template rendered against that namespace *as it stands at that point*, so ``{{ best:.2f }}``-style interpolation, ``{% for %}`` loops for tables, and helper calls like ``{{ h2_figure(res) }}`` all work without a notebook runtime. The result of weaving is plain Markdown (:attr:`Woven.markdown`), which :mod:`mini.lit.page` turns into HTML.
+A document comes in two spellings of the same thing:
+
+- **Python** (``.py``, the recommended one): a plain module, so ruff, ty, and the IDE see every cell. A ``# %%`` comment at column 0 starts a cell (VS Code and Jupytext's percent format, so "Run Cell" works too); a top-level string literal is prose. Options ride on the marker (``# %% hide``), and metadata is ``# key: value`` comment lines at the top of the file (``# title:``, ``# code: hide``). Write prose with math or other backslashes as a raw string (``r'''…'''``).
+- **Markdown** (``.md``): a fenced block whose info string is ``{python}`` is a cell; everything else is prose, and the same keys go in ``---`` front matter.
+
+Cells run top to bottom in one shared namespace, and the prose between them is a Jinja template rendered against that namespace *as it stands at that point*, so ``{{ best.mean }}``-style interpolation, ``{% for %}`` loops for tables, and helper calls like ``{{ h2_figure(res) }}`` all work without a notebook runtime. The result of weaving is plain Markdown (:attr:`Woven.markdown`), which :mod:`mini.lit.page` turns into HTML.
 
 Only two things here are not plain Python or plain Markdown: a cell's last expression is displayed (a ``str`` is Markdown, an object with ``_repr_html_`` is HTML, a matplotlib figure is saved and shown), and :func:`stop` ends execution early — the rest of the prose still renders, with every unresolved name shown as a *pending* mark, so a preregistration reads whole before its results exist.
 """
@@ -15,12 +20,14 @@ import html
 import io
 import re
 import sys
+import textwrap
 import time
+import tokenize
 import traceback
 import types
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import jinja2
 
@@ -29,6 +36,8 @@ from mini.reports import Publisher, current_publisher, use_publisher
 __all__ = ["Document", "Prose", "Cell", "Woven", "Stop", "stop", "parse", "Runner"]
 
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+MARKER_RE = re.compile(r"^# %%(.*)$")
+HEADER_RE = re.compile(r"^#\s*([\w-]+):\s*(.+?)\s*$")
 CELL_INFO_RE = re.compile(r"^\s*\{python\}(.*)$")
 FRONT_MATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 H1_RE = re.compile(r"^# (.+)$", re.MULTILINE)
@@ -135,12 +144,71 @@ class _Splitter:
 
 
 def parse(path: Path | str, text: str | None = None) -> Document:
-    """Split a document into prose and cells, with its front matter.
-
-    Front matter is the optional leading ``---`` block of ``key: value`` lines (``title``, ``code: hide``). Fences follow CommonMark: a closing fence uses the opener's character, at least as long, with nothing after it, so a cell whose source contains backticks just uses a longer fence. A ``{python}`` fence *inside* another fence (an example in a `````markdown````` block) is prose.
-    """
+    """Split a document into prose and cells, with its metadata: the ``.py`` spelling or the ``.md`` one, by suffix."""
     path = Path(path)
     text = path.read_text() if text is None else text
+    return _parse_md(path, text) if path.suffix == ".md" else _parse_py(path, text)
+
+
+def _parse_py(path: Path, text: str) -> Document:
+    """The Python spelling.
+
+    Metadata is the run of ``# key: value`` comment lines before the first code. A ``# %%`` comment at column 0 (found by tokenizing, so one inside a string is text) starts a cell and carries its options, which last until the next marker; Jupytext's ``[markdown]`` tag is tolerated and ignored. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements and markers is a cell. A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
+    """
+    lines = text.splitlines(keepends=True)
+    segments: list[Prose | Cell] = []
+    opts: frozenset[str] = frozenset()
+    cursor = 1
+
+    def cell(start: int, end: int) -> None:  # the code on lines start..end, as a cell if there is any
+        body = lines[start - 1 : end]
+        while body and not body[0].strip():
+            body, start = body[1:], start + 1
+        while body and not body[-1].strip():
+            body = body[:-1]
+        if any(line.strip() and not line.lstrip().startswith("#") for line in body):  # comments alone are not a cell
+            segments.append(Cell("".join(body), start, opts))
+
+    for line, end, payload in _py_events(path, text):
+        cell(cursor, line - 1)
+        if isinstance(payload, frozenset):
+            opts = payload
+        else:
+            segments.append(Prose(textwrap.dedent(payload.value.value).strip("\n") + "\n", line))
+        cursor = end + 1
+    cell(cursor, len(lines))
+    return Document(path, _py_header(text), tuple(segments))
+
+
+def _py_events(path: Path, text: str) -> list[tuple[int, int, Any]]:
+    """The cell boundaries in order: ``(line, end line, payload)``, the payload a marker's options or a prose statement."""
+    events: list[tuple[int, int, Any]] = []
+    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+        if tok.type == tokenize.COMMENT and tok.start[1] == 0 and (m := MARKER_RE.match(tok.string)):
+            events.append((tok.start[0], tok.start[0], frozenset(m.group(1).replace("[markdown]", " ").split())))
+    for node in ast.parse(text, str(path)).body:
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            events.append((node.lineno, node.end_lineno or node.lineno, node))
+    return sorted(events, key=lambda e: e[0])
+
+
+def _py_header(text: str) -> dict[str, str]:
+    meta: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if not line.startswith("#"):
+            break
+        if m := HEADER_RE.match(line):
+            meta[m.group(1)] = m.group(2)
+    return meta
+
+
+def _parse_md(path: Path, text: str) -> Document:
+    """The Markdown spelling.
+
+    Front matter is the optional leading ``---`` block of ``key: value`` lines. Fences follow CommonMark: a closing fence uses the opener's character, at least as long, with nothing after it, so a cell whose source contains backticks just uses a longer fence. A ``{python}`` fence *inside* another fence (an example in a `````markdown````` block) is prose.
+    """
     meta, body_start = _front_matter(text)
     first_line = text.count("\n", 0, body_start) + 1
     splitter = _Splitter()
@@ -157,10 +225,10 @@ class Stop(Exception):
         self.message = message
 
 
-def stop(message: str = "") -> None:
+def stop(message: str = "") -> NoReturn:
     """End the document here: later cells do not run, and later prose renders with pending marks.
 
-    The Marimo idiom this replaces is ``mo.stop(res is None, mo.md(...))``; write ``if res is None: stop("...")``.
+    The Marimo idiom this replaces is ``mo.stop(res is None, mo.md(...))``; write ``if res is None: stop("...")``. It never returns, so a type checker narrows the guarded name past the call.
     """
     raise Stop(message)
 
