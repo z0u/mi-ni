@@ -98,7 +98,14 @@ def _write(path: Path, text: str) -> None:
     tmp.replace(path)
 
 
+CHROMIUM_HINT = (
+    "no Chromium found. Install one (`sudo apt-get install chromium`, or `uvx playwright install --with-deps chromium`), "
+    "or set $CHROMIUM to the binary"
+)
+
+
 def _chromium() -> str | None:
+    """The first Chromium that exists: ``$CHROMIUM``, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place)."""
     for c in (
         os.environ.get("CHROMIUM"),
         "/opt/pw-browsers/chromium",
@@ -109,6 +116,10 @@ def _chromium() -> str | None:
     ):
         if c and (Path(c).is_file() or shutil.which(c)):
             return c
+    pw_cache = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache" / "ms-playwright")
+    for c in sorted(pw_cache.glob("chromium-*/chrome-*/chrome"), reverse=True):
+        if c.is_file():
+            return str(c)
     return None
 
 
@@ -116,7 +127,7 @@ def to_pdf(html_path: Path, pdf_path: Path | None = None) -> Path:
     """Print the page to PDF with headless Chromium (the same route the Marimo reports take)."""
     exe = _chromium()
     if exe is None:
-        raise RuntimeError("no Chromium found: set $CHROMIUM to the binary")
+        raise RuntimeError(CHROMIUM_HINT)
     pdf_path = pdf_path or html_path.with_suffix(".pdf")
     subprocess.run(
         [

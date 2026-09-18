@@ -1,5 +1,6 @@
 """Tests for ``mini.lit``: parsing, weaving, incremental re-runs, the memo, and the page."""
 
+import importlib
 import textwrap
 from pathlib import Path
 
@@ -337,6 +338,26 @@ class TestMemo:
             assert len(calls) == 2 and (tmp_path / "_assets" / "fig.png").exists()
         finally:
             use_publisher(None)
+
+
+class TestChromium:
+    def test_env_then_path_then_playwright_cache(self, tmp_path, monkeypatch):
+        r = importlib.import_module("mini.lit.render")  # by name: mini.lit.render is the function
+
+        monkeypatch.setattr(r.shutil, "which", lambda name: None)
+        monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))
+        monkeypatch.delenv("CHROMIUM", raising=False)
+        assert r._chromium() is None
+        chrome = tmp_path / "chromium-1243" / "chrome-linux-arm64" / "chrome"
+        chrome.parent.mkdir(parents=True)
+        chrome.touch()
+        assert r._chromium() == str(chrome)
+        monkeypatch.setattr(r.shutil, "which", lambda name: "/usr/bin/chromium" if name == "chromium" else None)
+        assert r._chromium() == "chromium"
+        exe = tmp_path / "my-chrome"
+        exe.touch()
+        monkeypatch.setenv("CHROMIUM", str(exe))
+        assert r._chromium() == str(exe)
 
 
 class TestRender:
