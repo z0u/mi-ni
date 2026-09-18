@@ -104,11 +104,15 @@ CHROMIUM_HINT = (
 )
 
 
+SANDBOX_CHROMIUM = "/opt/pw-browsers/chromium"
+"""Where the cloud sandbox keeps its Chromium (the same default as :mod:`mini.report_print`)."""
+
+
 def _chromium() -> str | None:
-    """The first Chromium that exists: ``$CHROMIUM``, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place)."""
+    """The first Chromium that exists: ``$CHROMIUM`` (or ``$PLAYWRIGHT_CHROMIUM``, as the Marimo exports spell it), the sandbox's, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place)."""
     for c in (
-        os.environ.get("CHROMIUM"),
-        "/opt/pw-browsers/chromium",
+        os.environ.get("CHROMIUM") or os.environ.get("PLAYWRIGHT_CHROMIUM"),
+        SANDBOX_CHROMIUM,
         "chromium",
         "chromium-browser",
         "google-chrome",

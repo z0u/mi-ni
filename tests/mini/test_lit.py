@@ -345,8 +345,10 @@ class TestChromium:
         r = importlib.import_module("mini.lit.render")  # by name: mini.lit.render is the function
 
         monkeypatch.setattr(r.shutil, "which", lambda name: None)
+        monkeypatch.setattr(r, "SANDBOX_CHROMIUM", str(tmp_path / "absent"))
         monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))
-        monkeypatch.delenv("CHROMIUM", raising=False)
+        for var in ("CHROMIUM", "PLAYWRIGHT_CHROMIUM"):
+            monkeypatch.delenv(var, raising=False)
         assert r._chromium() is None
         chrome = tmp_path / "chromium-1243" / "chrome-linux-arm64" / "chrome"
         chrome.parent.mkdir(parents=True)
