@@ -12,7 +12,7 @@ from tests.conftest import load_script
 
 export_reports = load_script("export_reports")
 
-_APP = "import marimo\napp = marimo.App()\n"
+_APP = "# title: A report\n"
 
 # Fixed stamps an hour apart, so "newer than" is unambiguous and nothing depends on
 # filesystem mtime granularity or on how long the test took to run.
@@ -48,12 +48,12 @@ def test_a_missing_bundle_is_stale(report):
     assert export_reports.bundle_is_stale(report) is True
 
 
-def test_an_edited_notebook_is_stale(report):
+def test_an_edited_report_is_stale(report):
     stamp(report, AFTER)
     assert export_reports.bundle_is_stale(report) is True
 
 
-def test_an_edited_input_beside_the_notebook_is_stale(report):
+def test_an_edited_input_beside_the_report_is_stale(report):
     """The re-run case: new results arrive through `experiment.py` while `report.py` sits still."""
     stamp(report.parent / "experiment.py", AFTER)
     assert export_reports.bundle_is_stale(report) is True
@@ -77,7 +77,7 @@ def test_recompiled_bytecode_is_not_an_edit(report):
 
 
 def test_a_literate_script_exports_with_its_markdown_face_and_the_report_styles(tmp_path: Path, monkeypatch):
-    """The join between `mini.lit` and the bundle: the woven page declares `index.md` as a rendition and carries `docs/report.css`, as a Marimo export does."""
+    """The join between `mini.lit` and the bundle: the woven page declares `index.md` as a rendition and carries `docs/report.css`."""
     from mini.reports import MD_TYPE, alternates
 
     (tmp_path / "pyproject.toml").write_text("")

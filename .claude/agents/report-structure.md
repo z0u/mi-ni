@@ -12,7 +12,7 @@ effort: medium  # the input is a Markdown render, a tenth the size of the HTML b
 
 Read the document you were given and report on its shape. This is the pass that works at the level of sections and paragraphs; somebody else handles sentences, so do not rewrite any. Assume every number and claim is correct.
 
-Work on the rendered document rather than the notebook source. Duplication across sections and the true proportion of a summary only become visible once the whole thing is assembled, and a cell that fails to render is invisible in the source. You should have been handed a Markdown render (from `./go render`): the assembled prose, result tables as Markdown, and each figure as its alt text. If you were handed `report.py` or an exported `index.html` instead, say so and ask for the render. The HTML bundle is nine parts machine payload to one part prose, and it embeds the notebook source three times over, so reading it means reading the source this pass is meant to work above.
+Work on the rendered document rather than the script source. Duplication across sections and the true proportion of a summary only become visible once the whole thing is assembled, and a cell that fails to render is invisible in the source. You should have been handed a Markdown render (from `./go render`): the assembled prose, result tables as Markdown, and each figure as its alt text. If you were handed `report.py` or an exported `index.html` instead, say so and ask for the render. The HTML bundle is nine parts machine payload to one part prose, and it embeds the notebook source three times over, so reading it means reading the source this pass is meant to work above.
 
 ## Your reader
 

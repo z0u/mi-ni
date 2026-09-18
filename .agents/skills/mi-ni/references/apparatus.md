@@ -38,26 +38,18 @@ await app.volume.download("outputs", f"/data/outputs")
 
 The apparatus takes care of setting up the environment with Python packages and a volume to write to. To change the compute provider, just swap in another `Apparatus`, e.g. `ModalApparatus`.
 
-## Selecting the backend at run time (notebooks)
+## Selecting the backend at run time (reports)
 
-A notebook can make the backend a runtime choice rather than hard-coding it, so the same `.py` runs locally while you iterate and on Modal for the real run:
+A source-only script (one run from source rather than published, like `docs/gpt.py`) keeps the backend as a constant near the top, so switching is a one-line edit:
 
 ```py
-app_type = mo.cli_args().get("app", "local")   # a marimo radio in edit mode; a CLI arg when headless
-app = ModalApparatus("demo").w(gpu="L4") if app_type == "modal" else LocalApparatus("demo")
+APP_TYPE = "local"  # "local" or "modal" (pick modal for the GPU)
+app = ModalApparatus("demo").w(gpu="L4") if APP_TYPE == "modal" else LocalApparatus("demo")
 ```
 
-Run it headless with `marimo export html`, passing notebook options after a `--`:
+Then run it headless with `./go lit render docs/gpt.py`. A published report never launches compute at all: it reads results the experiment already produced (see `reports.md`). Confirm which backend actually ran from the logs: a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally`.
 
-```bash
-uv run marimo export html docs/gpt.py -o /dev/null -- --app=modal --arch=ngpt
-```
-
-The `--` delimits notebook options from marimo's own args, which arrive via `mo.cli_args()` — so only a notebook that reads them (like the radio above) responds; a report that just consults the configured store ignores them. The report-export verbs `./go preview` and `./go publish` render with defaults and don't forward notebook options, so a notebook whose backend you want to choose is exported directly like this.
-
-Syntax gotcha: the options are flags, and marimo's `cli_args()` only parses `--key=value` or `--key value`. A bare `key=value` parses to *nothing*, so the notebook silently falls back to its default (here `local`) with no error. Confirm which backend actually ran from the logs: a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally`.
-
-Always use the async methods `arun` and `amap` in Marimo notebooks and wherever there is an asynchronous context: Modal will complain otherwise. In other contexts, you can use the synchronous variants `run` and `map`, which are just wrappers provided for convenience.
+Always use the async methods `arun` and `amap` in a report and wherever there is an asynchronous context: Modal will complain otherwise. In other contexts, you can use the synchronous variants `run` and `map`, which are just wrappers provided for convenience.
 
 Functions run by an apparatus can accept and return Python objects, as long as they can be pickled by cloudpickle. The function itself must also be pickleable, which means e.g. it must not close over things like file pointers. See the `modal` skill for more details.
 

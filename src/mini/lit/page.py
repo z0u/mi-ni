@@ -1,7 +1,7 @@
 """
 Markdown to HTML, and the page around it.
 
-The Markdown dialect is python-markdown with the pymdownx extensions Marimo's ``mo.md`` uses (tables, footnotes, ``///`` admonitions and details, arithmatex math, superfences, highlight, tilde/caret/mark, attribute lists), so report prose written for Marimo renders the same here. The page is one HTML file: our stylesheet inline, the body in ``<main class="lit">``, and KaTeX pulled from a CDN only when the document has math.
+The Markdown dialect is python-markdown with the pymdownx extensions (tables, footnotes, ``///`` admonitions and details, arithmatex math, superfences, highlight, tilde/caret/mark, attribute lists), the dialect the reports are written in. The page is one HTML file: our stylesheet inline, the body in ``<main class="lit">``, and KaTeX pulled from a CDN only when the document has math.
 """
 
 from __future__ import annotations

@@ -207,7 +207,7 @@ class Stop(Exception):
 def stop(message: str = "") -> NoReturn:
     """End the script here: later cells do not run, and later prose renders with pending marks.
 
-    The Marimo idiom this replaces is ``mo.stop(res is None, mo.md(...))``; write ``if res is None: stop("...")``. It never returns, so a type checker narrows the guarded name past the call.
+    Write ``if res is None: stop("...")``. It never returns, so a type checker narrows the guarded name past the call.
     """
     raise Stop(message)
 

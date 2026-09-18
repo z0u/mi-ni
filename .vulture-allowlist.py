@@ -34,7 +34,7 @@ _.critical  # unused method (src/mini/logging.py:77)
 _.trace  # unused method (src/mini/logging.py:102)
 SimpleLoggingConfig  # unused class (src/mini/logging.py:44)
 
-# Dormant infra, kept deliberately: library surface the demo notebooks don't
+# Dormant infra, kept deliberately: library surface the demo reports don't
 # happen to exercise.
 as_df  # unused method (src/mini/temporal/dopesheet.py — public API, exercised downstream)
 scale_report  # unused method (src/experiment/model/ngpt.py — nGPT diagnostic, exercised downstream)

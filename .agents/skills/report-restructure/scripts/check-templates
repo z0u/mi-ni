@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Check that a prose edit to a Marimo report kept every template expression.
+"""Check that a prose edit to a report kept every template expression.
 
-Report prose lives in `mo.md(rf"...")` strings, where `{...}` expressions are
-computed when the notebook runs. An edit that replaces one with the number it
+Report prose lives in top-level `rf"..."` strings of a literate script, where
+`{...}` expressions are computed when the script runs. An edit that replaces one with the number it
 happened to render looks fine and is silently wrong: the report stops tracking
 its data.
 

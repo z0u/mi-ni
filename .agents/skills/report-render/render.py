@@ -1,23 +1,20 @@
 #!/usr/bin/env python
-"""Render a marimo report export in a headless browser — offline.
+"""Render a report's export bundle in a headless browser — offline.
 
-A `marimo export html` bundle loads its frontend runtime (~200 JS/CSS/font URLs)
-from the jsDelivr CDN, so it won't render in a network-restricted sandbox. But the
-*same* pinned `dist/` ships inside the marimo pip package under `_static/`. This
-repoints the bundle's CDN refs at those local assets, serves the result, and drives
-the pre-installed Chromium — letting you screenshot or assert on a report's real
-rendered DOM (figures, layout, the show-code toggle) without any network.
+A woven bundle is self-contained (its page carries its own stylesheet, and the
+figures sit beside it under `_assets/`), so it renders with no network. This serves
+the bundle and drives the pre-installed Chromium — letting you screenshot or assert
+on a report's real rendered DOM (figures, layout, tables) without any network.
 
-Run it through the project env (so the local _static/ assets match the pinned
-marimo that produced the bundle; Playwright is a dev dependency):
+Run it through the project env (Playwright is a dev dependency):
 
     uv run python .claude/skills/report-render/render.py \
         .mini/exports/gpt-sweep -o /tmp/report.png
 
 Pass a bundle dir (containing index.html + _assets/) or an index.html directly.
-`--suffix '?show-code=true'` appends to the URL; `--wait-text STR` blocks until STR
+`--suffix '#section'` appends to the URL; `--wait-text STR` blocks until STR
 appears (or times out). `--selector CSS` shoots just the matching element(s) instead
-of the full page — e.g. `--selector '.output svg'` for one figure, numbering the
+of the full page — e.g. `--selector 'main.lit figure'` for one figure, numbering the
 output when several match. An `-o` ending in `.pdf` prints the page instead, through
 `mini.report_print` — the same print `./go publish` ships as `report.pdf` — for checking
 the print styles in `docs/report.css`. The serve-and-print core lives in that module;
@@ -41,7 +38,7 @@ def main() -> None:
     ap.add_argument(
         "-o", "--out", type=Path, default=Path("report.png"), help="screenshot path (PNG), or a PDF to print instead"
     )
-    ap.add_argument("--suffix", default="", help="appended to the URL, e.g. '?show-code=true'")
+    ap.add_argument("--suffix", default="", help="appended to the URL, e.g. '#results'")
     ap.add_argument("--selector", default=None, help="CSS: shoot matching element(s), not the full page")
     ap.add_argument("--wait-text", default=None, help="block until this text appears (else fixed timeout)")
     ap.add_argument("--timeout", type=float, default=6.0, help="seconds to wait for the app to settle")
@@ -51,9 +48,8 @@ def main() -> None:
 
     with served_bundle(args.bundle) as url, sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=chromium_path())
-        # marimo's frontend validates navigator.language on boot and hard-errors
-        # ("Incorrect locale information provided") if the browser reports none —
-        # which a bare headless Chromium in a locale-less container does. Pin one.
+        # A bare headless Chromium in a locale-less container reports no navigator.language;
+        # pin one so locale-aware formatting in the page is stable.
         page = browser.new_page(viewport={"width": 1100, "height": 1400}, locale="en-US")
         page.goto(f"{url}{args.suffix}")
         if args.wait_text:

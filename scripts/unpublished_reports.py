@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Report notebooks this branch changed without republishing — the forgotten-publish check.
+"""Reports this branch changed without republishing — the forgotten-publish check.
 
-``./go publish`` is the step of the loop that has to be remembered, and forgetting it fails quietly: the notebook merges, the site keeps serving the previous export's figures, and nothing says so. This is the tripwire. It compares what the branch *changed* against what it *repinned* in ``docs/publish.lock``, and names the gap. "Changed" covers a report's own directory, not just its notebook — see :func:`changed_reports`.
+``./go publish`` is the step of the loop that has to be remembered, and forgetting it fails quietly: the report merges, the site keeps serving the previous export's figures, and nothing says so. This is the tripwire. It compares what the branch *changed* against what it *repinned* in ``docs/publish.lock``, and names the gap. "Changed" covers a report's own directory as well as its script — see :func:`changed_reports`.
 
 Both halves are cheap and local — a git diff and a JSON file — so the check needs no store access, no render, and no write credentials. That's the point: the publish itself stays where the data is (a session with a warm store), and CI only has to notice when it didn't happen.
 
@@ -28,13 +28,13 @@ from mini.reports import (  # noqa: E402
 
 
 def changed_reports(base: str, root: Path = ROOT) -> list[Path]:
-    """The reports this branch changed since *base* — through their notebook, or through a file beside it.
+    """The reports this branch changed since *base* — through their script, or through a file beside it.
 
-    A report is dated by its inputs as much as by its own source: re-running an experiment writes new results and edits ``docs/<key>/experiment.py``, leaving ``report.py`` untouched, and the bundle then serves the previous run's figures. So the notebook's own directory counts as part of it (:func:`~mini.reports.input_dir`) — every changed file under it dates the report, except a *sibling report* (a second notebook or literate script in the same directory; :func:`~mini.reports.is_report`), which is a report of its own rather than an input to the first.
+    A report is dated by its inputs as much as by its own source: re-running an experiment writes new results and edits ``docs/<key>/experiment.py``, leaving ``report.py`` untouched, and the bundle then serves the previous run's figures. So the report's own directory counts as part of it (:func:`~mini.reports.input_dir`) — every changed file under it dates the report, except a *sibling report* (a second literate script in the same directory; :func:`~mini.reports.is_report`), which is a report of its own rather than an input to the first.
 
     The diff is three-dot (``base...HEAD``), i.e. against the merge base, so commits that landed on the base branch meanwhile aren't mistaken for ours. Deletions need no filtering: the candidates come from the reports that exist *now*, so a deleted report simply isn't among them (it has no bundle to publish, and the next publish prunes its pin — ``export_reports.update_pins``), while a deleted input still dates the report it belonged to.
 
-    Scoped to ``docs/`` by the same reasoning as :func:`~mini.reports.reports`: a report is a notebook or script *there*. Without the pathspec, anything in the repo carrying the text ``marimo.App(`` reads as a report — this module's own tests, for instance.
+    Scoped to ``docs/`` by the same reasoning as :func:`~mini.reports.reports`: a report is a literate script *there*. Without the pathspec, any file in the repo opening with a ``# title:`` line would read as a report — this module's own tests, for instance.
     """
     diff = subprocess.run(
         ["git", "diff", "--name-only", f"{base}...HEAD", "--", "docs"],

@@ -101,7 +101,7 @@ def test_default_inlines_as_data_uri():
 
 
 def test_publish_externalizes_to_relative_urls(tmp_path: Path):
-    pub = Publisher(tmp_path / "__marimo__" / "_assets")
+    pub = Publisher(tmp_path / "bundle" / "_assets")
     result = themed(_dummy_plot, publish=pub)(1, 2)
     # Both variants reference relative _assets/ URLs, not inline data.
     assert 'src="data:image' not in result
@@ -112,7 +112,7 @@ def test_publish_externalizes_to_relative_urls(tmp_path: Path):
     assert all(re.fullmatch(r"_assets/dummy_plot-(light|dark)\.png", s) for s in srcs), srcs
     # …and the referenced files actually exist on disk and are valid PNGs.
     for s in srcs:
-        f = tmp_path / "__marimo__" / s
+        f = tmp_path / "bundle" / s
         assert f.exists() and f.read_bytes()[:4] == b"\x89PNG"
 
 
@@ -163,10 +163,9 @@ def test_use_publisher_default_is_picked_up(tmp_path: Path):
     assert re.search(r'src="_assets/dummy_plot-light\.png"', result)
 
 
-def test_report_bundle_targets_export_dir(tmp_path: Path, monkeypatch):
-    from mini.reports import EXPORTING_ENV, export_dir, export_key
+def test_report_bundle_targets_export_dir(tmp_path: Path):
+    from mini.reports import export_dir, export_key
 
-    monkeypatch.setenv(EXPORTING_ENV, "1")  # a bundle exists only when exporting
     (tmp_path / "pyproject.toml").write_text("")
     nb = tmp_path / "docs" / "gpt-sweep" / "report.py"
     nb.parent.mkdir(parents=True)
@@ -177,38 +176,6 @@ def test_report_bundle_targets_export_dir(tmp_path: Path, monkeypatch):
     assert pub is not None
     assert pub.asset_dir == tmp_path / ".mini" / "exports" / "gpt-sweep" / "_assets"
     assert pub.link == "_assets"
-
-
-def test_report_bundle_targets_public_dir_off_export(tmp_path: Path, monkeypatch):
-    """Under `marimo edit` (no EXPORTING_ENV) assets go where marimo's dev server serves them."""
-    from mini.reports import EXPORTING_ENV
-
-    monkeypatch.delenv(EXPORTING_ENV, raising=False)
-    (tmp_path / "pyproject.toml").write_text("")
-    nb = tmp_path / "docs" / "gpt-sweep" / "report.py"
-    nb.parent.mkdir(parents=True)
-    nb.write_text("")
-    pub = report_bundle(nb)
-    assert pub.asset_dir == nb.parent / "public" / ".mini" / "report"
-    assert pub.link == "public/.mini/report"
-    assert not pub.strict  # re-running a figure cell rewrites the same name
-    assert pub.versioned  # ...and the browser has to notice it changed
-
-
-def test_report_bundle_off_export_writes_a_servable_url(tmp_path: Path, monkeypatch):
-    """The figure URL is relative and public/-prefixed — how marimo serves notebook files."""
-    from mini.reports import EXPORTING_ENV
-
-    monkeypatch.delenv(EXPORTING_ENV, raising=False)
-    (tmp_path / "pyproject.toml").write_text("")
-    nb = tmp_path / "docs" / "gpt-sweep" / "report.py"
-    nb.parent.mkdir(parents=True)
-    nb.write_text("")
-    use_publisher(report_bundle(nb))
-    result = themed(_dummy_plot)(1, 2)
-    assert re.search(r'src="public/\.mini/report/dummy_plot-light\.png\?v=[0-9a-f]{8}"', result)
-    png = nb.parent / "public" / ".mini" / "report" / "dummy_plot-light.png"
-    assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_img_pins_physical_size_from_dpi():

@@ -1,6 +1,7 @@
 ---
-status: open
+status: done
 tags: [publishing]
+closed: 2026-09-18
 ---
 # Published reports depend on jsDelivr for the marimo runtime
 
@@ -9,3 +10,5 @@ tags: [publishing]
 ## Notes
 
 **2026-09-04, backport** — Ported from sca2 ([`todo/eng/reports-depend-on-jsdelivr.md`](https://github.com/z0u/sca2/blob/main/todo/eng/reports-depend-on-jsdelivr.md) there) with the code it describes.
+
+**2026-09-18, Sonnet (docs cleanup)** — Moot: Marimo was removed from this repo. A literate-script bundle has no marimo runtime to load, from a CDN or otherwise.

@@ -11,3 +11,5 @@ The H2 verdict cell was dropped from the Markdown export, so the published repor
 ## Notes
 
 **2026-09-04, backport** — Ported from sca2 ([`todo/eng/prose-cell-rendered-nothing.md`](https://github.com/z0u/sca2/blob/main/todo/eng/prose-cell-rendered-nothing.md) there) as settled: the fix it records is in this tree's code too, and the closing notes are the reasoning that code relies on; the report was that project's ex-2.1.7.
+
+**2026-09-18, Sonnet (docs cleanup)** — Moot: Marimo, `marimo-md-export`, and `scripts/export_report_md.py`'s marimo-driving branch are all gone. A literate script weaves straight to Markdown with no cell-matching step, so this failure mode doesn't exist in the current tooling. Kept as the record of the bug class (a transform that rewrites more than it should, caught only by a structural read of the output).

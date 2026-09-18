@@ -9,9 +9,7 @@ __pycache__/
 _site/
 # Exported report bundles (index.html + named-keyed _assets/). Durable home is the
 # HF bucket (synced by `./go publish`); regenerated on export, never committed. They
-# live under .mini/exports (covered by the .mini/ rule below); the legacy __marimo__
-# scratch dir stays ignored in case a tool writes there.
-**/__marimo__/
+# live under .mini/exports (covered by the .mini/ rule below).
 lightning_logs/
 wandb/
 scratch*

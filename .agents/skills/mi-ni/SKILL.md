@@ -1,6 +1,6 @@
 ---
 name: mi-ni
-description: How to use the library code provided by mi-ni. Code design patterns that abstract compute to easily scale experiments. Read to learn about the `mini` package, the `Apparatus` class, hyperparameter schedulers, notebook/visualization utils, and how to author, run, and monitor memoized experiments from the CLI. These should be used by default.
+description: How to use the library code provided by mi-ni. Code design patterns that abstract compute to easily scale experiments. Read to learn about the `mini` package, the `Apparatus` class, hyperparameter schedulers, report/visualization utils, and how to author, run, and monitor memoized experiments from the CLI. These should be used by default.
 ---
 
 Library structure:
@@ -17,7 +17,7 @@ src/mini/
 
 ## Two ways to compute
 
-- Interactive `Apparatus` (`app.map`/`app.arun`): a blocking call inside a notebook; dies with the process. Use for quick, light work you watch finish.
+- Interactive `Apparatus` (`app.map`/`app.arun`): a blocking call inside a report; dies with the process. Use for quick, light work you watch finish.
 - Memoized orchestration (`Experiment(main=...)`, driven by the `mini` CLI): detached, durable, pollable across short-lived processes. Use for sweeps, multi-step pipelines, anything slow, and anything an agent runs autonomously.
 
 ## Authoring, running, monitoring
@@ -32,7 +32,7 @@ To keep cost down, delegate launching and babysitting to the `experiment-monitor
 
 ## Apparatus and Volume
 
-`mini` provides experiment infrastructure via the `Apparatus` class. Its interface is similar to an Executor, but it abstracts compute and storage. See [apparatus.md](./references/apparatus.md), especially if you're using it in a notebook.
+`mini` provides experiment infrastructure via the `Apparatus` class. Its interface is similar to an Executor, but it abstracts compute and storage. See [apparatus.md](./references/apparatus.md), especially if you're using it in a report.
 
 ## Hyperparameter scheduling
 

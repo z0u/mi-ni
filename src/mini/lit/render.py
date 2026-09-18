@@ -1,7 +1,7 @@
 """
 Render a document to its outputs: the woven Markdown, the HTML page, and (on request) a PDF.
 
-Outputs land in one directory per document — ``.mini/lit/<key>/`` by default, with ``index.html``, ``index.md``, and the ``_assets/`` the figures were written to — so the same relative URLs work opened from disk, served locally, or published as a bundle the way ``mini.reports`` publishes a Marimo export.
+Outputs land in one directory per document — ``.mini/lit/<key>/`` by default, with ``index.html``, ``index.md``, and the ``_assets/`` the figures were written to — so the same relative URLs work opened from disk, served locally, or published as a bundle through ``mini.reports``.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ SANDBOX_CHROMIUM = "/opt/pw-browsers/chromium"
 
 
 def _chromium() -> str | None:
-    """The first Chromium that exists: ``$CHROMIUM`` (or ``$PLAYWRIGHT_CHROMIUM``, as the Marimo exports spell it), the sandbox's, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place).
+    """The first Chromium that exists: ``$CHROMIUM`` (or ``$PLAYWRIGHT_CHROMIUM``, the older spelling), the sandbox's, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place).
 
     In the cache we take the headless shell ahead of the full browser: it prints the same PDF, and it links against a smaller set of shared libraries, so it starts in containers where the full build cannot (a missing ``libatk-bridge`` or ``libcups`` leaves the loader unable to start a binary that is sitting right there).
     """
@@ -132,7 +132,7 @@ def _chromium() -> str | None:
 
 
 def to_pdf(html_path: Path, pdf_path: Path | None = None) -> Path:
-    """Print the page to PDF with headless Chromium (the same route the Marimo reports take)."""
+    """Print the page to PDF with headless Chromium."""
     exe = _chromium()
     if exe is None:
         raise RuntimeError(CHROMIUM_HINT)

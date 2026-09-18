@@ -2,7 +2,7 @@
 name: style-md
 description: |
   Syntax conventions for Markdown, and renderer-specific pitfalls to avoid. Read
-  before editing text in .md files, Marimo notebooks, and GitHub issues.
+  before editing text in .md files, literate-script reports, and GitHub issues.
 ---
 
 Wrapping: keep each paragraph on one line — very wide — and let the editor soft-wrap it; don't hard-wrap at a fixed column. Exceptions below. For paragraphs that contain landmarks, like inline lists, put the landmarks after a single newline:
@@ -25,25 +25,25 @@ In pull requests and issues, single newlines are retained — whereas in `.md` f
 
 Math expressions are OK; slight preference for plain Unicode because it's easier to copy.
 
-## Marimo
+## Literate scripts
 
-Marimo has some Markdown extensions. Consider using `details` and footnotes for asides:
+`mini.lit`'s Markdown dialect has some extensions. Consider using `details` and footnotes for asides:
 
 ```py
-mo.md("""
+r"""
 Main content with an inline footnote,[^note] and so on.
 
-[^note]: Renders at the end of the cell. Footnote numbers are cell-local (they restart).
+[^note]: Renders at the end of the document. Footnote numbers restart per document.
 
 /// details | Title
 Some backstory.
 ///
-""")
+"""
 ```
 
 Other admonition types and their icons: `details` (folds, unobtrusive), `admonition` (unadorned), `note` ℹ️, `tip` 💡, `important` 💬, `warning` ⚠️, `error` 🛑. The `| title` is optional, except for `details`.
 
-Plain Markdown cells are visible as soon as the notebook opens, and contribute to the TOC. But Markdown cells that use string interpolation, or anything other than a plain `mo.md("literal string")`, are not rendered until it's their turn in the DAG. Therefore, headings and their following introductory paragraph should be placed in plain Markdown cells; otherwise the document will be hard to navigate. So in landmark cells: no f-strings, and no `str.replace()`.
+A document weaves top to bottom in file order, so a heading is always where it's written — there's no DAG-ordering concern about when a cell renders relative to its neighbours.
 
 Math expressions, for consistency with formulas. Unicode can be used where it's cumbersome to use math mode, e.g. in embedded HTML.
 
@@ -54,49 +54,45 @@ Text-wrapping.
 But _do_ use multiline strings; these are automatically `dedent`ed:
 
 ```patch
-      mo.md(
--       "Sometimes we write Markdown in Python, e.g. when working in a Marimo notebook. "
--       "In that case, prefer multiline strings rather than using one string per "
--       "hard-wrapped line. Use dedent and f-strings as needed."
-+       """
-+     Sometimes we write Markdown in Python, e.g. when working in a Marimo notebook. In that case, prefer a multiline string over one string literal per hard-wrapped line. Use dedent and f-strings as needed."""
-      )
+- "Sometimes we write Markdown in Python, e.g. in a literate script. "
+- "In that case, prefer multiline strings rather than using one string per "
+- "hard-wrapped line. Use dedent and f-strings as needed."
++ """
++ Sometimes we write Markdown in Python, e.g. in a literate script. In that case, prefer a multiline string over one string literal per hard-wrapped line. Use dedent and f-strings as needed."""
 ```
 
 Multiline strings are also supported by the `@themed(..., alt_text=..., caption=...)` decorator (see `style-fig`).
 
 ### Interpolation and indentation
 
-Marimo dedents a cell's source when it stores and runs it, and it never touches the inside of a string literal. So an interpolated value keeps whatever indentation was baked into it, and once the surrounding Markdown has been dedented to column 0, four leading spaces in that value make the block a code fence — the table you built renders as its own raw HTML:
+A prose string is dedented as written, and dedenting never touches the inside of an interpolated value. So an interpolated value keeps whatever indentation was baked into it, and once the surrounding Markdown has been dedented to column 0, four leading spaces in that value make the block a code fence — the table you built renders as its own raw HTML:
 
 ```patch
 - _r = f"{prose(res)}\n\n    {table(res)}"
-- mo.md(f"""
+- f"""
 -     {_r}
-- """)
-+ mo.md(rf"""
+- """
++ rf"""
 + {prose(res)}
 +
 + {table(res)}
-+ """)
++ """
 ```
 
-Two rules follow. Build the Markdown inline in the cell that displays it, rather than assembling pre-formatted fragments in one branch and dropping them into a template in another — that puts the indentation somewhere you can't see it. And let every interpolated value be flush left, with no leading whitespace of its own.
+Two rules follow. Build the Markdown inline in the prose string that displays it, rather than assembling pre-formatted fragments in one place and dropping them into a template in another — that puts the indentation somewhere you can't see it. And let every interpolated value be flush left, with no leading whitespace of its own.
 
 ### The shape of a section
 
-A section of a report reads best as three cells: the heading on its own with zero interpolation (so it renders as soon as the notebook opens and reaches the TOC), then the background and prediction, then the results. Guard the results cell with a raise rather than `mo.stop`:
+A section of a report reads best as three pieces: the heading on its own, then the background and prediction, then the results. Guard the results with `stop()` when the data isn't there yet:
 
 ```python
-@app.cell(hide_code=True)
-def _(res):
-    if res is None:
-        raise mo.MarimoStopError(mo.md(RESULTS_TO_COME))
-    mo.md(rf"""
-    **Results.** {h1_prose(res)}
+if res is None:
+    stop(RESULTS_TO_COME)
+rf"""
+**Results.** {h1_prose(res)}
 
-    {h1_figure(res)}
-    """)
+{h1_figure(res)}
+"""
 ```
 
-The raise stops the cell the same way `mo.stop` does, and it narrows `res` for everything below, which `mo.stop` (a plain call returning `None`) cannot. Keep the placeholder itself in the setup cell, so every unfinished section shows the same admonition.
+`stop()` ends the script there — later cells don't run, and later prose still renders, with every unresolved name shown as a pending mark — so a preregistration reads whole before its results exist. It never returns, so a type checker narrows `res` for everything below the guard.

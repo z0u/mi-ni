@@ -1,6 +1,6 @@
 """Print an exported report bundle to PDF, offline, with a headless browser.
 
-A literate script's bundle (``mini.lit``) is a self-styled static page, so serving it is enough. A ``marimo export html`` bundle loads its frontend runtime (~200 JS/CSS/font URLs) from the jsDelivr CDN, so it won't render in a network-restricted sandbox. The *same* pinned ``dist/`` ships inside the marimo pip package under ``_static/``, so :func:`served_bundle` repoints the bundle's CDN refs at those local assets and serves the result on a loopback port. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
+A bundle (``mini.lit``) is a self-styled static page with its figures beside it, so :func:`served_bundle` copies it to a throwaway serve root and serves that on a loopback port; nothing is fetched from the network. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
 
 This runs at export (``scripts/export_reports.py``), the half of publishing that holds the bundle on disk: the PDF lands beside ``index.html``, rides the bundle sync, and is pinned by the same ``publish.lock`` entry as the page. The site build only links it. Chromium stamps a creation date and a random document ID into every PDF, which would make each re-export of an unchanged report a new publish-tier commit, so :func:`normalize_pdf` strips both after printing; two prints of one bundle are then byte-equal.
 
@@ -22,8 +22,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-
-import marimo
 
 __all__ = [
     "served_bundle",
@@ -65,9 +63,6 @@ _SET_PAGE_SIZE_JS = """size => {
   s.textContent = `@page { size: ${size}; }`;
 }"""
 
-# The whole CDN base every asset URL shares: .../@marimo-team/frontend@<version>/dist
-_CDN = re.compile(r"https://cdn\.jsdelivr\.net/npm/@marimo-team/frontend@[^/\"']+/dist")
-
 INSTALL_HINT = (
     "uv run playwright install chromium && uv run playwright install-deps chromium  (one download, then cached)"
 )
@@ -80,33 +75,24 @@ def chromium_path() -> str | None:
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-    """The runtime is ~200 requests a page; an export log has no use for them."""
+    """A page and its figures are a few dozen requests; an export log has no use for them."""
 
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
 
 def _build_serve_root(bundle: Path, root: Path, *, html: str | None = None) -> None:
-    """Assemble a serve root: marimo's ``_static`` assets + the bundle's CDN-rewritten HTML (or *html* in its place)."""
+    """Assemble a serve root: the bundle's ``_assets/`` plus its page (or *html* in its place)."""
     # Absolute, so the copies below resolve regardless of the bundle's cwd.
     index = (bundle / "index.html" if bundle.is_dir() else bundle).resolve()
     assets = index.parent / "_assets"
-    static = Path(marimo.__file__).parent / "_static"
 
-    # marimo runtime lives under assets/ (+ favicon etc.); copy it all in at root, so a
-    # rewritten "/assets/index-*.js" resolves here. The report's figures live under _assets/
-    # (note the leading underscore) — a different dir, so no collision. Copies, not
-    # symlinks: a write into the serve root (like index.html below) must never reach
-    # through a link into the marimo package or the bundle — that once corrupted marimo's
-    # export template in site-packages (and, via uv's hardlinks, the uv cache), poisoning
-    # every later `marimo export`. The runtime is a few tens of MB, copied into a
-    # throwaway dir; self-contained beats cheap here.
-    shutil.copytree(static, root, dirs_exist_ok=True)
+    # Copies, not symlinks: a write into the serve root (like index.html below) must
+    # never reach through a link into the bundle.
     if assets.is_dir():
         shutil.copytree(assets, root / "_assets")
 
-    html = _CDN.sub("", html if html is not None else index.read_text("utf-8"))  # ".../dist/x.js" -> "/x.js"
-    (root / "index.html").write_text(html, "utf-8")
+    (root / "index.html").write_text(html if html is not None else index.read_text("utf-8"), "utf-8")
 
 
 @contextmanager
@@ -259,7 +245,7 @@ def print_bundle(
 ) -> Path | None:
     """Print an export bundle to *out*; ``None`` (with a log line) when no browser is available.
 
-    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for the content to appear (marimo hydrating its first cell output, or a literate script's static ``main.lit``), then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
+    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for the content (``main.lit``) to appear, then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
     """
     try:
         from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -277,12 +263,11 @@ def print_bundle(
             )
             return None
         try:
-            # marimo's frontend validates navigator.language on boot and hard-errors
-            # ("Incorrect locale information provided") if the browser reports none —
-            # which a bare headless Chromium in a locale-less container does. Pin one.
+            # A bare headless Chromium in a locale-less container reports no
+            # navigator.language; pin one so nothing on the page has to guess.
             page = browser.new_page(viewport={"width": 1100, "height": 1400}, locale="en-US")
             page.goto(url)
-            page.locator(".output, main.lit").first.wait_for(timeout=timeout * 1000)
+            page.locator("main.lit").first.wait_for(timeout=timeout * 1000)
             return print_page(page, out, settle=settle)
         finally:
             browser.close()

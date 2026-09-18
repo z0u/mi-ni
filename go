@@ -19,10 +19,6 @@ if command -v uv >/dev/null 2>&1; then
     fi
 fi
 
-is_marimo_notebook() {
-    [[ "${1:-}" == *.py && -f "${1:-}" ]] && grep -q 'marimo\.App(' "$1"
-}
-
 show_usage() {
     echo "usage: $SELF [-h] {install,auth,check,deps,open,lit,render,preview,publish,site,todo,worktrees} ..."
 }
@@ -41,7 +37,7 @@ show_help() {
 		  check   [--lint] [--format] [--typecheck] [--test] [--links] [--fix]:
 		                       run checks in parallel (default: all without --fix)
 		                       individual commands: format | lint | types | tests | links
-		                       advisory, and outside check: dead | annotations
+		                       advisory, and outside check: dead
 		  links   [...paths]:  relative doc links and #anchors that no longer resolve
 		                       (default: every .md we author)
 		  deps    [--audit] [--actions] [--updates]:
@@ -49,10 +45,8 @@ show_help() {
 		                       uv audit and npm audit, Action pins against their newest
 		                       upstream tag, and upgrades available to packages we declare.
 		                       Read-only; the upgrade check is a --dry-run
-		  open    <file> [--browser]:
-		                       open a Marimo notebook for live editing — watches the file so
-		                       the IDE stays the editor, and prints a URL that lands in the
-		                       app view; anything else opens in \$EDITOR
+		  open    <file>:      open a file in \$VISUAL/\$EDITOR (a report is a plain .py; pair
+		                       it with \`lit serve\` for a live preview while you edit)
 		  lit     render <doc.py> [--pdf] | serve <doc.py> [--port N]:
 		                       weave a literate script (mini.lit: a .py with string prose
 		                       between cells) to .mini/lit/<key>/, or serve it with live
@@ -60,8 +54,7 @@ show_help() {
 		  render  [...nbs] [--force]:
 		                       render each report to readable Markdown at .mini/renders/<key>.md,
 		                       figures linked beside it — for reading a report as a document
-		                       (a literate script weaves in seconds; a notebook re-runs under
-		                       Marimo; skips reports newer than their inputs; --force re-renders)
+		                       (skips reports newer than their inputs; --force re-renders)
 		  preview [...nbs] [--no-serve] [--force] [--port N]:
 		                       export stale reports (each with a report.pdf beside its
 		                       index.html, for review on paper or e-ink), assemble the site
@@ -69,9 +62,9 @@ show_help() {
 		  publish <nbs|--all>: export reports and sync their bundles (PDF included) to the
 		                       publish tier
 		  site:                assemble the public site from *published* bundles into _site/
-		                       (for CI; read-only, never runs a notebook)
-		  strays  [...paths]:  Marimo cells that end on a docstring, which publishes it as
-		                       the cell's output (default: docs/; also runs inside lint)
+		                       (for CI; read-only, never runs a report)
+		  strays  [...paths]:  variable docstrings in a report, which weave as prose
+		                       (default: docs/; also runs inside lint)
 		  todo    [...sets] [--tag T] [--status S] [--bundle B] [--priority] [--grep RE] [--full]
 		          [--tags] [--json] [--check]:
 		                       list or search backlog items from todo/[set/]
@@ -116,17 +109,10 @@ case "${1:-}" in
         uv run "$SCRIPT_DIR/check_md_links.py" "$@"
         ;;
     stray|strays)
-        # Cells whose last statement is a docstring, which Marimo publishes as the
-        # cell's output. Part of `lint`, and separately runnable on one notebook.
+        # A docstring hung under an assignment in a literate script weaves as a prose
+        # paragraph. Part of `lint`, and separately runnable on one report.
         shift
         uv run "$SCRIPT_DIR/trailing_cell_docstrings.py" "$@"
-        ;;
-    ann|annotations)
-        # Advisory, like `dead`: a worklist of public cell variables that reach
-        # downstream cells untyped. Deliberately outside `check` while the backlog
-        # is longer than a branch should carry.
-        shift
-        uv run "$SCRIPT_DIR/unannotated_cell_vars.py" "$@"
         ;;
     type|types|typecheck)
         shift
@@ -147,43 +133,33 @@ case "${1:-}" in
     o|edit|open)
         shift
         if [[ $# -eq 0 ]]; then
-            echo "open what? pass a Marimo notebook (opens in marimo edit --watch)," 1>&2
-            echo "or any other file (opens in \$VISUAL/\$EDITOR)." 1>&2
+            echo "open what? pass a file (opens in \$VISUAL/\$EDITOR)." 1>&2
             exit 2
         fi
-        # Any position, so `--browser` and marimo's own flags can precede the file.
-        notebook=
-        for arg in "$@"; do
-            if is_marimo_notebook "$arg"; then notebook="$arg"; break; fi
-        done
-        if [[ -n "$notebook" ]]; then
-            ( set -x; uv run "$SCRIPT_DIR/edit_notebook.py" "$@" )
-        else
-            editor="${VISUAL:-${EDITOR:-code}}"
-            if ! command -v "$editor" > /dev/null; then
-                echo "no editor: '$editor' not found — set \$VISUAL or \$EDITOR" 1>&2
-                exit 127
-            fi
-            ( set -x; "$editor" "$@" )
+        editor="${VISUAL:-${EDITOR:-code}}"
+        if ! command -v "$editor" > /dev/null; then
+            echo "no editor: '$editor' not found — set \$VISUAL or \$EDITOR" 1>&2
+            exit 127
         fi
+        ( set -x; "$editor" "$@" )
         ;;
     render)
-        # One notebook at a time: rendering re-runs the notebook, so a bare `render` over
-        # every report would be an hour's compute nobody asked for. Flags pass through to
-        # the script (--force, --no-reflow, --sandbox, --timeout N).
+        # One report at a time: rendering runs the report's cells, so a bare `render` over
+        # every report would be compute nobody asked for. Flags pass through to the script
+        # (--force, --assets-dir DIR).
         shift
         nbs=() flags=()
         while [[ $# -gt 0 ]]; do
             case "$1" in
-                --timeout) flags+=("$1" "${2:?--timeout needs a value}"); shift ;;
+                --assets-dir) flags+=("$1" "${2:?--assets-dir needs a value}"); shift ;;
                 -*) flags+=("$1") ;;
                 *) nbs+=("$1") ;;
             esac
             shift
         done
         if [[ ${#nbs[@]} -eq 0 ]]; then
-            echo "render what? name one or more report notebooks, e.g." 1>&2
-            echo "  $0 render docs/m2/ex-2.1.1/report.py" 1>&2
+            echo "render what? name one or more reports, e.g." 1>&2
+            echo "  $0 render docs/pipeline/report.py" 1>&2
             exit 2
         fi
         for nb in "${nbs[@]}"; do
@@ -238,7 +214,7 @@ case "${1:-}" in
             r|run)        echo "'run' is gone — 'bin/mini run <experiment.py>' runs experiments; '$0 preview' renders reports; 'uv run ...' for anything else" ;;
             s|serve)      echo "'serve' is gone — '$0 preview' exports what's stale, then builds and serves" ;;
             build)        echo "'build' split in two — '$0 preview' assembles locally; '$0 site' assembles the public site from published bundles (CI)" ;;
-            scrub|clean)  echo "'scrub' is internal now (export applies it) — scripts/clean_docs.py if you really need it" ;;
+            scrub|clean)  echo "'scrub' is gone — a literate script's export has nothing to scrub" ;;
         esac 1>&2
         exit 2
         ;;

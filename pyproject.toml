@@ -22,13 +22,14 @@ dependencies = [
     "jax>=0.6",  # accelerated array computing and program transformation
     "jaxtyping>=0.2.38",
     "jinja2>=3.1.6",
-    "marimo>=0.19.10",  # interactive notebooks
+    "markdown>=3.10",
     "matplotlib>=3.10.0",  # plotting and visualization
     "modal[api-proxy-support]>=1.5.1",  # remote (cloud) GPU compute; the extra (new in 1.5.1) lets its gRPC tunnel via HTTPS_PROXY (cloud sandboxes)
     "numpy>=2.2.3",  # numerical computing (multi-dimensional arrays)
     "optax>=0.2.4",  # gradient transformations and optimizers for JAX
     "pandas>=2.2.3",  # tabular data manipulation
-    "pydantic>=2.13.4",  # data validation
+    "pydantic>=2.13.4",
+    "pymdown-extensions>=10.21",  # data validation
     "pyzmq>=27.1.0",
     "requests>=2.32.3",
     "rich>=14.3.2",  # pretty terminal output
@@ -47,7 +48,6 @@ mini = "mini.__main__:main"
 #     image = modal.Image.debian_slim().pip_install(*deps)
 #
 dev = [
-    "marimo-md-export>=0.8.0",
     "markdownify>=1.2.3",
     "pandas-stubs",
     "pikepdf>=10.13.0.post1",
@@ -62,7 +62,6 @@ dev = [
     "segno>=1.6.1",  # QR code generation
     "ty>=0.0.73",  # type checker; 0.0.73 is the first to keep a PEP 695 alias through a widening generic call
     "vulture>=2.14",  # dead code detection
-    "watchdog>=6.0.0",  # Marimo hot-reload
 ]
 local = [
 ]
@@ -117,9 +116,6 @@ pages = [
 # whether that trade is worth it is a per-project call. Uncomment to opt in.
 # env = { XLA_FLAGS = "--xla_cpu_enable_concurrency_optimized_scheduler=false --xla_gpu_deterministic_ops=true --xla_gpu_exclude_nondeterministic_ops=true" }
 
-[tool.marimo.runtime]
-watcher_on_save = "autorun"
-
 [tool.uv]
 # Dependency cooldown to mitigate risk of supply chain attacks.
 # https://docs.astral.sh/uv/concepts/resolution/#dependency-cooldowns
@@ -144,7 +140,7 @@ unsound-assignment = "error"
 [[tool.ty.overrides]]
 # Reports annotate the first binding out of an untyped dict — `epochs: int =
 # c["epochs"]` — and that annotation *is* the point: it is the author saying what
-# shape the dict has, and Marimo copies it onto every downstream cell signature
+# shape the dict has, and every later cell reads it through that annotation
 # (see the `style-py` skill). The rule reads the same line as an unsound
 # assignment, so it argues with the house convention rather than finding bugs.
 include = ["docs/**/*.py"]
@@ -192,7 +188,7 @@ ignore = [
     "F811",
 ]
 "docs/*.py" = [
-    "B018",  # Marimo uses last expression as cell output
+    "B018",  # a literate script displays a cell's last expression
 ]
 "**/experiment/**/*.py" = [
     "C416",
@@ -241,8 +237,6 @@ ignore_names = [
     "pytestmark",
     "setUp",
     "tearDown",
-    "_",  # marimo cell functions
-    "__generated_with",  # marimo file metadata
     "__getattr__",  # PEP 562 module hook: the interpreter calls it, no caller to find
     "__dir__"  # ditto
 ]

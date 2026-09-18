@@ -51,20 +51,12 @@ def _route_logging_to(console: Console):
 
 
 def _is_in_notebook() -> bool:
-    """Detect if we're running in a notebook-like environment (Jupyter, IPython, Marimo, etc.)."""
+    """Detect if we're running in a notebook-like environment (Jupyter, IPython, etc.)."""
     # Loaded by name: IPython is not a dependency, only present where a kernel was installed
     # into the env (VS Code's "Run Cell" does that), so a static import is an unresolved
     # import in CI and an unused suppression locally, and the push hook fails either way.
     try:
         if importlib.import_module("IPython.core.getipython").get_ipython() is not None:
-            return True
-    except ImportError:
-        pass
-
-    try:
-        import marimo as mo
-
-        if mo.running_in_notebook():
             return True
     except ImportError:
         pass

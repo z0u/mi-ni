@@ -278,8 +278,8 @@ def test_copy_assets_and_the_resolver_agree_on_what_lands_in_the_site(tmp_path, 
     (docs / "index.md").write_text("# hi")
     (docs / "probe").mkdir()
     (docs / "probe" / "experiment.py").write_text("x = 1")
-    (docs / "__marimo__").mkdir()
-    (docs / "__marimo__" / "cache.json").write_text("{}")
+    (docs / "__pycache__").mkdir()
+    (docs / "__pycache__" / "report.cpython-314.pyc").write_bytes(b"")
     monkeypatch.setattr(build_site, "WORKSPACE_ROOT", tmp_path)
     monkeypatch.setattr(build_site, "DOCS_DIR", docs)
     assert [p.relative_to(docs).as_posix() for p in build_site.site_asset_files()] == ["public/map.svg"]

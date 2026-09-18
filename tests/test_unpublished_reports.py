@@ -11,7 +11,7 @@ from tests.conftest import load_script
 
 unpub = load_script("unpublished_reports")
 
-_APP = "import marimo\napp = marimo.App()\n"
+_APP = "# title: A report\n"
 
 
 def git(repo: Path, *args: str) -> None:
@@ -85,7 +85,7 @@ def test_a_deleted_input_counts_too(repo):
 
 def test_shared_docs_files_belong_to_no_report(repo):
     """The docs root is site space. Reading it as one report's inputs would flag `overview.py` on every publish, since `publish.lock` lives there."""
-    (repo / "docs" / "report.css").write_text(".marimo { color: red }\n")
+    (repo / "docs" / "report.css").write_text(".report-table { color: red }\n")
     (repo / "docs" / "index.md").write_text("# Reports\n")
     pin(repo, "ex-1", "ccc")
     commit(repo, "restyle and repin")
@@ -128,12 +128,12 @@ def test_a_literate_script_is_a_report_on_its_own(repo):
     assert flagged(repo) == set()
 
 
-def test_a_notebook_outside_docs_is_not_a_report(repo):
-    """`marimo.App(` appears in plenty of files that aren't reports — this repo's own tests among them. Only `docs/` is the report tree."""
+def test_a_script_outside_docs_is_not_a_report(repo):
+    """A `# title:` header can open files that aren't reports — this repo's own tests among them. Only `docs/` is the report tree."""
     (tests := repo / "tests").mkdir()
     (tests / "test_something.py").write_text(f'SAMPLE = """{_APP}"""\n')
-    (repo / "notebook.py").write_text(_APP)
-    commit(repo, "a test that quotes a notebook")
+    (repo / "script.py").write_text(_APP)
+    commit(repo, "a test that quotes a report")
     assert changed(repo) == set()
 
 

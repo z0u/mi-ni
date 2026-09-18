@@ -11,3 +11,5 @@ Widened code lines to 120 (ruff already used that width; only `.devcontainer/mar
 ## Notes
 
 **2026-09-04, backport** — Ported from sca2 ([`todo/eng/unwrap-multiline-prose-strings.md`](https://github.com/z0u/sca2/blob/main/todo/eng/unwrap-multiline-prose-strings.md) there) as settled: the fix it records is in this tree's code too, and the closing notes are the reasoning that code relies on.
+
+**2026-09-18, Sonnet (docs cleanup)** — Marimo was removed. `.devcontainer/marimo.toml` and report `mo.md()` cells are gone with it; the wrapping convention itself carries over unchanged to literate-script prose strings.

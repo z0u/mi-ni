@@ -145,7 +145,7 @@ When linting, assume the text is _correct_. Don't check numbers or verify claims
 1. Look for low-perplexity (boring) text
 2. Dedup and de-fluff, rephrasing as necessary
 3. Move asides to footnotes
-4. If the target is a Marimo notebook, run `.agents/skills/report-restructure/scripts/check-templates <file>`. It catches syntax errors, and reports dropped or frozen template expressions; check that these were intentional.
+4. If the target is a literate-script report, run `.agents/skills/report-restructure/scripts/check-templates <file>`. It catches syntax errors, and reports dropped or frozen template expressions; check that these were intentional.
 5. Give a short report of the flavor of the changes (not details; those will be self-evident).
 
 "Already clean, a few small edits" is a fine outcome.

@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [notebooks, tooling, typing]
 opened: 2026-08-12
+closed: 2026-09-18
 ---
 # Require public cell variables to be annotated, with the most specific type available
 
@@ -14,3 +15,5 @@ Marimo propagates a definition's annotation onto the parameters of every cell do
 ## Notes
 
 **2026-09-04, backport** — Ported from sca2 ([`todo/eng/annotate-public-cell-vars.md`](https://github.com/z0u/sca2/blob/main/todo/eng/annotate-public-cell-vars.md) there), with the checker; the backlog counts and the per-report breakdown in the original are that project's, so they were left behind.
+
+**2026-09-18, Sonnet (docs cleanup)** — Moot: Marimo was removed, along with `scripts/unannotated_cell_vars.py` and `./go annotations`. A literate script has no generated cell signatures to propagate an annotation onto, so the mechanism this item is about no longer exists.

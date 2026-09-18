@@ -18,14 +18,12 @@ from mini.reports import (
     input_dir,
     insert_base,
     is_report,
-    is_report_notebook,
     lightbox_chrome,
     load_pins,
     mark_figures,
     relative_urls,
     render_path,
     report_figures,
-    report_notebooks,
     reports,
     rewrite_links,
     save_pins,
@@ -33,15 +31,13 @@ from mini.reports import (
     set_lightbox,
     set_provenance,
     set_report_styles,
-    set_responsive,
-    set_theme,
     stray_links,
     write_thumbnails,
     use_publisher,
 )
 
-# Mimics a Marimo export: absolute CDN links + escaped data/asset URLs inside the JSON
-# session blob, an author markdown link, and a relative asset reference.
+# Mimics an export: absolute CDN links + escaped data/asset URLs inside a JSON
+# script blob, an author markdown link, and a relative asset reference.
 SAMPLE = (
     "<!DOCTYPE html><html><head>"
     '<link rel="icon" href="https://cdn.jsdelivr.net/npm/x/favicon.ico" />'
@@ -85,7 +81,7 @@ def test_report_figures_folds_themed_pairs_in_document_order():
 
 
 def test_report_figures_reads_the_escaped_session_blob():
-    """A Marimo export buries its figures in JSON: \\u003C brackets, \\" quotes, escaped alt text."""
+    """A script blob can bury a figure in JSON: \\u003C brackets, \\" quotes, escaped alt text."""
     html = (
         '<script>{"outputs":"\\u003Cimg class=\\"mini-themed-img-light\\" src=\\"_assets/cloud-light.png\\" '
         'alt=\\"Margin \\u2192 1; &quot;red&quot; holds\\" width=\\"512\\" height=\\"384\\" /\\u003E'
@@ -179,7 +175,7 @@ def test_write_thumbnails_is_deterministic_and_restamps(bundle):
 
 
 def test_mark_figures_defers_and_marks_asset_images_in_both_spellings():
-    """A report ships every figure on load, both variants of a themed pair included. The mark reaches the tags Marimo buries in its session blob as well as the ones written out as markup."""
+    """A report ships every figure on load, both variants of a themed pair included. The mark reaches the tags a script blob buries as well as the ones written out as markup."""
     html = (
         '<img class="mini-themed-img-light" src="_assets/g-light.png" alt="A" width="640" height="480" />'
         '<img src="data:image/png;base64,AA" alt="inline" />'
@@ -205,7 +201,7 @@ def test_mark_figures_leaves_an_already_marked_tag_alone():
 def test_set_lightbox_injects_one_overlay_before_the_styles_close():
     html = set_lightbox(_EXPORT_HTML)
     assert html.count("mini-lightbox") > 1 and html.index("mini-lightbox") < html.index("</head>")
-    assert "showModal" in html  # a top-layer dialog, so no z-index race with Marimo's app layer
+    assert "showModal" in html  # a top-layer dialog, so no z-index race with the page
     assert "<a " not in lightbox_chrome()  # nothing that navigates away from the report
 
 
@@ -269,38 +265,6 @@ def test_insert_base_only_first_head():
     # A literal "<head>" appearing later (e.g. in escaped content) is not touched.
     out = insert_base('<head></head><script>"\\u003chead\\u003e"</script>', "https://h/")
     assert out.count("<base ") == 1
-
-
-# Mimics a Marimo export: the flat display block in the frozen mount config, plus the
-# <head>/<body> the flicker guard hooks into.
-_MOUNT_CONFIG = '<script>{"config": {"display": {"cell_output": "below", "theme": "light"}, "save": {}}}</script>'
-_MOUNT = f'<html><head><meta charset="utf-8" /></head><body>{_MOUNT_CONFIG}<div id="root"></div></body></html>'
-
-
-def test_set_theme_rewrites_display_theme():
-    out = set_theme(_MOUNT)
-    assert '"theme": "system"' in out
-    assert '"theme": "light"' not in out
-    # only the display theme changed; the rest of the config is intact
-    assert '"cell_output": "below"' in out
-    assert '"save": {}' in out
-
-
-def test_set_theme_system_suppresses_flicker():
-    out = set_theme(_MOUNT)
-    # color-scheme meta (UA chrome) goes in <head>; the blocking guard (content) in <body>
-    assert '<meta name="color-scheme" content="light dark" />' in out
-    assert "prefers-color-scheme: dark" in out
-    assert out.index('color-scheme" content') < out.index("</head>")
-    assert out.index("<body>") < out.index("prefers-color-scheme")
-
-
-def test_set_theme_fixed_target_skips_the_flash_guard():
-    out = set_theme(_MOUNT.replace('"light"', '"dark"'), theme="dark")
-    assert '"theme": "dark"' in out
-    # a baked theme doesn't flash, so no blocking script — just declare the scheme
-    assert '<meta name="color-scheme" content="dark" />' in out
-    assert "prefers-color-scheme" not in out
 
 
 def test_export_key_uses_docs_relative_stem(tmp_path):
@@ -382,25 +346,20 @@ def test_a_profile_keeps_its_pins_out_of_the_production_manifest(tmp_path, monke
     assert load_pins(tmp_path, profile=None) == {"alpha": "a" * 40}  # production, asked for by name
 
 
-# Marimo renders its banner client-side, so the export only carries an empty shell; our
-# bar is injected into that, not matched against existing banner markup.
-_EXPORT_HTML = '<html><head><meta charset="utf-8" /></head><body><div id="root"></div></body></html>'
+# A bare page shell: our bar is injected into it, not matched against existing markup.
+_EXPORT_HTML = '<html><head><meta charset="utf-8" /></head><body><main class="lit"></main></body></html>'
 
 
-def test_set_banner_injects_nav_and_hides_marimo():
+def test_set_banner_injects_nav():
     out = set_banner(_EXPORT_HTML, index_url="https://o.github.io/r/", source_url="https://github.com/o/r/x.py")
     # Our bar is the first thing in <body>, so it paints above the report.
-    assert out.index("<body>") < out.index("<nav data-mini-banner") < out.index('<div id="root">')
+    assert out.index("<body>") < out.index("<nav data-mini-banner") < out.index('<main class="lit">')
     assert '<a href="https://o.github.io/r/" style=' in out and "&larr; Index" in out
     assert '<a href="https://github.com/o/r/x.py" style=' in out and ">Source</a>" in out
-    # Marimo's own (client-rendered) banner is hidden via a rule in <head>.
-    assert '[data-testid="static-notebook-banner"]{display:none' in out
-    assert out.index("static-notebook-banner") < out.index("</head>")
-    # Absolute, not in-flow: Marimo's app is an opaque z-index layer that paints over an
-    # in-flow sibling, so the chip must float above it (and it scrolls with the page).
+    # Absolute, not in-flow, so the chip floats above the page (and scrolls with it).
     assert "position:absolute" in out[out.index("<nav data-mini-banner") :][:200]
     # The content column is padded down so the report title isn't tucked under the chip.
-    assert '[class~="min-w-[400px]"],main.lit{padding-top:3rem}' in out
+    assert "main.lit{padding-top:3rem}" in out and out.index("padding-top:3rem") < out.index("</head>")
 
 
 def test_set_banner_omits_missing_links():
@@ -476,21 +435,12 @@ def test_asset_url_reserves_the_sidecar_name(tmp_path):
         pub.asset_url(b"{}", name=PROVENANCE_ASSET)
 
 
-def test_set_responsive_fits_narrow_screens_and_hides_watermark():
-    out = set_responsive(_EXPORT_HTML)
-    # The content column's 400px min-width is zeroed so it fits under ~400px…
-    assert '[class~="min-w-[400px]"]{min-width:0!important}' in out
-    # …and Marimo's bottom-right "made with marimo" watermark is hidden.
-    assert '[data-testid="watermark"]{display:none!important}' in out
-    assert out.index("min-w-[400px]") < out.index("</head>")  # both rules land in <head>
-
-
 def test_set_report_styles_inlines_the_sheet_last_in_head():
     css = ".sw { background: var(--sw) }"
     out = set_report_styles(_EXPORT_HTML, css)
     assert f"<style>\n{css}" in out  # inlined verbatim, not linked
     assert out.index(css) < out.index("</head>")  # lands inside <head>…
-    # …and after any earlier <head> content, so it wins specificity ties with Marimo's baked copy.
+    # …and after any earlier <head> content, so it wins specificity ties with the page's own sheet.
     assert out.index('<meta charset="utf-8"') < out.index(css)
 
 
@@ -502,12 +452,12 @@ def test_set_report_styles_is_noop_without_css_or_head():
 
 def test_set_provenance_injects_a_folded_footer():
     out = set_provenance(_EXPORT_HTML, {"shared/curves": _PRODUCER, "shared/other": {"experiment": "prep"}})
-    assert out.index("<body>") < out.index("<details data-mini-provenance") < out.index('<div id="root">')
+    assert out.index("<body>") < out.index("<details data-mini-provenance") < out.index('<main class="lit">')
     assert "<strong>prep</strong>" in out and "<code>v1-3-gabc1234</code> (dirty)" in out
     assert "run 2026-07-12" in out
     assert "via shared/curves, shared/other" in out  # both refs fold into one experiment entry
     assert "@media print{[data-mini-provenance]{display:none}}" in out  # hidden in print, like the banner
-    # Absolute like the nav — floats above Marimo's opaque app layer instead of behind it.
+    # Absolute like the nav, so it floats above the page.
     assert "position:absolute" in out[out.index("<details data-mini-provenance") :][:200]
 
 
@@ -516,37 +466,11 @@ def test_set_provenance_is_noop_without_attributable_producers():
     assert set_provenance(_EXPORT_HTML, {"shared/anon": None}) == _EXPORT_HTML
 
 
-_APP = "import marimo\napp = marimo.App()\n"
+_APP = "# title: A report\n"
 
 
-def test_is_report_notebook_detects_marimo_app(tmp_path):
-    nb = tmp_path / "report.py"
-    nb.write_text(_APP)
-    assert is_report_notebook(nb)
-
-
-def test_is_report_notebook_excludes_non_app_and_non_py(tmp_path):
-    plain = tmp_path / "mod.py"
-    plain.write_text("x = 1\n")
-    assert not is_report_notebook(plain)
-    assert not is_report_notebook(tmp_path / "notes.md")  # non-.py
-    assert not is_report_notebook(tmp_path / "missing.py")  # absent
-
-
-def test_report_notebooks_skips_source_only(tmp_path):
-    (tmp_path / "report.py").write_text(_APP)
-    (tmp_path / "sub").mkdir()
-    (tmp_path / "sub" / "nested.py").write_text(_APP)
-    example = tmp_path / "example.py"
-    example.write_text(f"import marimo\n# {SOURCE_ONLY_MARKER} — heavy inline compute\napp = marimo.App()\n")
-    (tmp_path / "plain.py").write_text("x = 1\n")
-    assert not is_report_notebook(example)  # the marker is what takes it out
-    found = {p.relative_to(tmp_path).as_posix() for p in report_notebooks(tmp_path)}
-    assert found == {"report.py", "sub/nested.py"}
-
-
-def test_reports_takes_notebooks_and_literate_scripts_alike(tmp_path):
-    """The report set is what the site renders: a Marimo notebook, or a literate script by its header. A plain module beside either is neither, and the source-only marker opts either form out."""
+def test_reports_are_literate_scripts_by_their_header(tmp_path):
+    """The report set is what the site renders: a literate script by its header. A plain module beside one is not a report, and the source-only marker opts either form out."""
     (tmp_path / "ex-1").mkdir()
     (nb := tmp_path / "ex-1" / "report.py").write_text(_APP)
     (tmp_path / "ex-2").mkdir()
@@ -554,7 +478,6 @@ def test_reports_takes_notebooks_and_literate_scripts_alike(tmp_path):
     (tmp_path / "ex-2" / "experiment.py").write_text("def main(ctx): ...\n")
     (tmp_path / "gpt.py").write_text(f'# title: A worked example\n# {SOURCE_ONLY_MARKER}\n"""prose"""\n')
     assert is_report(nb) and is_report(lit)
-    assert not is_report_notebook(lit)  # the exporter still tells the two forms apart
     assert not is_report(tmp_path / "ex-2" / "experiment.py")
     assert not is_report(tmp_path / "missing.py")
     found = {p.relative_to(tmp_path).as_posix() for p in reports(tmp_path)}
@@ -567,8 +490,8 @@ def test_manual_publish_marker_opts_out_of_the_reminder_only(tmp_path):
     assert not is_manually_published(plain)  # reports are publish-checked by default
 
     nb = tmp_path / "manual.py"
-    nb.write_text(f"import marimo\n# {MANUAL_PUBLISH_MARKER} — published on its own schedule\napp = marimo.App()\n")
-    assert is_report_notebook(nb)  # still a report: rendered, pinned, on the site
+    nb.write_text(f"# title: Manual\n# {MANUAL_PUBLISH_MARKER} — published on its own schedule\n")
+    assert is_report(nb)  # still a report: rendered, pinned, on the site
     assert is_manually_published(nb)  # just not nagged about
 
 
@@ -604,80 +527,17 @@ def test_externalize_html_uses_the_default_publisher_when_there_is_one(tmp_path)
     assert (tmp_path / "_assets" / "chunk.html").exists()
 
 
-def test_virtualize_falls_back_to_the_file_url_off_the_kernel(tmp_path):
-    # No marimo kernel under pytest, so there is nothing to register the bytes with and
-    # nothing to serve them: the publisher must degrade to the file it just wrote rather
-    # than to the data: URI mo.image would hand back.
-    from mini.reports import _virtual_url
-
-    pub = Publisher(asset_dir=tmp_path / "a", link="public/.mini/r", versioned=True, virtualize=True)
-    url = pub.asset_url(b"png-bytes", name="fig.png")
-    assert url.startswith("public/.mini/r/fig.png?v=")
-    assert (tmp_path / "a" / "fig.png").read_bytes() == b"png-bytes"
-    assert _virtual_url(tmp_path / "a" / "fig.png") is None  # the condition the fallback keys off
-
-
-def test_virtualize_prefers_the_kernel_url_and_still_writes_the_file(tmp_path, monkeypatch):
-    monkeypatch.setattr("mini.reports._virtual_url", lambda p: f"./@file/9-{p.name}")
-    pub = Publisher(asset_dir=tmp_path / "a", link="public/.mini/r", versioned=True, virtualize=True)
-    url = pub.asset_url(b"png-bytes", name="fig.png")
-    # The kernel mints a fresh name per render, so the ?v= cache-buster has nothing to do.
-    assert url == "./@file/9-fig.png"
-    # The readable copy stays on disk — it is what marimo reads, and what a person browsing
-    # the directory finds.
-    assert (tmp_path / "a" / "fig.png").read_bytes() == b"png-bytes"
-
-
-def test_files_nothing_fetches_skip_the_kernel(tmp_path, monkeypatch):
-    # An export sidecar is written for tooling to read off disk; nothing fetches it, so it
-    # should not occupy a slot in the kernel's registry — whether the caller asks for that
-    # with serve=False or reaches it through externalize_html.
-    monkeypatch.setattr("mini.reports._virtual_url", lambda p: pytest.fail(f"{p.name} was virtualized"))
-    pub = Publisher(asset_dir=tmp_path / "a", link="_assets", virtualize=True)
-    assert pub.asset_url(b"<svg/>", name="frag.svg", serve=False) == "_assets/frag.svg"
-
-    sidecar = Publisher(asset_dir=tmp_path / "b", virtualize=True)
-    assert externalize_html("<svg/>", name="frag.svg", publish=sidecar) == '<svg data-mini-asset="_assets/frag.svg"/>'
-    assert (tmp_path / "b" / "frag.svg").read_text() == "<svg/>"
-
-
-def test_virtual_url_lifts_the_src_from_marimos_own_img_tag():
-    # Pin the parse to marimo's HTML builder rather than to a hand-written sample, so a
-    # change in how it quotes attributes shows up here.
-    from marimo._output.builder import h
-
-    from mini.reports import _IMG_SRC
-
-    tag = h.img(src="./@file/49361-164816-TeHGmd7R.png", alt="a plot", style="max-width: 100%")
-    m = _IMG_SRC.search(tag)
-    assert m is not None, tag
-    assert m.group(2) == "./@file/49361-164816-TeHGmd7R.png"
-
-
-def test_report_bundle_virtualizes_only_interactively(tmp_path, monkeypatch):
-    from mini.reports import EXPORTING_ENV, report_bundle
-
-    nb = tmp_path / "docs" / "m9" / "report.py"
-    nb.parent.mkdir(parents=True)
-    nb.write_text("import marimo\n")
-    monkeypatch.delenv(EXPORTING_ENV, raising=False)
-    assert report_bundle(nb).virtualize is True
-    monkeypatch.setenv(EXPORTING_ENV, "1")
-    assert report_bundle(nb).virtualize is False
-
-
 def test_body_injection_skips_a_body_tag_quoted_in_the_head():
     """report.css once said "theme on <body>" in a comment; the chips and the flash guard landed inside that <style>, unrendered."""
     from mini.reports import set_provenance
 
     html = (
         "<html><head><style>/* an explicit theme on <body> wins, where <body> states none */</style></head>"
-        f'<body class="x">{_MOUNT_CONFIG}<div id="root"></div></body></html>'
+        '<body class="x"><main class="lit"></main></body></html>'
     )
     for out in (
         set_banner(html, index_url="i/"),
         set_provenance(html, {"a": {"experiment": "x", "run": "r"}}),
-        set_theme(html),
     ):
         body = out[out.index('<body class="x">') :]
         assert out.index("</style>") < out.index("</head>") < out.index("<body class=")

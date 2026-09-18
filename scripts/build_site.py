@@ -39,8 +39,6 @@ from mini.reports import (
     set_banner,
     set_lightbox,
     set_report_styles,
-    set_responsive,
-    set_theme,
     stray_links,
 )
 
@@ -50,17 +48,14 @@ DOCS_DIR = WORKSPACE_ROOT / "docs"
 
 # The shared report stylesheet, re-inlined into every report at build time (see
 # mini.reports.set_report_styles). Read from source each build, so editing it restyles
-# every published report with no notebook re-export.
+# every published report with no re-export.
 REPORT_CSS = DOCS_DIR / "report.css"
 
 # The relative dir, beside each report's index.html, holding its externalized assets
 # (figures, data blobs) written by mini.reports.Publisher.
 ASSET_LINK = "_assets"
 
-# Mermaid for Markdown pages, pinned to the version Marimo's frontend depends on, so a
-# diagram in a .md renders like one `mo.mermaid` draws in a report. Re-check on a marimo
-# bump, alongside the font pins in scripts/md.css:
-#   curl -s https://cdn.jsdelivr.net/npm/@marimo-team/frontend@<version>/package.json
+# Mermaid for Markdown pages, pinned so a diagram renders the same on every build.
 MERMAID_VERSION = "11.12.3"
 MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.esm.min.mjs"
 
@@ -174,7 +169,7 @@ class LinkResolver:
         for nb in reports(DOCS_DIR):
             out = f"{export_key(nb)}/index.html"
             stem_rel = nb.relative_to(DOCS_DIR)
-            # The report came from this notebook; register every suffix an author might
+            # The report came from this script; register every suffix an author might
             # have linked (``report.py`` → its rendered ``<key>/index.html``), plus the
             # bare directory (``../ex-2.1.1/``) — the canonical published URL one report
             # naturally uses to link another.
@@ -260,7 +255,7 @@ def prepare_dirs_and_resolver() -> LinkResolver:
 class _Bundle:
     """One report's exported HTML as read from its source, before any assembly.
 
-    ``html`` is ``None`` when there's nothing to assemble (never published, or never exported locally). ``notes`` are log lines the read wants printed — held here rather than printed on the spot, so a concurrent read still logs in notebook order.
+    ``html`` is ``None`` when there's nothing to assemble (never published, or never exported locally). ``notes`` are log lines the read wants printed — held here rather than printed on the spot, so a concurrent read still logs in report order.
     """
 
     html: str | None
@@ -342,7 +337,7 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
     # Externalized, each read is a round trip to the bucket and the reports don't depend
     # on each other — so read them in one wave and the build waits for the slowest report
     # rather than the sum of all of them. Assembly below is CPU-cheap and stays sequential
-    # in notebook order, so the log reads the same however the threads interleaved.
+    # in report order, so the log reads the same however the threads interleaved.
     with ThreadPoolExecutor(max_workers=min(8, max(len(nbs), 1))) as pool:
         bundles = pool.map(lambda nb: _read_bundle(nb, store=store, pins=pins, externalizing=externalizing), nbs)
 
@@ -362,8 +357,6 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
         html = resolve_html_links(bundle.html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
         html = mark_figures(html, link=ASSET_LINK)  # defer offscreen figures; mark them zoomable
         html = set_lightbox(html)  # click a figure for the full-size image, over a dimmed page
-        html = set_theme(html)  # follow the visitor's device, not the exporter's setting
-        html = set_responsive(html)  # fit narrow screens; drop Marimo's watermark
         index_url, source_url = _nav_urls(links, key=key, nb_rel=nb_rel, externalizing=externalizing)
         html = set_banner(html, index_url=index_url, source_url=source_url, pdf_url=bundle.pdf_url)
         html = set_report_styles(html, report_css)  # last, so shared report rules win ties
@@ -384,7 +377,7 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
 def _nav_urls(links: LinkResolver, *, key: str, nb_rel: str, externalizing: bool) -> tuple[str | None, str | None]:
     """The report banner's (index, source) links — same absolute/relative policy as author links.
 
-    The source is the notebook on GitHub (``source_base`` + its repo path). The index is the site root: absolute (``site_base``) when externalizing — the asset ``<base>`` would otherwise repoint a relative link at the bucket — and relative back up from ``_site/<key>/index.html`` when localizing, so offline navigation works. Either is ``None`` if its base is unavailable.
+    The source is the script on GitHub (``source_base`` + its repo path). The index is the site root: absolute (``site_base``) when externalizing — the asset ``<base>`` would otherwise repoint a relative link at the bucket — and relative back up from ``_site/<key>/index.html`` when localizing, so offline navigation works. Either is ``None`` if its base is unavailable.
     """
     source_url = f"{links.source_base}{nb_rel}" if links.source_base else None
     if externalizing:
@@ -406,7 +399,7 @@ def resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, out_dir
     return rewrite_links(html, mapping) if mapping else html
 
 
-_ASSET_SKIP_DIRS = {"__marimo__", "__pycache__"}
+_ASSET_SKIP_DIRS = {"__pycache__"}
 _ASSET_SKIP_SUFFIXES = {".py", ".md", ".ipynb", ".pyc", ".pyo"}
 
 
@@ -429,7 +422,7 @@ def site_asset_files() -> list[Path]:
 
 
 def copy_assets():
-    """Copy non-notebook, non-markdown files from docs/ to _site/."""
+    """Copy non-Python, non-Markdown files from docs/ to _site/."""
     print("Copying assets...")
     for item in site_asset_files():
         rel = item.relative_to(DOCS_DIR)

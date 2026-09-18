@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "mi-ni: a template and library for AI research"
 abstract: >-
-  A template repository and library for doing AI research: local Marimo
-  notebooks published to GitHub Pages, remote GPU compute with Modal, and
+  A template repository and library for doing AI research: reports as
+  literate Python scripts published to GitHub Pages, remote GPU compute with Modal, and
   detached, memoized experiments driven from a stateless CLI.
 type: software
 authors:

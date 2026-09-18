@@ -1,6 +1,6 @@
 ---
 name: report-render
-description: View a report's figures, or export its text to Markdown. Read matplotlib or inline/JS figures and the full page in a headless browser (offline, by bundling Marimo assets). Covers literate scripts (mini.lit) and Marimo notebooks.
+description: View a report's figures, or export its text to Markdown. Read matplotlib or inline/JS figures and the full page in a headless browser (offline). Reports are literate scripts (mini.lit).
 ---
 
 # Rendering a report to check it
@@ -16,9 +16,9 @@ ls .mini/exports/gpt-sweep/_assets/*.png           # then Read the ones you want
 
 The preview also assembles `_site/`, which has a copy of each bundle's `_assets/`, so `_site/<key>/_assets/*.png` is the same file. The two differ only in `report.css` (see the gotchas).
 
-This covers the bulk of every current report. Inline-HTML figures (e.g. `subline` sparklines) that the report wraps in `externalize_html(html, name=…)` (`mini.reports`) are likewise on disk as `_assets/<name>.html`, plain markup you can `Read` (or rasterize, below) without touching the page. A Markdown render links each one where the markup used to sit, so the path is in the document rather than something to go looking for. Reach for the browser in two cases. The first is inline/JS output without such a sidecar: it lives only inside marimo's client-hydrated data island (JSON, unicode-escaped `<svg…`), so there's no file to read and the page is blank until the runtime renders it. The second is when you need the whole page (prose + figures together, layout, the show-code toggle).
+This covers the bulk of every current report. Inline-HTML figures (e.g. `subline` sparklines) that the report wraps in `externalize_html(html, name=…)` (`mini.reports`) are likewise on disk as `_assets/<name>.html`, plain markup you can `Read` (or rasterize, below) without touching the page. A Markdown render links each one where the markup used to sit, so the path is in the document rather than something to go looking for. Reach for the browser in two cases. The first is inline/JS output without such a sidecar: it lives only inside the page's client-hydrated data island (JSON, unicode-escaped `<svg…`), so there's no file to read and the page is blank until the runtime renders it. The second is when you need the whole page (prose + figures together, layout, the show-code toggle).
 
-A standalone `.svg` file (no marimo runtime involved) rasterizes to a readable PNG without a browser via cairosvg — `libcairo`/`librsvg` are present in this env:
+A standalone `.svg` file (no browser runtime involved) rasterizes to a readable PNG without a browser via cairosvg — `libcairo`/`librsvg` are present in this env:
 
 ```bash
 uv run --with cairosvg python -c "import cairosvg; cairosvg.svg2png(url='x.svg', write_to='x.png', scale=2)"
@@ -32,26 +32,24 @@ To *read* a report — prose, headings, tables and figure alt text, assembled in
 ./go render docs/gpt-sweep/report.py      # -> .mini/renders/gpt-sweep.md
 ```
 
-For a literate script (`mini.lit`; a `# title:` header at the top of the `.py`) this weaves the document in seconds with no browser and no Marimo, and moves the figures to `<key>.assets/` beside the render; they appear as `<figure>` HTML with the report's real alt text. For a Marimo notebook it re-runs the notebook (allow a few minutes), injects each cell's rendered output into the Markdown, and fails loudly if a cell's output went missing rather than dropping the cell; figures arrive as `![alt](…)`. Either way the links resolve from the render's own directory, so `Read` follows one straight to the PNG, and a report newer than its last render is skipped (`--force` re-renders). This is what the `report-structure` agent reads. A published literate report also serves its woven Markdown beside the page as `<key>/index.md`.
+This weaves the document (`mini.lit`; a `# title:` header at the top of the `.py`) in seconds with no browser, and moves the figures to `<key>.assets/` beside the render; they appear as `<figure>` HTML with the report's real alt text. The links resolve from the render's own directory, so `Read` follows one straight to the PNG, and a report newer than its last render is skipped (`--force` re-renders). This is what the `report-structure` agent reads. A published literate report also serves its woven Markdown beside the page as `<key>/index.md`.
 
-The default output keeps one render per report, named by the same key as its bundle (`mini.reports.render_path`). To put it elsewhere, call the script under the verb with an output path: `uv run scripts/export_report_md.py <nb> out.md`. The bundle's `index.html` holds the same document at about ten times the size, nearly all of it marimo's data island, so reach for it only when you need the page as a page.
+The default output keeps one render per report, named by the same key as its bundle (`mini.reports.render_path`). To put it elsewhere, call the script under the verb with an output path: `uv run scripts/export_report_md.py <nb> out.md`. The bundle's `index.html` holds the same document at about ten times the size, most of it framework markup, so reach for it only when you need the page as a page.
 
 ## Browser path: for inline/JS figures, full page, or DOM assertions
 
-A `marimo export html` bundle loads its frontend runtime (~200 JS/CSS/font URLs) from `cdn.jsdelivr.net/npm/@marimo-team/frontend@<version>/dist`. In a network-restricted sandbox the browser can't reach that CDN, so the page stays blank — you can't screenshot it, and DOM assertions see nothing.
+A woven bundle is self-contained: the page carries its own stylesheet (`mini.lit`'s, plus `docs/report.css` inlined by the exporter), and its figures sit beside it under `_assets/`. It renders with no network, so a network-restricted sandbox is fine.
 
-The fix: the same pinned `dist/` ships inside the marimo pip package under `_static/`. Repoint the bundle's CDN refs at those local assets, serve the result, and drive the pre-installed Chromium. No network, real render.
-
-`render.py` (beside this file) does the whole dance — build a serve root from marimo's `_static/` plus the bundle's CDN-rewritten HTML, serve it, screenshot:
+`render.py` (beside this file) serves the bundle and drives the pre-installed Chromium:
 
 ```bash
 # Get a bundle first if you don't have one: ./go preview --no-serve docs/gpt-sweep/report.py
-#   -> .mini/exports/gpt-sweep/  (index.html + _assets/ + report.pdf)
+#   -> .mini/exports/gpt-sweep/  (index.html + index.md + _assets/ + report.pdf)
 uv run python .claude/skills/report-render/render.py \
     .mini/exports/gpt-sweep -o /tmp/report.png
 ```
 
-Then `Read` the PNG. `--suffix '?show-code=true'` appends to the URL; `--wait-text 'some heading'` blocks until that text renders instead of a fixed timeout.
+Then `Read` the PNG. `--suffix '#results'` appends to the URL; `--wait-text 'some heading'` blocks until that text renders instead of a fixed timeout.
 
 ## The PDF: what the human reads on paper or e-ink
 
@@ -63,36 +61,31 @@ To inspect one element instead of the whole page, pass a CSS selector. `render.p
 
 ```bash
 uv run python .claude/skills/report-render/render.py \
-    .mini/exports/gpt-sweep --selector '.output svg' -o /tmp/fig.png
+    .mini/exports/gpt-sweep --selector 'main.lit figure' -o /tmp/fig.png
 ```
 
-`.output` wraps each Marimo cell's rendered output, so `.output svg` targets the report's inline figures (`.output img` for rasterized ones, `.output table` for a dataframe). Tighter than a full-page shot when you only care about one figure.
+`main.lit` is the woven document's content column, so `main.lit figure` targets the report's figures (`main.lit table` for a table, `pre.stdout` for a cell's printed output). Tighter than a full-page shot when you only care about one figure.
 
 ## Asserting on behavior, not just looking
 
-For toggles / visibility / layout logic, drive the DOM instead of screenshotting. `mini.report_print.served_bundle` is the reusable core (a context manager yielding the offline URL); swap the screenshot for Playwright queries. This is how the show-code default was pinned down (PR #22) — e.g. across `?show-code` values:
+For visibility / layout logic, drive the DOM instead of screenshotting. `mini.report_print.served_bundle` is the reusable core (a context manager yielding the offline URL); swap the screenshot for Playwright queries:
 
 ```python
-page.goto(f"http://127.0.0.1:{port}/index.html?show-code=false")
-page.wait_for_timeout(3500)
-code_shown = page.evaluate("document.body.innerText.includes('import marimo')")
-page.locator("[aria-haspopup=menu]").first.click()          # open the ⋮ menu
-toggle = page.locator("[data-testid=notebook-action-show-code]").count()
+page.goto(f"http://127.0.0.1:{port}/index.html")
+page.wait_for_selector("main.lit")
+n_figures = page.locator("main.lit figure").count()
+wide = page.evaluate("document.querySelector('main.lit table.report-table').scrollWidth")
 ```
 
 ## Why it works / gotchas
 
-- Run through the project env (`uv run`; Playwright is a dev dependency), not `uvx`: the local `_static/` assets are hash-named per marimo version, so they only match a bundle exported by the same marimo. `uvx --with marimo` would resolve some other version and every asset would 404.
-- Two asset dirs, no collision: the runtime lives under `assets/` (from `_static/`), the report's figures under `_assets/` (leading underscore, from the bundle). `render.py` copies both into the serve root — copies, not symlinks, so a write into the serve root can never reach through a link and mutate the marimo package or the bundle (a symlinked `index.html` once let exactly that happen).
+- Run through the project env (`uv run`; Playwright is a dev dependency), not `uvx`, so `mini.report_print` and the pinned Playwright resolve.
+- The serve root is a copy of the bundle (`index.html` plus `_assets/`), never a symlink, so a write into the serve root can never reach through a link and mutate the bundle.
 - Chromium: in the Claude-on-web sandbox it's pre-baked at `/opt/pw-browsers/chromium`, and `render.py` uses that if present. In VS Code or a fresh dev container it's not there (and `/opt/pw-browsers` isn't writable), so `render.py` falls back to Playwright's default resolution, and an export without any browser skips the PDF with a warning. Install it once:
   ```bash
   uv run playwright install chromium        # -> ~/.cache/ms-playwright
   uv run playwright install-deps chromium   # OS libs (libxkbcommon0, …)
   ```
   A candidate for baking into the dev container if this becomes routine; on-demand is fine otherwise (one download, then cached).
-- Locale: headless Chromium in a locale-less container reports no `navigator.language`, and marimo's frontend hard-errors on boot ("Incorrect locale information provided"), giving a blank-ish page with that message rather than your report. `render.py` pins `locale="en-US"` on the page to avoid it.
-- A missing favicon/font 404 is cosmetic; the app still renders.
-- Shared report styles (`docs/report.css`: figure centering, `.sw` swatches, `.report-table`, composite-figure rows via `figure:has(> figure)`) ride along two ways: baked into each export via `marimo.App(css_file="…/report.css")`, and re-inlined from source at build time by `mini.reports.set_report_styles` (so central edits restyle every report without a re-export). A raw `.mini/exports/<key>/` bundle therefore carries the baked copy, so rendering it shows the styles; to preview a central edit to `report.css` without re-exporting, rebuild the site (`./go preview`) and render from `_site/<key>/` instead.
-- Inline SVG cells don't hydrate reliably headless (sublines, the swatch table): their markup lives in marimo's data island, and a fixed-timeout headless render may never paint them (a DOM query for `figure:has(> figure)` / `.sw` can read 0 even though the bundle is fine). Verify these from the externalized `_assets/<name>.html` sidecar, or by rendering the fragment standalone with `report.css` applied, rather than by screenshotting the live page.
-
-This same repoint-CDN-to-`_static` trick is what a full offline/archival bundle would do at publish time; here it's just scoped to a throwaway render.
+- A missing favicon/font 404 is cosmetic; the page still renders (the webfonts come from jsDelivr, so offline the fallback fonts show).
+- Shared report styles (`docs/report.css`: `.sw` swatch variants, `.report-table`, the print rules) ride along two ways: inlined into each export by the exporter, and re-inlined from source at build time by `mini.reports.set_report_styles` (so central edits restyle every report without a re-export). A raw `.mini/exports/<key>/` bundle therefore carries the baked copy, so rendering it shows the styles; to preview a central edit to `report.css` without re-exporting, rebuild the site (`./go preview`) and render from `_site/<key>/` instead.

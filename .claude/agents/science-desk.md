@@ -10,7 +10,7 @@ Start by checking the current state. Look for open PRs whose title starts with `
 
 Then pick one item from the science todos: `./go todo science [--priority]`. What to do with it depends on what the item needs. In order of how little it commits us:
 
-- *Reanalysis of stored results.* Many items are post-hoc questions over data already in the production store. Write an exploratory notebook (or extend the relevant report's exploratory section), and record what you learned in the item: a `finding` if it settles the question, a dated note otherwise. Most of our experiments have a `ex-` prefix, but you can use something else if you'd like to separate your report from the main sequence.
+- *Reanalysis of stored results.* Many items are post-hoc questions over data already in the production store. Write an exploratory literate script (or extend the relevant report's exploratory section), and record what you learned in the item: a `finding` if it settles the question, a dated note otherwise. Most of our experiments have a `ex-` prefix, but you can use something else if you'd like to separate your report from the main sequence.
 - *Writing.* Related-work deltas, method notes, survey-format lessons → Draft the text.
 - *A design note.* For an item that needs a new experiment, write a short `## Design note` into the todo item's body: the question, candidate hypotheses each with its measurement and gate, and the conditions. Do not write the report skeleton yet: preregistration is designed together.
 - *A preregistration skeleton.* Only for an item whose design note I've already replied to. Draft the skeleton and a `DESIGN_ONLY` experiment module per the science skill, run the prereg-reviewer agent over it, and open a PR. Then we'll review it together later.

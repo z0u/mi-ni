@@ -1,6 +1,5 @@
 /* The page style for a woven document. Base typography follows scripts/md.css (the site's
- * Markdown pages), figure and table rules follow docs/report.css — without the parts of
- * either that exist to outrank Marimo's own stylesheet. */
+ * Markdown pages), figure and table rules follow docs/report.css. */
 
 :root {
   color-scheme: light dark;
