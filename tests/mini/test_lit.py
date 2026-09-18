@@ -163,6 +163,25 @@ class TestWeave:
         assert f"{mark} {mark} {mark} no\n{mark}\n" in w.markdown
         assert "Error" not in w.markdown
 
+    def test_pending_marks_survive_code_spans_and_fences(self, tmp_path):
+        p = write(
+            tmp_path,
+            """
+            ```{python}
+            stop()
+            ```
+            The best is `{{ best.name }}` and {{ best.mean }}.
+
+            ~~~python
+            x = {{ best.mean }}
+            ~~~
+            """,
+        )
+        out = to_html(Runner(p).weave().markdown)
+        assert out.count('<mark class="pending">best</mark>') == 3
+        assert "&lt;mark" not in out and "litpending" not in out
+        assert '<code><mark class="pending">best</mark></code>' in out
+
     def test_error_points_at_document_line_and_stops(self, tmp_path):
         p = write(tmp_path, "intro\n\n```{python}\nx = 1\n1 / 0\n```\nafter {{ x }}\n")
         w = Runner(p).weave()

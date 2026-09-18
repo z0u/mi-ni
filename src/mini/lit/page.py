@@ -56,9 +56,25 @@ def _converter() -> markdown.Markdown:
     return markdown.Markdown(extensions=EXTENSIONS, extension_configs=EXTENSION_CONFIGS)
 
 
+# A pending mark (``mini.lit.document._Pending``) is HTML, which a code span or fence would
+# show as text, and a highlighted fence would tokenise. So it crosses the converter as one
+# plain word (hex keeps it alphanumeric, which every lexer keeps whole) and is a mark again
+# in the output, wherever it landed.
+_MARK_RE = re.compile(r'<mark class="pending">(.*?)</mark>')
+_MARK_WORD_RE = re.compile(r"litpending([0-9a-f]+)z")
+
+
+def _hide_marks(text: str) -> str:
+    return _MARK_RE.sub(lambda m: f"litpending{m[1].encode().hex()}z", text)
+
+
+def _show_marks(fragment: str) -> str:
+    return _MARK_WORD_RE.sub(lambda m: f'<mark class="pending">{bytes.fromhex(m[1]).decode()}</mark>', fragment)
+
+
 def to_html(text: str) -> str:
     """Render a Markdown document to an HTML fragment (a fresh converter per call, so footnote numbering starts at 1)."""
-    return _converter().convert(text)
+    return _show_marks(_converter().convert(_hide_marks(text)))
 
 
 def render_fragment(text: str) -> str:

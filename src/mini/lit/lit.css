@@ -82,6 +82,7 @@ pre.running { border-left-color: var(--link); color: var(--fg-muted); animation:
 
 /* A value the document could not compute yet: a name used after `stop()`. */
 mark.pending { background: var(--mark); padding: 0 0.2em; border-radius: 2px; font-size: 0.85em; }
+code mark.pending { font-size: inherit; }
 
 /* Anchor links on headings. */
 a.anchor-link { opacity: 0; color: var(--fg-muted); transition: opacity 0.2s ease; }
