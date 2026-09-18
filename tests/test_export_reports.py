@@ -74,3 +74,22 @@ def test_recompiled_bytecode_is_not_an_edit(report):
         stamp(p, AFTER)
     stamp(report.parent, BEFORE)  # a rewrite touches the .pyc, not the directory holding it
     assert export_reports.bundle_is_stale(report) is False
+
+
+def test_a_literate_script_exports_with_its_markdown_face_and_the_report_styles(tmp_path: Path, monkeypatch):
+    """The join between `mini.lit` and the bundle: the woven page declares `index.md` as a rendition and carries `docs/report.css`, as a Marimo export does."""
+    from mini.reports import MD_TYPE, alternates
+
+    (tmp_path / "pyproject.toml").write_text("")
+    (script := tmp_path / "docs" / "lit" / "report.py").parent.mkdir(parents=True)
+    script.write_text('# title: Lit\n\n"""Intro."""\n\nx = 1\n\nf"""x is {x}."""\n')
+    (css := tmp_path / "report.css").write_text("main.lit { color: rebeccapurple }")
+    monkeypatch.setattr(export_reports, "REPORT_CSS", css)
+    (out := tmp_path / ".mini" / "exports" / "lit" / "index.html").parent.mkdir(parents=True)
+
+    html = export_reports._weave(script, out)
+
+    assert out.read_text() == html and "x is 1" in html
+    assert alternates(html)[MD_TYPE] == "index.md"
+    assert "x is 1" in (out.parent / "index.md").read_text()
+    assert "rebeccapurple" in html

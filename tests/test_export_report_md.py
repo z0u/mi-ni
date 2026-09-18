@@ -1,5 +1,6 @@
 """Fence handling, the dropped-cell guard, and figure-link localization in the report exporter."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -139,3 +140,32 @@ def test_a_prose_link_is_left_as_the_author_wrote_it(dirs):
     (nb_dir / "experiment.py").write_text("x = 1")
     md = "see [the experiment](experiment.py)"
     assert localize_links(md, base=nb_dir, out_dir=out_dir) == (md, [])
+
+
+LIT = (
+    '# title: Lit\n\n"""Intro."""\n\nimport matplotlib.pyplot as plt\n\nfig, ax = plt.subplots()\nfig\n\n"""Outro."""\n'
+)
+
+
+def test_a_literate_script_weaves_to_the_render_with_its_figures_beside(tmp_path: Path):
+    """The short way: no Marimo run, the woven Markdown as the render, figures under `<stem>.assets/` like any other render's."""
+    (script := tmp_path / "docs" / "lit" / "report.py").parent.mkdir(parents=True)
+    script.write_text(LIT)
+    dst = tmp_path / ".mini" / "renders" / "lit.md"
+
+    export_report_md.weave(script, dst)
+
+    md = dst.read_text()
+    assert "Intro." in md and "Outro." in md
+    srcs = re.findall(r'src="([^"]+)"', md)
+    assert srcs and all(s.startswith("lit.assets/") for s in srcs), srcs
+    assert all((dst.parent / s).is_file() for s in srcs)
+    assert not (dst.parent / "_assets").exists() and not list(dst.parent.glob(".lit-*"))
+
+
+def test_a_literate_cell_that_raises_fails_the_render(tmp_path: Path):
+    (script := tmp_path / "docs" / "lit" / "report.py").parent.mkdir(parents=True)
+    script.write_text('# title: Lit\n\n"""Intro."""\n\nraise ValueError("no data")\n')
+
+    with pytest.raises(SystemExit, match="no data"):
+        export_report_md.weave(script, tmp_path / ".mini" / "renders" / "lit.md")

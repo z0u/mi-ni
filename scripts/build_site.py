@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Build the static site from the project's report notebooks.
+"""Build the static site from the project's reports.
 
 The HTML lives nowhere in Git: each report is exported (``./go publish``) to a self-contained bundle — ``index.html`` + named-keyed ``_assets/`` — and mirrored to the bucket under ``exports/<key>/``. The assembly mode is an explicit choice, never inferred from credentials:
 
@@ -34,7 +34,7 @@ from mini.reports import (
     mark_figures,
     publish_lock,
     report_figures,
-    report_notebooks,
+    reports,
     rewrite_links,
     set_banner,
     set_lightbox,
@@ -171,7 +171,7 @@ class LinkResolver:
                 continue
             rel = md.relative_to(DOCS_DIR).as_posix()
             render_map[rel] = PurePosixPath(rel).with_suffix(".html").as_posix()
-        for nb in report_notebooks(DOCS_DIR):
+        for nb in reports(DOCS_DIR):
             out = f"{export_key(nb)}/index.html"
             stem_rel = nb.relative_to(DOCS_DIR)
             # The report came from this notebook; register every suffix an author might
@@ -267,6 +267,9 @@ class _Bundle:
     base_href: str | None = None  # externalize: the CDN dir the report's _assets/ resolve against
     assets: Path | None = None  # localize: the local _assets/ dir to copy beside the HTML
     pdf: Path | None = None  # localize: the printed report.pdf to copy beside the HTML, if the export made one
+    # localize: every other rendition the page declares (``<link rel="alternate">``) that the
+    # export wrote beside it — a literate script's ``index.md`` — copied beside the HTML too.
+    renditions: tuple[Path, ...] = ()
     notes: tuple[str, ...] = ()
 
     @property
@@ -294,7 +297,10 @@ def _read_bundle(nb: Path, *, store, pins: dict[str, str], externalizing: bool) 
         assets = bundle / ASSET_LINK
         html = (bundle / "index.html").read_text("utf-8")
         pdf = bundle / alternates(html).get(PDF_TYPE, "")
-        return _Bundle(html, assets=assets if assets.is_dir() else None, pdf=pdf if pdf.is_file() else None)
+        renditions = tuple(p for href in alternates(html).values() if (p := bundle / href).is_file())
+        return _Bundle(
+            html, assets=assets if assets.is_dir() else None, pdf=pdf if pdf.is_file() else None, renditions=renditions
+        )
 
     notes: list[str] = []
     revision = pins.get(key)
@@ -332,7 +338,7 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
     print("Building reports...")
     pins = load_pins(WORKSPACE_ROOT) if externalizing else {}
     report_css = REPORT_CSS.read_text("utf-8") if REPORT_CSS.exists() else ""
-    nbs = report_notebooks(DOCS_DIR)
+    nbs = reports(DOCS_DIR)
     # Externalized, each read is a round trip to the bucket and the reports don't depend
     # on each other — so read them in one wave and the build waits for the slowest report
     # rather than the sum of all of them. Assembly below is CPU-cheap and stays sequential
@@ -369,8 +375,8 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
 
         if bundle.assets is not None:
             shutil.copytree(bundle.assets, dest.parent / ASSET_LINK, dirs_exist_ok=True)
-        if bundle.pdf is not None:
-            shutil.copy2(bundle.pdf, dest.parent / bundle.pdf.name)
+        for rendition in bundle.renditions:  # the PDF, a script's Markdown: served beside the page, as on the bucket
+            shutil.copy2(rendition, dest.parent / rendition.name)
         print(f"  {key} -> _site/{key}/index.html{' [+base]' if bundle.base_href else ''}")
     return strips
 

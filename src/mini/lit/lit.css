@@ -134,6 +134,7 @@ figcaption {
 
 /* Footnotes. */
 .footnote { font-size: 0.9em; color: var(--fg-muted); border-top: 1px solid var(--border); margin-top: 3em; }
+.footnote > hr { display: none; }  /* the border above is the rule; python-markdown writes an <hr> too */
 .footnote-backref { text-decoration: none; }
 
 /* Colour swatches (see the style-fig skill). */

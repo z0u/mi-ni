@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Export report notebooks to self-contained bundles, optionally syncing to the bucket.
+"""Export reports to self-contained bundles, optionally syncing to the bucket.
 
-Each report (a ``docs/**/*.py`` declaring ``marimo.App(``) exports to its own bundle at ``.mini/exports/<key>/`` — ``index.html`` plus the named-keyed ``_assets/`` its setup cell's :func:`~mini.reports.report_bundle` publisher wrote. With ``--publish`` each bundle is then mirrored to the configured HF bucket at ``exports/<key>/``: the authenticated half of publishing (it needs the data the report reads + a write token). ``scripts/build_site.py`` assembles the site from these bundles — the synced ones in CI (read-only), the local ones offline.
+Each report (a Marimo notebook or a literate script under ``docs/``; :func:`~mini.reports.is_report`) exports to its own bundle at ``.mini/exports/<key>/`` — ``index.html`` plus the named-keyed ``_assets/`` its publisher wrote (a notebook's setup cell points :func:`~mini.reports.report_bundle` there; ``mini.lit.render`` aims its own publisher the same way). The two forms differ only in how the HTML is produced; everything after that (provenance, thumbnails, the PDF, the sync) is shared. With ``--publish`` each bundle is then mirrored to the configured HF bucket at ``exports/<key>/``: the authenticated half of publishing (it needs the data the report reads + a write token). ``scripts/build_site.py`` assembles the site from these bundles — the synced ones in CI (read-only), the local ones offline.
 """
 
 import argparse
@@ -16,41 +16,46 @@ sys.path.insert(0, str(Path(__file__).parent))  # so `import clean_docs` (siblin
 
 from build_site import LinkResolver, resolve_html_links  # noqa: E402
 from clean_docs import clean_html, default_hidden_code  # noqa: E402
+from mini.lit import is_literate_script  # noqa: E402
 from mini.report_print import print_bundle  # noqa: E402
 from mini.reports import (  # noqa: E402
     EXPORTING_ENV,
+    MD_LEAF,
+    MD_TYPE,
     PDF_LEAF,
     PDF_TYPE,
     PROVENANCE_ASSET,
     export_dir,
     export_key,
-    is_report_notebook,
+    is_report,
     is_stale,
     load_pins,
     publish_lock,
-    report_notebooks,
+    reports,
     save_pins,
     set_alternate,
     set_provenance,
+    set_report_styles,
     write_thumbnails,
 )
 from mini.store import active_profile  # noqa: E402
 
 ROOT = Path(__file__).parent.parent.resolve()
 DOCS = ROOT / "docs"
+REPORT_CSS = DOCS / "report.css"
 
 
 def notebooks_to_export(paths: list[str]) -> list[Path]:
-    """The report notebooks to export — the given ones, or every report under ``docs/``.
+    """The reports to export — the given ones, or every report under ``docs/``.
 
     Source-only example notebooks (``# mini:source-only``, e.g. ``docs/gpt.py``) are skipped even when named explicitly: the site links to their GitHub source rather than running them, so exporting one (which re-runs its inline compute) is never intended.
     """
     if not paths:
-        return report_notebooks(DOCS)
+        return reports(DOCS)
     keep = []
     for p in paths:
         path = Path(p).resolve()
-        if is_report_notebook(path):
+        if is_report(path):
             keep.append(path)
         else:
             print(f"  skip {path.name}: source-only example, not a rendered report — open it with `./go open`")
@@ -73,14 +78,7 @@ def export_one(nb: Path) -> Path:
     shutil.rmtree(assets, ignore_errors=True)
     sidecar = assets / PROVENANCE_ASSET
     print(f"  export {nb.relative_to(ROOT)} -> {out.relative_to(ROOT)}")
-    # Mark the render as an export so the report's setup cell points its publisher at
-    # the bundle (_assets/, beside this HTML); under interactive `marimo edit` the var is
-    # absent and figures go to the notebook's public/ instead — see mini.reports.exporting.
-    env = {**os.environ, EXPORTING_ENV: "1"}
-    subprocess.run(["marimo", "export", "html", "-f", str(nb), "-o", str(out)], check=True, cwd=ROOT, env=env)
-    clean_html(out)  # scrub terminal control seqs + redact modal URLs from the published HTML
-    default_hidden_code(out)  # literate reports open with code collapsed; the menu toggle still reveals it
-    html = out.read_text("utf-8")
+    html = _weave(nb, out) if is_literate_script(nb) else _export_notebook(nb, out)
     if sidecar.exists():  # the render read store refs — cite their producers in a footer
         refs = json.loads(sidecar.read_text()).get("refs", {})
         html = set_provenance(html, refs)
@@ -112,6 +110,38 @@ def export_one(nb: Path) -> Path:
     return out.parent
 
 
+def _export_notebook(nb: Path, out: Path) -> str:
+    """Run ``marimo export`` on *nb*, writing *out*, and return the cleaned HTML."""
+    # Mark the render as an export so the report's setup cell points its publisher at
+    # the bundle (_assets/, beside this HTML); under interactive `marimo edit` the var is
+    # absent and figures go to the notebook's public/ instead — see mini.reports.exporting.
+    env = {**os.environ, EXPORTING_ENV: "1"}
+    subprocess.run(["marimo", "export", "html", "-f", str(nb), "-o", str(out)], check=True, cwd=ROOT, env=env)
+    clean_html(out)  # scrub terminal control seqs + redact modal URLs from the published HTML
+    default_hidden_code(out)  # literate reports open with code collapsed; the menu toggle still reveals it
+    return out.read_text("utf-8")
+
+
+def _weave(script: Path, out: Path) -> str:
+    """Weave the literate *script* into the bundle holding *out*, and return the page.
+
+    ``mini.lit.render`` writes the page and the woven Markdown beside it, with figures under the bundle's ``_assets/`` through the same publisher a notebook uses, so the sidecar and the thumbnails work unchanged. The Markdown is declared as an alternate rendition, the way the PDF is, so a reader (an agent, mostly) can fetch the text of a published report without parsing the page. The shared stylesheet is inlined here for the print below, since a script's page carries only ``mini.lit``'s own; the site build re-inlines the current source on top, as it does for a notebook.
+
+    A cell that raised is a failed export: the page would carry the traceback where a figure should be, and the sync would publish it.
+    """
+    from mini.lit import render
+
+    rendered = render(script, out_dir=out.parent)
+    if errors := rendered.woven.errors:
+        lines = "\n\n".join(f"cell at line {o.cell.line}:\n{o.error}" for o in errors)
+        sys.exit(f"export of {script.relative_to(ROOT)} failed: {len(errors)} cell(s) raised\n{lines}")
+    html = set_alternate(rendered.html, type=MD_TYPE, href=MD_LEAF)
+    if REPORT_CSS.exists():
+        html = set_report_styles(html, REPORT_CSS.read_text("utf-8"))
+    out.write_text(html, "utf-8")
+    return html
+
+
 def publish_one(nb: Path, store) -> str | None:
     """Export *nb*, mirror its bundle to ``exports/<key>/``, and return its revision.
 
@@ -128,7 +158,7 @@ def update_pins(new: dict[str, str]) -> None:
 
     Pruning uses the *full* report set (not just what was published now), so a partial publish never drops other reports' pins, but a deleted notebook's pin doesn't linger. The production manifest must be committed for the pins to take effect — it's the identity half of a publish; the upload was only evidence. A profile's manifest is gitignored: dev pins never reach CI.
     """
-    live = {export_key(nb) for nb in report_notebooks(DOCS)}
+    live = {export_key(nb) for nb in reports(DOCS)}
     pins = {k: v for k, v in (load_pins(ROOT) | new).items() if k in live}
     save_pins(ROOT, pins)
 
@@ -142,7 +172,7 @@ def main() -> None:
         action="store_true",
         help="skip reports whose bundle is newer than the notebook (mtime heuristic)",
     )
-    ap.add_argument("notebooks", nargs="*", help="report notebooks (default: all under docs/)")
+    ap.add_argument("notebooks", nargs="*", help="reports (default: all under docs/)")
     args = ap.parse_args()
 
     if args.publish and args.stale_only:
@@ -152,7 +182,7 @@ def main() -> None:
 
     nbs = notebooks_to_export(args.notebooks)
     if not nbs:
-        sys.exit("No report notebooks found under docs/.")
+        sys.exit("No reports found under docs/.")
 
     if not args.publish:
         if args.stale_only:

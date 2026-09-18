@@ -1,6 +1,6 @@
 ---
 name: report-render
-description: View a report's figures, or export its text to Markdown. Read matplotlib or inline/JS figures and the full page in a headless browser (offline, by bundling Marimo assets).
+description: View a report's figures, or export its text to Markdown. Read matplotlib or inline/JS figures and the full page in a headless browser (offline, by bundling Marimo assets). Covers literate scripts (mini.lit) and Marimo notebooks.
 ---
 
 # Rendering a report to check it
@@ -32,7 +32,7 @@ To *read* a report — prose, headings, tables and figure alt text, assembled in
 ./go render docs/gpt-sweep/report.py      # -> .mini/renders/gpt-sweep.md
 ```
 
-It re-runs the notebook (allow a few minutes), injects each cell's rendered output into the Markdown, and fails loudly if a cell's output went missing rather than dropping the cell. A report newer than its last render is skipped; `--force` re-renders. Figures arrive as `![alt](…)` with the report's real alt text, and the links resolve from the render's own directory, so `Read` follows one straight to the PNG. This is what the `report-structure` agent reads.
+For a literate script (`mini.lit`; a `# title:` header at the top of the `.py`) this weaves the document in seconds with no browser and no Marimo, and moves the figures to `<key>.assets/` beside the render; they appear as `<figure>` HTML with the report's real alt text. For a Marimo notebook it re-runs the notebook (allow a few minutes), injects each cell's rendered output into the Markdown, and fails loudly if a cell's output went missing rather than dropping the cell; figures arrive as `![alt](…)`. Either way the links resolve from the render's own directory, so `Read` follows one straight to the PNG, and a report newer than its last render is skipped (`--force` re-renders). This is what the `report-structure` agent reads. A published literate report also serves its woven Markdown beside the page as `<key>/index.md`.
 
 The default output keeps one render per report, named by the same key as its bundle (`mini.reports.render_path`). To put it elsewhere, call the script under the verb with an output path: `uv run scripts/export_report_md.py <nb> out.md`. The bundle's `index.html` holds the same document at about ten times the size, nearly all of it marimo's data island, so reach for it only when you need the page as a page.
 

@@ -93,6 +93,35 @@ def test_other_trailing_statements_are_left_alone(tmp_path: Path, last: str):
     assert check.findings_in(nb) == []
 
 
+def literate(tmp_path: Path, body: str) -> Path:
+    """A literate script (`# title:` header) whose cells and prose are *body*."""
+    path = tmp_path / "report.py"
+    path.write_text("# title: T\n\n" + body)
+    return path
+
+
+def test_a_variable_docstring_in_a_literate_script_is_flagged(tmp_path: Path):
+    """Every top-level string weaves as prose there, so a docstring hung under a constant is a stray paragraph."""
+    script = literate(tmp_path, 'NAMES = ["emb"]\n"""What the slices are called."""\n')
+
+    (finding,) = check.findings_in(script)
+    assert (finding.cell, finding.line) == (None, 4)
+    assert str(finding).endswith(":4: docstring hangs under an assignment, so it weaves as prose")
+
+
+def test_prose_after_a_cell_stands_apart_with_a_blank_line(tmp_path: Path):
+    """The ordinary shape of a literate script: a cell, a blank line, then the paragraph about its result."""
+    script = literate(tmp_path, 'x = compute()\n\n"""x is what it is."""\n\nS = 1\nT = 2\n"""Not this either:"""\n')
+
+    assert [f.line for f in check.findings_in(script)] == [9]
+
+
+def test_a_literate_script_is_not_read_for_marimo_cells(tmp_path: Path):
+    script = literate(tmp_path, 'with app.setup:\n    x = 1\n    """Doc."""\n')
+
+    assert check.findings_in(script) == []
+
+
 def test_a_plain_module_has_no_cells(tmp_path: Path):
     """An `experiment.py` beside a report is importable Python, and drops out with nothing to report."""
     nb = notebook(tmp_path, 'def main():\n    """Doc."""\n', name="experiment.py")

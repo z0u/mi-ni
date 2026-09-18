@@ -47,6 +47,8 @@ __all__ = [
     "save_pins",
     "is_report_notebook",
     "report_notebooks",
+    "is_report",
+    "reports",
     "is_manually_published",
     "SOURCE_ONLY_MARKER",
     "MANUAL_PUBLISH_MARKER",
@@ -81,6 +83,8 @@ __all__ = [
     "alternates",
     "PDF_LEAF",
     "PDF_TYPE",
+    "MD_LEAF",
+    "MD_TYPE",
 ]
 
 # Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
@@ -366,6 +370,26 @@ def is_report_notebook(path: str | Path) -> bool:
 def report_notebooks(docs: str | Path) -> list[Path]:
     """Every Marimo report notebook under *docs* (sorted); see :func:`is_report_notebook`."""
     return sorted(p for p in Path(docs).rglob("*.py") if is_report_notebook(p))
+
+
+def is_report(path: str | Path) -> bool:
+    """Whether *path* is a report the site renders, in either of its two forms.
+
+    A report is a Marimo notebook (:func:`is_report_notebook`) or a literate script (``mini.lit``: a ``.py`` opening with a ``# title:`` header). Both export to the same bundle shape and take the same :func:`export_key`, so everything past the export (the sync, the pins, the site build, the publish check) treats them alike; only the exporter cares which is which. ``# mini:source-only`` opts either out.
+    """
+    p = Path(path)
+    if p.suffix != ".py" or not p.is_file():
+        return False
+    from mini.lit import is_literate_script  # here rather than at the top: mini.lit builds on this module
+
+    return is_report_notebook(p) or (
+        is_literate_script(p) and SOURCE_ONLY_MARKER not in p.read_text("utf-8", errors="ignore")
+    )
+
+
+def reports(docs: str | Path) -> list[Path]:
+    """Every report under *docs* (sorted), notebook or literate script; see :func:`is_report`."""
+    return sorted(p for p in Path(docs).rglob("*.py") if is_report(p))
 
 
 # A report carrying this marker is republished on a schedule its author controls, so
@@ -1090,7 +1114,9 @@ _BANNER_LINK = "color:inherit;text-decoration:underline"
 # (its title, code collapsed) would sit under it at the top of the page. A little top
 # padding on the content column drops the whole report clear of the chip. Same class the
 # min-width fix targets — a distinct property, so the two rules coexist.
-_BANNER_CLEARANCE = '[class~="min-w-[400px]"]{padding-top:3rem}'
+# ``main.lit`` is the content column of a literate script's page (``mini.lit``), which
+# has no Marimo layout class to key on.
+_BANNER_CLEARANCE = '[class~="min-w-[400px]"],main.lit{padding-top:3rem}'
 
 
 # The same document in another format, declared in the ``<head>`` so a reader (a crawler, an
@@ -1101,6 +1127,8 @@ _BANNER_CLEARANCE = '[class~="min-w-[400px]"]{padding-top:3rem}'
 # nav chip. Relative hrefs, so the page's ``<base>`` sends them wherever the bundle is.
 PDF_LEAF = "report.pdf"  # printed at export by mini.report_print, beside index.html
 PDF_TYPE = "application/pdf"
+MD_LEAF = "index.md"  # the woven Markdown a literate script's export writes beside its HTML
+MD_TYPE = "text/markdown"
 _ALTERNATE_TAG = re.compile(r'\s*<link rel="alternate" type="([^"]*)" href="([^"]*)"\s*/?>', re.IGNORECASE)
 
 

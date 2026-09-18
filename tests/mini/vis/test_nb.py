@@ -67,8 +67,12 @@ def test_caption_renders_markdown_into_figcaption():
 
 
 def test_figure_html_caption_and_class():
-    out = figure_html("<table></table>", caption="a caption", class_="report-figure")
-    assert out == '<figure class="report-figure"><table></table><figcaption>a caption</figcaption></figure>'
+    """The caption is Markdown: rendered here, so a literate script (which does not re-render its HTML) shows it as prose."""
+    out = figure_html("<table></table>", caption="**a** caption", class_="report-figure")
+    assert (
+        out
+        == '<figure class="report-figure"><table></table><figcaption><p><strong>a</strong> caption</p></figcaption></figure>'
+    )
 
 
 def test_figure_html_aria_label_collapses_whitespace():

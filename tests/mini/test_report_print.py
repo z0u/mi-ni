@@ -92,6 +92,25 @@ def test_fit_leaves_a_page_without_a_sized_page_rule_alone(browser, tmp_path: Pa
         assert float(pdf.pages[0].MediaBox[3]) == pytest.approx(11 * 72, abs=1)  # Chromium's default letter page, uncut
 
 
+_FOOTNOTED = """<html><body><h1>Hi</h1><p>A claim.<sup id="fnref:a"><a href="#fn:a">1</a></sup></p>
+<div class="footnote"><ol><li id="fn:a"><p>A note. <a href="#fnref:a">back</a></p></li></ol></div></body></html>"""
+
+
+def test_in_page_links_print_as_direct_destinations(browser, tmp_path: Path):
+    """Chromium prints a footnote link as a named destination; the pass gives the annotation the page and position outright, so a viewer without name lookup follows it."""
+    out = tmp_path / "fn.pdf"
+    page = browser.new_page()
+    page.set_content(_FOOTNOTED)
+    report_print.print_page(page, out, settle=0)
+    page.close()
+    with pikepdf.open(out) as pdf:
+        dests = [a.Dest for p in pdf.pages for a in (p.get("/Annots") or []) if "/Dest" in a]
+        assert len(dests) == 2
+        for d in dests:
+            assert isinstance(d, pikepdf.Array) and d[1] == "/XYZ"
+            assert d[0].objgen == pdf.pages[0].obj.objgen
+
+
 def test_ink_extents_of_a_blank_page_is_none(tmp_path: Path):
     out = tmp_path / "blank.pdf"
     pdf = pikepdf.new()

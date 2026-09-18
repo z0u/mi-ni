@@ -457,3 +457,22 @@ def test_figure_strip_of_a_figureless_report_still_links_its_pdf():
     strip = build_site.FigureStrip("probe/report", None, (), pdf="report.pdf")
     out = build_site._figure_strip_html(strip, from_dir="", externalizing=False)
     assert 'href="probe/report/report.pdf"' in out and "<img" not in out
+
+
+def test_a_local_bundle_lists_every_rendition_the_page_declares(tmp_path: Path):
+    """Localizing copies what the export wrote beside the page: the PDF and a literate script's `index.md`, and nothing the page declares but the export did not write."""
+    from mini.reports import MD_TYPE, PDF_TYPE, set_alternate
+
+    (tmp_path / "pyproject.toml").write_text("")
+    (nb := tmp_path / "docs" / "ex-1" / "report.py").parent.mkdir(parents=True)
+    nb.write_text("")
+    (bundle := tmp_path / ".mini" / "exports" / "ex-1").mkdir(parents=True)
+    html = set_alternate("<html><head></head><body></body></html>", type=PDF_TYPE, href="report.pdf")
+    html = set_alternate(html, type=MD_TYPE, href="index.md")
+    (bundle / "index.html").write_text(html)
+    (bundle / "index.md").write_text("# Hi")
+
+    read = build_site._read_bundle(nb, store=None, pins={}, externalizing=False)
+
+    assert read.renditions == (bundle / "index.md",)
+    assert read.pdf is None and read.pdf_url is None

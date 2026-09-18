@@ -26,7 +26,7 @@ src/mini/
 - Run and monitor one from the CLI: the wake-loop, backend routing, wall-clock budget, and how to delegate or schedule a long run, in [running.md](./references/running.md).
 - Fix and recover: the fix/prune/retry loop, bounded hotfixes, superseded records, and partial `map` failures, in [recovery.md](./references/recovery.md).
 - Store and share large outputs: return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish artifacts to a URL, in [storage.md](./references/storage.md).
-- Publish a report to the web: externalize a report's figures and data into a bundle, in [reports.md](./references/reports.md); the `themed` figure hook that feeds it is in [vis.md](./references/vis.md). Designing the report before the run (preregistration, hypotheses) is a methodological concern, covered by the science skill.
+- Publish a report to the web: externalize a report's figures and data into a bundle, in [reports.md](./references/reports.md) (a literate script, `mini.lit`, publishes through the same bundle, with its woven Markdown beside the page); the `themed` figure hook that feeds it is in [vis.md](./references/vis.md). Designing the report before the run (preregistration, hypotheses) is a methodological concern, covered by the science skill.
 
 To keep cost down, delegate launching and babysitting to the `experiment-monitor` subagent (it escalates to `experiment-doctor`); see running.md.
 

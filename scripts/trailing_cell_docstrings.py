@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Report Marimo cells whose last statement is a docstring, which publishes it as the cell's output.
+"""Report docstrings that a report would publish as prose: a Marimo cell's last statement, or a literate script's variable docstring.
 
 Marimo takes a cell's *output* to be the value of its last statement, when that statement is an expression (`_ast/compiler.py`, `if isinstance(final_expr, ast.Expr) and not ends_with_semicolon(code)`). A variable docstring — the triple-quoted string we hang under a constant to say what it holds — is an expression statement, structurally identical to a closing `mo.md("...")`. So a setup cell that ends on one publishes it as a paragraph at the top of the report.
 
@@ -12,6 +12,8 @@ Which cells can leak was settled by exporting a probe notebook and grepping the 
 - `with app.setup` — the cell's last statement, as written.
 - `@app.cell` — the last statement before the generated `return`, which Marimo strips whether it is bare or carries values.
 - `@app.function` and `@app.class_definition` — never. Their body is an ordinary function or class scope, so a trailing string is dead code rather than an output.
+
+A literate script (`mini.lit`) has the same leak in a different place: *every* top-level string is prose there, so a variable docstring hung under an assignment weaves as a paragraph. It is told from prose proper by where it sits: a docstring starts on the line after its assignment, and prose stands apart from the cell before it with a blank line. That is a convention rather than a guarantee (a docstring set off by a blank line is well-formed prose to every tool, and only shows as a stray paragraph in the render), so the port check's paragraph diff is the second line. The fix there is a comment.
 """
 
 import argparse
@@ -21,6 +23,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeIs
+
+from mini.lit import is_literate_script
 
 ROOT = Path(__file__).parent.parent.resolve()
 
@@ -34,11 +38,18 @@ class Finding:
 
     path: Path
     line: int
-    cell: str  # how to find the cell in the file: "setup", or the cell function's name
+    cell: (
+        str | None
+    )  # how to find the cell in the file: "setup", or the cell function's name; None in a literate script
 
     def __str__(self) -> str:
         where = self.path.relative_to(ROOT) if self.path.is_relative_to(ROOT) else self.path
-        return f"{where.as_posix()}:{self.line}: docstring is the output of the {self.cell} cell"
+        what = (
+            f"is the output of the {self.cell} cell"
+            if self.cell
+            else "hangs under an assignment, so it weaves as prose"
+        )
+        return f"{where.as_posix()}:{self.line}: docstring {what}"
 
 
 def _is_setup(node: ast.stmt) -> TypeIs[ast.With]:
@@ -67,21 +78,33 @@ def cells(tree: ast.Module) -> Iterator[tuple[str, list[ast.stmt]]]:
                 yield node.name, body
 
 
+def _is_string(node: ast.stmt) -> bool:
+    return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+
+
+def hung_docstrings(tree: ast.Module) -> Iterator[int]:
+    """The line of each top-level string that starts on the line after an assignment, as a variable docstring does."""
+    prev: ast.stmt | None = None
+    for node in tree.body:
+        if (
+            _is_string(node)
+            and isinstance(prev, ast.Assign | ast.AnnAssign)
+            and node.lineno == (prev.end_lineno or prev.lineno) + 1
+        ):
+            yield node.lineno
+        prev = node
+
+
 def findings_in(path: Path) -> list[Finding]:
-    """Every cell in *path* whose last statement is a string expression, and so renders as output."""
+    """Every docstring in *path* that renders as output: a Marimo cell's last statement, or a literate script's variable docstring."""
     try:
         tree = ast.parse(path.read_text("utf-8", errors="ignore"), filename=str(path))
     except SyntaxError:
         return []  # not our check's failure to report; ruff and the formatter own that
 
-    return sorted(
-        Finding(path, body[-1].lineno, name)
-        for name, body in cells(tree)
-        if body
-        and isinstance(last := body[-1], ast.Expr)
-        and isinstance(last.value, ast.Constant)
-        and isinstance(last.value.value, str)
-    )
+    if is_literate_script(path):
+        return sorted(Finding(path, line, None) for line in hung_docstrings(tree))
+    return sorted(Finding(path, body[-1].lineno, name) for name, body in cells(tree) if body and _is_string(body[-1]))
 
 
 def python_files(root: Path) -> list[Path]:
@@ -105,15 +128,15 @@ def main() -> None:
     found = sorted(f for path in targets for f in findings_in(path))
 
     if not found:
-        print("✅ No cell ends on a docstring")
+        print("✅ No docstring renders as output")
         return
 
     for finding in found:  # stdout is the worklist, so it stays pipeable
         print(finding)
 
     print(  # the remedy is commentary, so it goes to stderr and out of the pipe
-        f"\n{len(found)} cell(s) will publish a docstring as their output."
-        " End the cell with a bare `None` to give it no output instead.",
+        f"\n{len(found)} docstring(s) would be published as output."
+        " End a Marimo cell with a bare `None` to give it no output; in a literate script, write the docstring as a comment.",
         file=sys.stderr,
     )
     sys.exit(1)

@@ -17,6 +17,7 @@ from mini.reports import (
     externalize_html,
     input_dir,
     insert_base,
+    is_report,
     is_report_notebook,
     lightbox_chrome,
     load_pins,
@@ -25,6 +26,7 @@ from mini.reports import (
     render_path,
     report_figures,
     report_notebooks,
+    reports,
     rewrite_links,
     save_pins,
     set_banner,
@@ -398,7 +400,7 @@ def test_set_banner_injects_nav_and_hides_marimo():
     # in-flow sibling, so the chip must float above it (and it scrolls with the page).
     assert "position:absolute" in out[out.index("<nav data-mini-banner") :][:200]
     # The content column is padded down so the report title isn't tucked under the chip.
-    assert '[class~="min-w-[400px]"]{padding-top:3rem}' in out
+    assert '[class~="min-w-[400px]"],main.lit{padding-top:3rem}' in out
 
 
 def test_set_banner_omits_missing_links():
@@ -541,6 +543,22 @@ def test_report_notebooks_skips_source_only(tmp_path):
     assert not is_report_notebook(example)  # the marker is what takes it out
     found = {p.relative_to(tmp_path).as_posix() for p in report_notebooks(tmp_path)}
     assert found == {"report.py", "sub/nested.py"}
+
+
+def test_reports_takes_notebooks_and_literate_scripts_alike(tmp_path):
+    """The report set is what the site renders: a Marimo notebook, or a literate script by its header. A plain module beside either is neither, and the source-only marker opts either form out."""
+    (tmp_path / "ex-1").mkdir()
+    (nb := tmp_path / "ex-1" / "report.py").write_text(_APP)
+    (tmp_path / "ex-2").mkdir()
+    (lit := tmp_path / "ex-2" / "report.py").write_text('# title: Ex 2\n\n"""# Ex 2\n"""\nx = 1\n')
+    (tmp_path / "ex-2" / "experiment.py").write_text("def main(ctx): ...\n")
+    (tmp_path / "gpt.py").write_text(f'# title: A worked example\n# {SOURCE_ONLY_MARKER}\n"""prose"""\n')
+    assert is_report(nb) and is_report(lit)
+    assert not is_report_notebook(lit)  # the exporter still tells the two forms apart
+    assert not is_report(tmp_path / "ex-2" / "experiment.py")
+    assert not is_report(tmp_path / "missing.py")
+    found = {p.relative_to(tmp_path).as_posix() for p in reports(tmp_path)}
+    assert found == {"ex-1/report.py", "ex-2/report.py"}
 
 
 def test_manual_publish_marker_opts_out_of_the_reminder_only(tmp_path):

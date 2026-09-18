@@ -155,8 +155,22 @@ fig, axes = plt.subplots(2, 3, ...)  # 2D
 axes = cast(AxesGrid, axes)
 ```
 
-## Notebooks
+## Notebooks and literate scripts
 
-Our experiments and reports are Marimo notebooks, which means the code and the prose ship together. Iterate on both. Aim for literate programming: the Markdown should explain what the next cell does and why, so the notebook reads as an argument rather than a script with captions.
+Our experiments and reports ship code and prose together: as literate scripts (`mini.lit`, the form reports are moving to) or as Marimo notebooks. Iterate on both. Aim for literate programming: the Markdown should explain what the next cell does and why, so the report reads as an argument rather than a script with captions.
+
+### Literate scripts
+
+A literate script is a plain module with a `# title:` header: a top-level string is prose (an f-string where it quotes a value), and the code between two prose strings is a cell. Everything is ordinary Python, so annotate as you would in a module; there are no generated signatures. The conventions that come from the form:
+
+- Prose is the cell boundary. A `# %%` line splits a cell where prose would not fit: two values shown back to back, or a slow loader kept apart from the fast plot beneath it so an edit to the plot re-runs the plot alone.
+- An f-string doubles every literal brace, so `\frac{a}{b}` becomes `\frac{{a}}{{b}}` once the paragraph quotes a value. Keep equations in plain (`r"""…"""`) paragraphs and quote values in the paragraph beside them.
+- A results table is a helper returning `<table class="report-table">` as the cell's last expression; no scroll wrapper, the table is its own scroll box on a narrow screen.
+- Only a cell's last expression is displayed. A loop that builds figures ends the cell with the joined string (`"\n\n".join(...)`); a table is a helper returning HTML as the last expression. The runner refuses a displayable value anywhere else in a cell, so a stray one is an error rather than a silent gap.
+- Every top-level string is prose, so a variable docstring under a constant would weave as a paragraph. Write it as a comment (`./go lint` flags the slip).
+- One namespace, top to bottom: no `_private` cell names, and a name may be reused across cells (ty types by flow). Precompute joined lists as strings in the cell rather than in the prose field.
+- `if cond: stop("…")` ends a preregistration early; the prose below still renders with pending marks for what it cannot evaluate.
+- Slow work goes under `@memo` (outside `@themed` for a figure), with anything that should invalidate the cache, the alt text included, passed as an argument.
+
 
 See the `style-fig` skill for figure and results-table conventions, and `docs/README.md` for file-type and publishing rules.

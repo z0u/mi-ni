@@ -1,6 +1,6 @@
 """Print an exported report bundle to PDF, offline, with a headless browser.
 
-A ``marimo export html`` bundle loads its frontend runtime (~200 JS/CSS/font URLs) from the jsDelivr CDN, so it won't render in a network-restricted sandbox. The *same* pinned ``dist/`` ships inside the marimo pip package under ``_static/``, so :func:`served_bundle` repoints the bundle's CDN refs at those local assets and serves the result on a loopback port. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
+A literate script's bundle (``mini.lit``) is a self-styled static page, so serving it is enough. A ``marimo export html`` bundle loads its frontend runtime (~200 JS/CSS/font URLs) from the jsDelivr CDN, so it won't render in a network-restricted sandbox. The *same* pinned ``dist/`` ships inside the marimo pip package under ``_static/``, so :func:`served_bundle` repoints the bundle's CDN refs at those local assets and serves the result on a loopback port. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
 
 This runs at export (``scripts/export_reports.py``), the half of publishing that holds the bundle on disk: the PDF lands beside ``index.html``, rides the bundle sync, and is pinned by the same ``publish.lock`` entry as the page. The site build only links it. Chromium stamps a creation date and a random document ID into every PDF, which would make each re-export of an unchanged report a new publish-tier commit, so :func:`normalize_pdf` strips both after printing; two prints of one bundle are then byte-equal.
 
@@ -217,6 +217,8 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
     Chromium stamps ``CreationDate``/``ModDate`` (now) and a document ID (random) into every PDF. A re-export of an unchanged report would then upload a different file and mint a publish-tier commit for nothing, where today an identical bundle mints none. Dates go; the ID is re-derived from the content (qpdf's deterministic ID).
 
     *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A blank page is left as it is.
+
+    In-page links (a footnote and its backlink, a heading) print as named destinations in the document's ``/Dests`` dictionary; each link annotation is given its destination outright (:func:`_inline_dests`), so a viewer that resolves only direct destinations, as the simpler e-ink ones do, follows them too.
     """
     import pikepdf
 
@@ -224,6 +226,7 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
         for key in ("/CreationDate", "/ModDate"):
             if key in pdf.docinfo:
                 del pdf.docinfo[key]
+        _inline_dests(pdf)
         for page, extent in zip(pdf.pages, extents or [], strict=extents is not None):
             if extent is None:
                 continue
@@ -233,12 +236,30 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
         pdf.save(path, deterministic_id=True)
 
 
+def _inline_dests(pdf: Any) -> None:
+    """Replace each link annotation's named destination with the array the name resolves to (the ``/Dests`` dictionary is left for viewers that read it)."""
+    import pikepdf
+
+    dests = pdf.Root.get("/Dests")
+    if dests is None:
+        return
+    for page in pdf.pages:
+        for annot in page.get("/Annots") or []:
+            name = annot.get("/Dest")
+            if name is None or isinstance(name, pikepdf.Array):
+                continue  # no destination, or one given outright already
+            key = str(name)  # a Name (``/fn:a``) or a String (``fn:a``); the dictionary keys by Name
+            target = dests.get(key if key.startswith("/") else "/" + key)
+            if isinstance(target, pikepdf.Array):
+                annot.Dest = target
+
+
 def print_bundle(
     bundle: Path, out: Path, *, html: str | None = None, timeout: float = 8.0, settle: float = 3.0
 ) -> Path | None:
     """Print an export bundle to *out*; ``None`` (with a log line) when no browser is available.
 
-    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for marimo to hydrate the first cell output, then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
+    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for the content to appear (marimo hydrating its first cell output, or a literate script's static ``main.lit``), then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
     """
     try:
         from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -261,7 +282,7 @@ def print_bundle(
             # which a bare headless Chromium in a locale-less container does. Pin one.
             page = browser.new_page(viewport={"width": 1100, "height": 1400}, locale="en-US")
             page.goto(url)
-            page.locator(".output").first.wait_for(timeout=timeout * 1000)
+            page.locator(".output, main.lit").first.wait_for(timeout=timeout * 1000)
             return print_page(page, out, settle=settle)
         finally:
             browser.close()

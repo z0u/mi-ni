@@ -55,12 +55,13 @@ show_help() {
 		                       app view; anything else opens in \$EDITOR
 		  lit     render <doc.py> [--pdf] | serve <doc.py> [--port N]:
 		                       weave a literate script (mini.lit: a .py with string prose
-		                       between cells) to .mini/lit/<key>/,
-		                       or serve it with live reload while you edit
+		                       between cells) to .mini/lit/<key>/, or serve it with live
+		                       reload while you edit; preview/publish/render take it as a report
 		  render  [...nbs] [--force]:
 		                       render each report to readable Markdown at .mini/renders/<key>.md,
-		                       figures as ![alt](path) links — for reading a report as a document
-		                       (skips reports newer than their inputs; --force re-renders)
+		                       figures linked beside it — for reading a report as a document
+		                       (a literate script weaves in seconds; a notebook re-runs under
+		                       Marimo; skips reports newer than their inputs; --force re-renders)
 		  preview [...nbs] [--no-serve] [--force] [--port N]:
 		                       export stale reports (each with a report.pdf beside its
 		                       index.html, for review on paper or e-ink), assemble the site

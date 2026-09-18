@@ -81,7 +81,7 @@ class Document:
 def parse(path: Path | str, text: str | None = None) -> Document:
     """Split a script into prose and cells, with its metadata.
 
-    Metadata is the run of ``# key: value`` comment lines before the first code. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements is a cell (comments alone are not one). A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
+    Metadata is the run of ``# key: value`` comment lines before the first code. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements is a cell (comments alone are not one); a ``# %%`` line splits a cell in two where prose would not fit. A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
 
     An f-string at the top level is prose too, evaluated field by field when woven (see :meth:`Runner._prose`): its text here carries each field as a ``{expr}`` placeholder, which is also how a field renders past a :func:`stop`.
     """
@@ -111,9 +111,27 @@ def _prose_node(node: ast.expr, line: int) -> Prose | None:
     return None
 
 
+CELL_MARK_RE = re.compile(r"^# %%")
+
+
 def _cell_lines(lines: list[str], start: int, end: int) -> list[Cell]:
-    """The code on lines *start*..*end* as a cell, if there is any (comments alone are not one)."""
-    body = lines[start - 1 : end]
+    """The code on lines *start*..*end* as cells: one, or more where a ``# %%`` line splits it (comments alone are not one).
+
+    Prose is the usual cell boundary; the marker is for the two things prose cannot do: show two values back to back with nothing between, and re-run (or cache) a slow loader apart from the fast plot beneath it. The marker line itself is dropped, as a comment would be.
+    """
+    cells: list[Cell] = []
+    body: list[str] = []
+    for i in range(start, end + 1):
+        if CELL_MARK_RE.match(lines[i - 1]):
+            cells.extend(_one_cell(body, i - len(body)))
+            body = []
+        else:
+            body.append(lines[i - 1])
+    cells.extend(_one_cell(body, end - len(body) + 1))
+    return cells
+
+
+def _one_cell(body: list[str], start: int) -> list[Cell]:
     while body and not body[0].strip():
         body, start = body[1:], start + 1
     while body and not body[-1].strip():
@@ -219,6 +237,25 @@ class Woven:
         return [o for o in self.outputs if o.error]
 
 
+class DroppedOutput(Exception):
+    """A displayable value produced by an expression that is not the last statement of its cell."""
+
+    def __init__(self, line: int):
+        super().__init__(line)
+        self.line = line
+
+
+def _displayable(value: Any) -> bool:
+    """Whether :func:`display` would put *value* on the page: a string, a rich repr, or a figure (``None``, and the return values of ordinary side-effecting calls, are not)."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value)
+    if any(getattr(value, attr, None) is not None for attr in ("_repr_markdown_", "_repr_html_")):
+        return True
+    return type(value).__module__.startswith("matplotlib.") and hasattr(value, "savefig")
+
+
 def display(value: Any, *, publish: Publisher | None, name: str) -> str:
     """A cell's last expression as Markdown: strings pass through, HTML reprs and figures become HTML islands."""
     if value is None:
@@ -286,6 +323,20 @@ def _capture_stdout() -> contextlib.AbstractContextManager[io.StringIO]:
     return sys.stdout.capture()
 
 
+def _own_siblings(doc_dir: Path) -> None:
+    """Make ``import experiment`` in a script find the module beside *that* script.
+
+    Puts the script's directory first on ``sys.path`` (a directory added for an earlier script would otherwise stay ahead of it), and drops from ``sys.modules`` any top-level module that shadows a sibling of the same name: ``experiment`` imported by one report earlier in this process would otherwise be handed, cached, to the next.
+    """
+    if (d := str(doc_dir)) in sys.path:
+        sys.path.remove(d)
+    sys.path.insert(0, d)
+    for name, mod in list(sys.modules.items()):
+        file = getattr(mod, "__file__", None)
+        if file and "." not in name and (doc_dir / f"{name}.py").exists() and Path(file).resolve().parent != doc_dir:
+            del sys.modules[name]
+
+
 class Runner:
     """Runs a script's cells and weaves the result, keeping enough state to make the next run cheap.
 
@@ -323,10 +374,24 @@ class Runner:
             ast.increment_lineno(tree, cell.line - 1)
             last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
             with _capture_stdout() as buf:
-                exec(compile(tree, filename, "exec"), ns)
+                # Statement by statement, so a bare expression in the middle of the cell can be
+                # looked at: its value is thrown away, and if it was something the page would
+                # have shown, that is a mistake to report rather than a figure to lose silently.
+                for node in tree.body:
+                    if isinstance(node, ast.Expr):
+                        value = eval(compile(ast.Expression(node.value), filename, "eval"), ns)
+                        if _displayable(value):
+                            raise DroppedOutput(node.lineno)
+                    else:
+                        exec(compile(ast.Module([node], []), filename, "exec"), ns)
                 if isinstance(last, ast.Expr):
                     value = eval(compile(ast.Expression(last.value), filename, "eval"), ns)
                     out.value = display(value, publish=self.publish, name=f"cell-{index}")
+        except DroppedOutput as d:
+            out.error = (
+                f'File "{filename}", line {d.line}: the value of this expression would be shown on the page, but it is not the '
+                "last statement of its cell, so it is discarded. Move it to the end of the cell, or assign it."
+            )
         except Stop as s:
             out.value = s.message
             out.stopped = True
@@ -378,8 +443,7 @@ class Runner:
         t0 = time.perf_counter()
         doc = doc or parse(self.path)
         ns, keep = self._restore(doc.cells)
-        if (doc_dir := str(self.path.parent)) not in sys.path:
-            sys.path.insert(0, doc_dir)
+        _own_siblings(self.path.parent)
         previous = current_publisher()
         use_publisher(self.publish)
         outputs: list[CellOutput] = []

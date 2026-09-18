@@ -161,7 +161,7 @@ def figure_html(
 ) -> str:
     """Wrap an HTML/SVG *body* in a ``<figure>``, optionally with a ``<figcaption>``.
 
-    The shared seam behind themed figures, subline strips, and captioned tables: it only assembles the element, staying agnostic about how *body* and *caption* were produced and how they're styled (that is left to CSS or the caller). *caption* is an HTML fragment; render Markdown with :func:`marimo.md` first if you have it.
+    The shared seam behind themed figures, subline strips, and captioned tables: it only assembles the element, staying agnostic about how *body* was produced and how it is styled (that is left to CSS or the caller). *caption* is Markdown, rendered here (:func:`_render_caption`) so it reads the same under Marimo, which would re-render an outer ``mo.md``, and in a literate script, which shows the fragment as it stands; an HTML fragment passes through unchanged.
 
     *aria_label* gives the figure an accessible name for when the body is a group of marks that reads as one picture with no text of its own — e.g. a strip of inline SVGs. It is a plain ``aria-label`` (not ``role="img"``): a figure takes its name from the label without becoming atomic, so any sub-figures and their captions stay navigable. (``role="img"`` would make the subtree presentational and hide them — the reason to avoid it for a captioned group.)
     """
@@ -175,7 +175,7 @@ def figure_html(
     if aria_label is not None:
         # Collapse whitespace so a triple-quoted label reads as one line in the export.
         attrs += f' aria-label="{html.escape(" ".join(aria_label.split()))}"'
-    figcaption = f"<figcaption>{caption}</figcaption>" if caption is not None else ""
+    figcaption = f"<figcaption>{_render_caption(caption)}</figcaption>" if caption is not None else ""
     return f"<figure{attrs}>{body}{figcaption}</figure>"
 
 

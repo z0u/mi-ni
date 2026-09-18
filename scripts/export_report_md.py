@@ -7,7 +7,7 @@ This replaces the ``marimo-md-export`` console script. It reuses that package's 
 
 **Dropped cells were unreported.** ``inject_outputs`` cannot tell a cell that genuinely produces no output from one whose hash failed to match, so it says nothing either way. Checking the source text instead is decisive, and catches the whole class rather than this one instance: the HTML export lists a hash for every cell in the notebook, so a code fence in the Markdown whose hash is absent from that list is a fence some transform has rewritten. :func:`check_sources_agree` raises on that rather than letting the gap reach the published document.
 
-Usage: ``./go render <notebook.py>``, which is this script with the output defaulted to :func:`~mini.reports.render_path` and the mtime staleness check on. Called directly it is ``uv run scripts/export_report_md.py <notebook.py> [out.md]``. Inlined images are externalized beside the output; a report that publishes through ``mini.reports.report_bundle`` has already written its figures to its ``public/.mini/`` dir, and :func:`localize_links` repoints those links so they resolve from wherever the render lands rather than only from the notebook's own directory. See ``clean_marimo_md.py`` for what the cleanup pass does and for the options this script forwards to it.
+Usage: ``./go render <report.py>``, which is this script with the output defaulted to :func:`~mini.reports.render_path` and the mtime staleness check on. A literate script (:func:`mini.lit.is_literate_script`) takes the short way: its own renderer weaves the Markdown, so :func:`weave` writes that and skips Marimo and the cleanup pass, moving the figures beside the output where this script keeps the images of any render. Called directly it is ``uv run scripts/export_report_md.py <notebook.py> [out.md]``. Inlined images are externalized beside the output; a report that publishes through ``mini.reports.report_bundle`` has already written its figures to its ``public/.mini/`` dir, and :func:`localize_links` repoints those links so they resolve from wherever the render lands rather than only from the notebook's own directory. See ``clean_marimo_md.py`` for what the cleanup pass does and for the options this script forwards to it.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import cast
 
@@ -27,6 +29,7 @@ from marimo_md_export.models import Cell
 from marimo_md_export.parse_html import _extract_session_cells_raw, extract_outputs
 from marimo_md_export.parse_md import collect_cells
 from marimo_md_export.transform import convert_admonitions as _convert_admonitions
+from mini.lit import is_literate_script
 from mini.reports import PUBLIC_LINK, is_stale, render_path
 
 _SPEC = importlib.util.spec_from_file_location("clean_marimo_md", Path(__file__).with_name("clean_marimo_md.py"))
@@ -183,6 +186,30 @@ def export(notebook: Path, *, sandbox: bool = False, timeout: int | None = None)
     return strip_header_from_frontmatter(result)
 
 
+_ASSET_REF_RE = re.compile(r'(?<=[("])_assets/')  # a woven figure's link: `src="_assets/…"`, `href="…"`, or `](…)`
+
+
+def weave(script: Path, dst: Path, *, assets_dir: Path | None = None) -> None:
+    """Write a literate script's woven Markdown to *dst*, its figures beside it under ``<stem>.assets/``.
+
+    :func:`mini.lit.render` weaves prose and cells into one Markdown document with the figures under an ``_assets/`` dir of its own, the shape a published bundle has. A render is one file with its images in a sibling dir, the same as the Marimo path leaves them, so the figures move there and their links are repointed. A cell that raises fails the render the way it would fail an export.
+    """
+    from mini.lit import render
+
+    assets_dir = assets_dir or dst.with_name(f"{dst.stem}.assets")
+    rel_dir = assets_dir.name if assets_dir.parent == dst.parent else str(assets_dir)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f".{dst.stem}-", dir=dst.parent) as tmp:
+        rendered = render(script, out_dir=Path(tmp), write=False)
+        if errors := rendered.woven.errors:
+            lines = "\n\n".join(f"cell at line {o.cell.line}:\n{o.error}" for o in errors)
+            sys.exit(f"render of {script} failed: {len(errors)} cell(s) raised\n{lines}")
+        shutil.rmtree(assets_dir, ignore_errors=True)
+        if (written := Path(tmp) / "_assets").is_dir():
+            shutil.move(written, assets_dir)
+    dst.write_text(_ASSET_REF_RE.sub(f"{rel_dir}/", rendered.woven.markdown))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("notebook", type=Path)
@@ -200,6 +227,11 @@ def main() -> None:
     # notebook, so a repeat pass over an unedited report costs minutes for a byte-identical file.
     if not args.force and not is_stale(args.notebook, dst):
         print(f"fresh  {dst} (newer than the notebook and its inputs — `--force` re-renders)")
+        return
+
+    if is_literate_script(args.notebook):
+        weave(args.notebook, dst, assets_dir=args.assets_dir)
+        print(f"render {args.notebook} -> {dst}")
         return
 
     raw = export(args.notebook, sandbox=args.sandbox, timeout=args.timeout)
