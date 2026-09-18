@@ -79,6 +79,9 @@ class TestWeave:
         p = write(
             tmp_path,
             """
+            ---
+            code: show
+            ---
             ```{python}
             xs = [1, 2, 3]
             print("hello")
@@ -92,14 +95,14 @@ class TestWeave:
         )
         w = Runner(p).weave()
         assert w.errors == [] and not w.stopped
-        assert "```python\nxs = [1, 2, 3]" in w.markdown  # code shown by default
+        assert "```python\nxs = [1, 2, 3]" in w.markdown
         assert '<pre class="stdout">hello\n</pre>' in w.markdown
         assert "*shown*" in w.markdown
         assert "Total 6." in w.markdown
         assert "- item 1\n- item 2\n- item 3\n" in w.markdown
 
-    def test_hidden_code(self, tmp_path):
-        p = write(tmp_path, "---\ncode: hide\n---\n```{python}\nsecret = 1\n```\nafter {{ secret }}\n")
+    def test_code_hidden_by_default(self, tmp_path):
+        p = write(tmp_path, "```{python}\nsecret = 1\n```\nafter {{ secret }}\n")
         md = Runner(p).weave().markdown
         assert "secret = 1" not in md and "after 1" in md
 
@@ -195,7 +198,7 @@ class TestIncremental:
         r = Runner(p)
         r.weave()
         p.write_text(p.read_text().replace("out = f()", "out = f() + 1"))
-        assert "\n2\n" in r.weave().markdown
+        assert r.weave().markdown.strip() == "2"
 
 
 class TestMemo:
@@ -337,7 +340,7 @@ class TestParsePy:
     def test_weaves_like_the_markdown_spelling(self, tmp_path):
         p = write(
             tmp_path,
-            '"""\n# Doc\n"""\nxs = [1, 2]\n"""\n{% for x in xs %}\n- {{ x }}\n{% endfor %}\n"""\n',
+            '# code: show\n"""\n# Doc\n"""\nxs = [1, 2]\n"""\n{% for x in xs %}\n- {{ x }}\n{% endfor %}\n"""\n',
             name="doc.py",
         )
         w = Runner(p).weave()

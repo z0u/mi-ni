@@ -1,4 +1,5 @@
 # title: Themed plots
+# code: show
 
 """
 # Themed plots

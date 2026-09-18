@@ -1,10 +1,9 @@
 # title: A tour of literate documents
-# code: hide
 
 r"""
 # A tour of literate documents
 
-This page exercises what a report needs: interpolated numbers, a table built by a loop, math, footnotes, admonitions, a cached figure, and an early stop that leaves the rest of the document readable. Cell code is hidden by default here (`# code: hide` at the top of the file), the way a report hides its plumbing.
+This page exercises what a report needs: interpolated numbers, a table built by a loop, math, footnotes, admonitions, a cached figure, and an early stop that leaves the rest of the document readable. Cell code is hidden, as it is by default: a report hides its plumbing. A page that is about the code, like the themed-plots one, opts in with `# code: show` at the top of the file.
 
 The file is plain Python, so ruff, ty, and the IDE see every cell. A top-level string is prose (this paragraph is one), and the code between two of them is a cell.
 """

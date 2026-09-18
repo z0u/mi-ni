@@ -3,7 +3,7 @@ Literate documents: prose and executable Python cells, woven into one document.
 
 A document comes in two spellings of the same thing:
 
-- **Python** (``.py``, the recommended one): a plain module, so ruff, ty, and the IDE see every cell. A top-level string literal is prose, and the code between two prose strings is a cell. Metadata is ``# key: value`` comment lines at the top of the file (``# title:``, ``# code: hide``). Write prose with math or other backslashes as a raw string (``r'''…'''``).
+- **Python** (``.py``, the recommended one): a plain module, so ruff, ty, and the IDE see every cell. A top-level string literal is prose, and the code between two prose strings is a cell. Metadata is ``# key: value`` comment lines at the top of the file (``# title:``, and ``# code: show`` to include cell source in the output). Write prose with math or other backslashes as a raw string (``r'''…'''``).
 - **Markdown** (``.md``): a fenced block whose info string is ``{python}`` is a cell; everything else is prose, and the same keys go in ``---`` front matter.
 
 Cells run top to bottom in one shared namespace, and the prose between them is a Jinja template rendered against that namespace *as it stands at that point*, so ``{{ best.mean }}``-style interpolation, ``{% for %}`` loops for tables, and helper calls like ``{{ h2_figure(res) }}`` all work without a notebook runtime. The result of weaving is plain Markdown (:attr:`Woven.markdown`), which :mod:`mini.lit.page` turns into HTML.
@@ -78,7 +78,8 @@ class Document:
 
     @property
     def show_code(self) -> bool:
-        return self.meta.get("code", "show") != "hide"
+        """Whether cell source appears in the output: ``# code: show`` opts in; a report hides its plumbing by default."""
+        return self.meta.get("code") == "show"
 
 
 def _front_matter(text: str) -> tuple[dict[str, str], int]:
