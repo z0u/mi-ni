@@ -76,6 +76,10 @@ pre code { background: none; padding: 0; border-radius: 0; font-size: 1em; }
 pre.stdout { border-left-color: var(--fg-muted); color: var(--fg-muted); }
 pre.error { border-left-color: #c33; white-space: pre-wrap; }
 
+/* The cell the live server is waiting on; the page below it is provisional. */
+pre.running { border-left-color: var(--link); color: var(--fg-muted); animation: lit-pulse 1.2s ease-in-out infinite alternate; }
+@keyframes lit-pulse { from { opacity: 0.5; } to { opacity: 1; } }
+
 /* A value the document could not compute yet: a name used after `stop()`. */
 mark.pending { background: var(--mark); padding: 0 0.2em; border-radius: 2px; font-size: 0.85em; }
 

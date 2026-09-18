@@ -21,11 +21,13 @@ import io
 import re
 import sys
 import textwrap
+import threading
 import time
 import traceback
 import types
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable, Iterator
 from typing import Any, NoReturn
 
 import jinja2
@@ -273,6 +275,7 @@ class Woven:
     seconds: float
     stopped: bool = False
     cells_run: int = 0
+    running: Cell | None = None  # set on a partial weave: the cell about to run when this snapshot was taken
 
     @property
     def errors(self) -> list[CellOutput]:
@@ -309,6 +312,41 @@ def _figure_html(fig: Any, *, publish: Publisher | None, name: str) -> str:
     )
     w = int.from_bytes(png[16:20], "big")  # PNG width from IHDR; drawn at 192 dpi, shown at 96
     return f'<figure><img src="{src}" width="{w // 2}" style="max-width:100%;height:auto" alt=""></figure>'
+
+
+class _ThreadStdout:
+    """Routes writes to a per-thread buffer while a cell runs on that thread, and to the real stream otherwise.
+
+    ``contextlib.redirect_stdout`` swaps ``sys.stdout`` for the whole process, so with a build on a background thread (the live server), a status line printed from any other thread during a slow cell would be captured and published as that cell's output. This keeps the capture to the cell's own thread. Installed once per process, over whatever ``sys.stdout`` was.
+    """
+
+    def __init__(self, real: Any) -> None:
+        self.real = real
+        self.captures: dict[int, io.StringIO] = {}
+
+    def write(self, s: str) -> int:
+        return (self.captures.get(threading.get_ident()) or self.real).write(s)
+
+    def flush(self) -> None:
+        self.real.flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.real, name)
+
+    @contextlib.contextmanager
+    def capture(self) -> Iterator[io.StringIO]:
+        tid = threading.get_ident()
+        self.captures[tid] = buf = io.StringIO()
+        try:
+            yield buf
+        finally:
+            del self.captures[tid]
+
+
+def _capture_stdout() -> contextlib.AbstractContextManager[io.StringIO]:
+    if not isinstance(sys.stdout, _ThreadStdout):
+        sys.stdout = _ThreadStdout(sys.stdout)
+    return sys.stdout.capture()
 
 
 class Runner:
@@ -354,7 +392,7 @@ class Runner:
             tree = ast.parse(cell.source, filename)
             ast.increment_lineno(tree, cell.line - 1)
             last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
-            with contextlib.redirect_stdout(buf):
+            with _capture_stdout() as buf:
                 exec(compile(tree, filename, "exec"), ns)
                 if isinstance(last, ast.Expr):
                     value = eval(compile(ast.Expression(last.value), filename, "eval"), ns)
@@ -402,8 +440,11 @@ class Runner:
             parts.append(_error_block(out.error))
         return parts
 
-    def weave(self, doc: Document | None = None) -> Woven:
-        """Run what changed and weave the whole document into Markdown."""
+    def weave(self, doc: Document | None = None, *, partial: Callable[[Woven], None] | None = None) -> Woven:
+        """Run what changed and weave the whole document into Markdown.
+
+        With *partial*, it is called just before each cell that has to run, with the document as it stands: everything above woven, a running note in place of the cell, and the prose below rendered leniently (pending marks for what the cell has not yet defined), so a page can show the report while a slow cell downloads or computes. The snapshot is built synchronously, before the cell starts, so the callback may hand it to another thread.
+        """
         t0 = time.perf_counter()
         doc = doc or parse(self.path)
         ns, keep = self._restore(doc.cells)
@@ -417,7 +458,7 @@ class Runner:
         cells_run = 0
         index = 0
         try:
-            for seg in doc.segments:
+            for pos, seg in enumerate(doc.segments):
                 if isinstance(seg, Prose):
                     parts.append(self._prose(seg, ns, lenient=stopped))
                     continue
@@ -426,6 +467,8 @@ class Runner:
                 if index < keep:
                     out = self._outputs[index]
                 else:
+                    if partial is not None:
+                        partial(self._snapshot(doc, pos, parts, outputs, ns, t0, cells_run))
                     out = self._run_cell(seg, index, ns)
                     cells_run += 1
                     if out.error is None:
@@ -439,6 +482,24 @@ class Runner:
         finally:
             use_publisher(previous)
         return Woven(doc, "\n".join(parts), outputs, time.perf_counter() - t0, stopped=stopped, cells_run=cells_run)
+
+    def _snapshot(
+        self,
+        doc: Document,
+        pos: int,
+        parts: list[str],
+        outputs: list[CellOutput],
+        ns: dict[str, Any],
+        t0: float,
+        cells_run: int,
+    ) -> Woven:
+        """The document with the cell at segment *pos* shown as running and the rest rendered leniently."""
+        cell = doc.segments[pos]
+        assert isinstance(cell, Cell)
+        rest = [self._prose(s, ns, lenient=True) for s in doc.segments[pos + 1 :] if isinstance(s, Prose)]
+        note = f'\n<pre class="running">Running the cell at line {cell.line}…</pre>\n'
+        md = "\n".join([*parts, note, *rest])
+        return Woven(doc, md, list(outputs), time.perf_counter() - t0, cells_run=cells_run, running=cell)
 
     def _prose(self, seg: Prose, ns: dict[str, Any], *, lenient: bool) -> str:
         try:

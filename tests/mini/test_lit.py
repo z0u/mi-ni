@@ -101,6 +101,25 @@ class TestWeave:
         assert "Total 6." in w.markdown
         assert "- item 1\n- item 2\n- item 3\n" in w.markdown
 
+    def test_stdout_capture_is_per_thread(self, tmp_path, capsys):
+        p = write(
+            tmp_path,
+            """
+            ```{python}
+            import threading
+            done = threading.Event()
+            t = threading.Thread(target=lambda: (print("other thread"), done.set()))
+            t.start()
+            done.wait()
+            t.join()
+            print("mine")
+            ```
+            """,
+        )
+        w = Runner(p).weave()
+        assert w.errors == [] and w.outputs[0].stdout == "mine\n"
+        assert "other thread" in capsys.readouterr().out
+
     def test_code_hidden_by_default(self, tmp_path):
         p = write(tmp_path, "```{python}\nsecret = 1\n```\nafter {{ secret }}\n")
         md = Runner(p).weave().markdown
@@ -199,6 +218,36 @@ class TestIncremental:
         r.weave()
         p.write_text(p.read_text().replace("out = f()", "out = f() + 1"))
         assert r.weave().markdown.strip() == "2"
+
+
+class TestPartial:
+    def test_snapshot_before_each_cell_that_runs(self, tmp_path):
+        p = write(
+            tmp_path,
+            """
+            # Title
+            ```{python}
+            a = 1
+            ```
+            a is {{ a }}.
+            ```{python}
+            b = a + 1
+            ```
+            b is {{ b }}.
+            """,
+        )
+        seen = []
+        r = Runner(p)
+        r.weave(partial=seen.append)
+        assert [w.running.line for w in seen if w.running] == [3, 7]
+        first, second = (w.markdown for w in seen)
+        assert "# Title" in first and "Running the cell at line 3" in first
+        assert 'a is <mark class="pending">a</mark>.' in first and 'b is <mark class="pending">b</mark>.' in first
+        assert "a is 1." in second and "Running the cell at line 7" in second and "<mark" in second
+        # cached cells do not run, so no snapshot is taken for them
+        seen.clear()
+        r.weave(partial=seen.append)
+        assert seen == []
 
 
 class TestMemo:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Callable
 import subprocess
 import time
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ from mini.lit.page import page, to_html
 from mini.reports import Publisher
 from mini.runs import data_root
 
-__all__ = ["render", "Rendered", "to_pdf", "output_dir"]
+__all__ = ["render", "compose", "Rendered", "to_pdf", "output_dir"]
 
 
 def output_dir(doc: Path, *, live: bool = False) -> Path:
@@ -45,6 +46,20 @@ class Rendered:
     runner: Runner
     seconds: float  # markdown → html
 
+    def write(self, *, markdown: bool = True) -> None:
+        """Write ``index.html`` (and ``index.md``) under :attr:`out_dir`."""
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        _write(self.out_dir / "index.html", self.html)
+        if markdown:
+            _write(self.out_dir / "index.md", self.woven.markdown)
+
+
+def compose(woven: Woven, *, extra_body: str = "") -> tuple[str, float]:
+    """The woven Markdown as a complete page, with how long that took."""
+    t0 = time.perf_counter()
+    html = page(to_html(woven.markdown), title=woven.doc.title, extra_body=extra_body)
+    return html, time.perf_counter() - t0
+
 
 def render(
     doc: Path | str,
@@ -53,11 +68,12 @@ def render(
     runner: Runner | None = None,
     live: bool = False,
     extra_body: str = "",
-    write_markdown: bool = True,
+    write: bool = True,
+    partial: Callable[[Woven], None] | None = None,
 ) -> Rendered:
-    """Weave *doc* and write ``index.html`` (and ``index.md``) under *out_dir*.
+    """Weave *doc* and (with *write*) put ``index.html`` and ``index.md`` under *out_dir*.
 
-    *live* is the interactive setting: asset URLs carry a content stamp so a browser shows a re-drawn figure, and a re-drawn figure may replace one of the same name. Pass the previous call's *runner* to re-run only the cells that changed.
+    *live* is the interactive setting: asset URLs carry a content stamp so a browser shows a re-drawn figure, and a re-drawn figure may replace one of the same name. Pass the previous call's *runner* to re-run only the cells that changed, and *partial* to be handed the document as it stands before each cell that runs (see :meth:`Runner.weave`).
     """
     path = Path(doc).resolve()
     out = (out_dir or output_dir(path, live=live)).resolve()
@@ -68,15 +84,12 @@ def render(
     else:
         runner.publish = publish
     parsed = parse(path)
-    woven = runner.weave(parsed)
-    t0 = time.perf_counter()
-    body = to_html(woven.markdown)
-    html = page(body, title=parsed.title, extra_body=extra_body)
-    seconds = time.perf_counter() - t0
-    _write(out / "index.html", html)
-    if write_markdown:
-        _write(out / "index.md", woven.markdown)
-    return Rendered(parsed, woven, html, out, runner, seconds)
+    woven = runner.weave(parsed, partial=partial)
+    html, seconds = compose(woven, extra_body=extra_body)
+    rendered = Rendered(parsed, woven, html, out, runner, seconds)
+    if write:
+        rendered.write()
+    return rendered
 
 
 def _write(path: Path, text: str) -> None:
