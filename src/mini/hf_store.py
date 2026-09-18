@@ -21,7 +21,7 @@ import shutil
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, cast
 
 from mini.store import Artifact, BlobStat, LocalStore, Store, _cas_key, _hash_file, _tree_sha, artifact_shas
 
@@ -193,7 +193,7 @@ class HFStore(Store):
         # report resolving a dozen refs pays the bucket's round-trip floor once.
         paths = {f"refs/{n}.json": n for n in names}
         infos = self._paths_info(list(paths))
-        out: dict[str, str | None] = dict.fromkeys(names)
+        out = cast(dict[str, str | None], dict.fromkeys(names))
         if not infos:
             return out
         with tempfile.TemporaryDirectory() as d:  # cleaned up, unlike a bare mkdtemp

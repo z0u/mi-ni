@@ -16,7 +16,7 @@ ls .mini/exports/gpt-sweep/_assets/*.png           # then Read the ones you want
 
 The preview also assembles `_site/`, which has a copy of each bundle's `_assets/`, so `_site/<key>/_assets/*.png` is the same file. The two differ only in `report.css` (see the gotchas).
 
-This covers the bulk of every current report. Inline-HTML figures (e.g. `subline` sparklines) that the report wraps in `externalize_html(html, name=…)` (`mini.reports`) are likewise on disk as `_assets/<name>.html`, plain markup you can `Read` (or rasterize, below) without touching the page. Reach for the browser in two cases. The first is inline/JS output without such a sidecar: it lives only inside marimo's client-hydrated data island (JSON, unicode-escaped `<svg…`), so there's no file to read and the page is blank until the runtime renders it. The second is when you need the whole page (prose + figures together, layout, the show-code toggle).
+This covers the bulk of every current report. Inline-HTML figures (e.g. `subline` sparklines) that the report wraps in `externalize_html(html, name=…)` (`mini.reports`) are likewise on disk as `_assets/<name>.html`, plain markup you can `Read` (or rasterize, below) without touching the page. A Markdown render links each one where the markup used to sit, so the path is in the document rather than something to go looking for. Reach for the browser in two cases. The first is inline/JS output without such a sidecar: it lives only inside marimo's client-hydrated data island (JSON, unicode-escaped `<svg…`), so there's no file to read and the page is blank until the runtime renders it. The second is when you need the whole page (prose + figures together, layout, the show-code toggle).
 
 A standalone `.svg` file (no marimo runtime involved) rasterizes to a readable PNG without a browser via cairosvg — `libcairo`/`librsvg` are present in this env:
 
@@ -46,17 +46,23 @@ The fix: the same pinned `dist/` ships inside the marimo pip package under `_sta
 
 ```bash
 # Get a bundle first if you don't have one: ./go preview --no-serve docs/gpt-sweep/report.py
-#   -> .mini/exports/gpt-sweep/  (index.html + _assets/)
-uv run --with playwright python .claude/skills/report-render/render.py \
+#   -> .mini/exports/gpt-sweep/  (index.html + _assets/ + report.pdf)
+uv run python .claude/skills/report-render/render.py \
     .mini/exports/gpt-sweep -o /tmp/report.png
 ```
 
 Then `Read` the PNG. `--suffix '?show-code=true'` appends to the URL; `--wait-text 'some heading'` blocks until that text renders instead of a fixed timeout.
 
+## The PDF: what the human reads on paper or e-ink
+
+Every export prints `report.pdf` beside the bundle's `index.html` (`mini.report_print`, the same print `./go publish` ships and the site links from the nav chip), through the same engine as Chrome's print dialog, so it honours the `@page` size and `@media print` rules in `docs/report.css` (paper sized for a reMarkable 2, one section per page, tables unscrolled). The print grows the page until no section breaks across pages, then clips each page to its content, so page heights vary; `print_page(fit=False)` prints the stylesheet's fixed page instead. After editing a report, `./go preview --no-serve <report>` and hand `.mini/exports/<key>/report.pdf` to the human with `SendUserFile` so they can annotate it; the `pdf-annotations` skill reads the marked-up copy back.
+
+To check a print-style edit, print the *built* page, which carries `report.css` from source rather than the copy baked at export: `./go preview --no-serve <report>`, then `render.py _site/<key>/ -o /tmp/report.pdf`. Rasterize pages with pypdfium2 (a dev dependency: `PdfDocument(path)[i].render(scale=1.5).to_pil().save(...)`) and `Read` them, or tile them into a contact sheet to see the page breaks at a glance.
+
 To inspect one element instead of the whole page, pass a CSS selector. `render.py` shoots each match (numbering `out.png` → `out-0.png`, `out-1.png`, … when several match) after scrolling it into view:
 
 ```bash
-uv run --with playwright python .claude/skills/report-render/render.py \
+uv run python .claude/skills/report-render/render.py \
     .mini/exports/gpt-sweep --selector '.output svg' -o /tmp/fig.png
 ```
 
@@ -64,7 +70,7 @@ uv run --with playwright python .claude/skills/report-render/render.py \
 
 ## Asserting on behavior, not just looking
 
-For toggles / visibility / layout logic, drive the DOM instead of screenshotting. `render.py`'s `_build_serve_root` + `_serve` are the reusable core; swap the screenshot for Playwright queries. This is how the show-code default was pinned down (PR #22) — e.g. across `?show-code` values:
+For toggles / visibility / layout logic, drive the DOM instead of screenshotting. `mini.report_print.served_bundle` is the reusable core (a context manager yielding the offline URL); swap the screenshot for Playwright queries. This is how the show-code default was pinned down (PR #22) — e.g. across `?show-code` values:
 
 ```python
 page.goto(f"http://127.0.0.1:{port}/index.html?show-code=false")
@@ -76,12 +82,12 @@ toggle = page.locator("[data-testid=notebook-action-show-code]").count()
 
 ## Why it works / gotchas
 
-- Run through the project env (`uv run --with playwright`), not `uvx`: the local `_static/` assets are hash-named per marimo version, so they only match a bundle exported by the same marimo. `uvx --with marimo` would resolve some other version and every asset would 404.
+- Run through the project env (`uv run`; Playwright is a dev dependency), not `uvx`: the local `_static/` assets are hash-named per marimo version, so they only match a bundle exported by the same marimo. `uvx --with marimo` would resolve some other version and every asset would 404.
 - Two asset dirs, no collision: the runtime lives under `assets/` (from `_static/`), the report's figures under `_assets/` (leading underscore, from the bundle). `render.py` copies both into the serve root — copies, not symlinks, so a write into the serve root can never reach through a link and mutate the marimo package or the bundle (a symlinked `index.html` once let exactly that happen).
-- Chromium: in the Claude-on-web sandbox it's pre-baked at `/opt/pw-browsers/chromium`, and `render.py` uses that if present. In VS Code or a fresh dev container it's not there (and `/opt/pw-browsers` isn't writable), so `render.py` falls back to Playwright's default resolution. Install it once:
+- Chromium: in the Claude-on-web sandbox it's pre-baked at `/opt/pw-browsers/chromium`, and `render.py` uses that if present. In VS Code or a fresh dev container it's not there (and `/opt/pw-browsers` isn't writable), so `render.py` falls back to Playwright's default resolution, and an export without any browser skips the PDF with a warning. Install it once:
   ```bash
-  uv run --with playwright playwright install chromium        # -> ~/.cache/ms-playwright
-  uv run --with playwright playwright install-deps chromium   # OS libs (libxkbcommon0, …)
+  uv run playwright install chromium        # -> ~/.cache/ms-playwright
+  uv run playwright install-deps chromium   # OS libs (libxkbcommon0, …)
   ```
   A candidate for baking into the dev container if this becomes routine; on-demand is fine otherwise (one download, then cached).
 - Locale: headless Chromium in a locale-less container reports no `navigator.language`, and marimo's frontend hard-errors on boot ("Incorrect locale information provided"), giving a blank-ish page with that message rather than your report. `render.py` pins `locale="en-US"` on the page to avoid it.

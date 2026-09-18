@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from matplotlib.colors import to_hex
+from matplotlib.lines import Line2D
 from matplotlib.path import Path as MplPath
 
 from mini.vis.plt import _FILLET_INSET, smooth_step, smooth_step_area, smooth_step_band
@@ -187,7 +188,7 @@ def test_an_oversize_fillet_is_capped_by_the_plateaus(ax):
 
 
 def test_without_plateaus_every_riser_is_still_filleted(ax):
-    """At ramp=1 the plateaus have no width, so each arc curls to horizontal at the shared sample point instead."""
+    """At ramp=1 the interior plateaus have no width, so each arc curls to horizontal at the shared sample instead."""
     y = [0.0, 1.0, 0.5, 0.2]
     patch = smooth_step(ax, range(len(y)), y, ramp=1.0, fillet=6)
     ax.figure.canvas.draw()
@@ -195,8 +196,8 @@ def test_without_plateaus_every_riser_is_still_filleted(ax):
     assert code_count(patch, MplPath.CURVE4) == 6 * 3  # two arcs on every riser, the steep one included
     assert np.all(np.diff(v[:, 0]) >= -1e-6)  # the path never doubles back on itself
     samples = ax.transData.transform([(i, 0) for i in range(len(y))])[:, 0]
-    for i in range(len(y) - 1):  # each arc ends where its sample sits, so neighbours meet there with level tangents
-        assert v[1 + 8 * i, 0] >= samples[i] - 1e-6 and v[8 + 8 * i, 0] <= samples[i + 1] + 1e-6
+    for i in range(1, len(y) - 1):  # two risers meet at every interior sample, with level tangents and no overlap
+        assert np.isclose(v[8 * i, 0], samples[i]) and np.isclose(v[1 + 8 * i, 0], samples[i])
 
 
 def test_fillet_radius_shrinks_smoothly_as_the_plateaus_close(ax):
@@ -226,8 +227,26 @@ def test_fillet_band_edges_follow_the_same_path_as_the_line(ax):
     assert np.allclose(verts(band)[n:-1][::-1], verts(floor))
 
 
-def test_fillet_patch_still_feeds_autoscale(ax):
-    smooth_step(ax, range(len(Y)), Y, fillet=3)
-    ax.autoscale_view()
+@pytest.mark.parametrize("fillet", [None, 3])
+def test_the_view_covers_the_whole_first_and_last_plateau(ax, fillet):
+    """`add_patch` records the extent but never asks for a rescale, so the ends would otherwise be clipped."""
+    smooth_step(ax, range(len(Y)), Y, fillet=fillet)
+    ax.figure.canvas.draw()
     assert ax.get_xlim()[0] <= -0.5 and ax.get_xlim()[1] >= len(Y) - 0.5
     assert ax.get_ylim()[0] <= min(Y) and ax.get_ylim()[1] >= max(Y)
+
+
+@pytest.mark.parametrize("fillet", [None, 3])
+def test_a_step_line_gets_a_line_in_the_legend_not_a_filled_box(ax, fillet):
+    """Matplotlib draws a patch handle as a swatch; a step line is a patch but reads as a line."""
+    smooth_step(ax, range(len(Y)), Y, color="C3", lw=2.0, fillet=fillet, label="series")
+    handle = ax.legend().legend_handles[0]
+    assert isinstance(handle, Line2D)
+    assert to_hex(handle.get_color()) == to_hex("C3")
+    assert handle.get_linewidth() == 2.0
+
+
+def test_a_band_keeps_its_filled_legend_swatch(ax):
+    """The mixin is on the line patches only: a ribbon is a region, and a box is the honest sample for it."""
+    smooth_step_band(ax, range(len(Y)), 0.0, Y, color="C3", label="spread")
+    assert not isinstance(ax.legend().legend_handles[0], Line2D)

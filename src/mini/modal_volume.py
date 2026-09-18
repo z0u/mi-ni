@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 
 import modal
 
+from mini.store import modal_environment
 from mini.volume import PathLike, Volume
 
 __all__ = ["ModalVolume"]
@@ -25,7 +26,10 @@ class ModalVolume(Volume):
         # ``create=False`` for read-only peeks (gc's mark phase): a look at an
         # experiment's volume must not mint an empty one on Modal.
         self._mount_point = Path(mount_point)
-        self._modal_volume = modal.Volume.from_name(name, create_if_missing=create)
+        # Resolved in the profile's Modal Environment (if any), like every other named object.
+        self._modal_volume = modal.Volume.from_name(
+            name, environment_name=modal_environment(), create_if_missing=create
+        )
 
     @property
     def path(self) -> Path:

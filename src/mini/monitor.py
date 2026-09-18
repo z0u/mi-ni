@@ -43,6 +43,10 @@ def _fmt_metrics(metrics: dict[str, float]) -> str:
     return "  ".join(f"{k}={v:g}" for k, v in metrics.items())
 
 
+def _rec_state(rec: dict[str, Any]) -> RunState:
+    return RunState(rec["state"]) if rec.get("state") else RunState.PENDING
+
+
 def _bar_desc(rec: dict[str, Any], queued: bool) -> str:
     """The label for one task's bar: key + liveness tell + message/metrics/error."""
     desc = rec["key"]
@@ -63,38 +67,90 @@ def _bar_desc(rec: dict[str, Any], queued: bool) -> str:
     return desc
 
 
-def _refresh(progress: Progress, bars: dict[str, TaskID], records: list[dict[str, Any]]) -> None:
-    """Reflect the latest memo records onto the live bars (one per task key)."""
-    for rec in records:
-        key = rec["key"]
-        state = RunState(rec["state"]) if rec.get("state") else RunState.PENDING
-        step, total = rec.get("step", 0), rec.get("total", 0)
-        if state == RunState.DONE:  # prep steps emit no progress; show them full
-            total = total or 1
-            step = total
-        elif state in (RunState.FAILED, RunState.CANCELLED):
-            total = total or 1
-        queued = is_queued(rec)  # RUNNING claimed, but no worker has started yet
-        color = _QUEUED_COLOR if queued else _COLOR.get(state, "white")
-        desc = f"[{color}]{escape(_bar_desc(rec, queued))}[/]"  # escape: errors/messages may hold [...]
-        if key not in bars:
-            bars[key] = progress.add_task(desc, total=total or None)
-        progress.update(bars[key], completed=step, total=total or None, description=desc)
+def _bar_state(rec: dict[str, Any]) -> tuple[str, int, int | None]:
+    """What one record puts on its bar: the styled label, the step, and the span (``None`` = unknown, which pulses)."""
+    state = _rec_state(rec)
+    step, total = rec.get("step", 0), rec.get("total", 0)
+    if state == RunState.DONE:  # prep steps emit no progress; show them full
+        total = total or 1
+        step = total
+    elif state in (RunState.FAILED, RunState.CANCELLED):
+        total = total or 1
+    queued = is_queued(rec)  # RUNNING claimed, but no worker has started yet
+    color = _QUEUED_COLOR if queued else _COLOR.get(state, "white")
+    desc = f"[{color}]{escape(_bar_desc(rec, queued))}[/]"  # escape: errors/messages may hold [...]
+    return desc, step, total or None
+
+
+# How long a display whose *only* moving part is a clock may sit before it is worth
+# repainting: the elapsed column counts in whole seconds, so anything faster redraws
+# a picture identical to the one already on screen.
+_CLOCK_S = 1.0
+# A bar with no known span pulses, and an animation wants frames. Rich's own cadence,
+# so the one case that needs the frames keeps exactly the smoothness it has today.
+_PULSE_S = 0.1
+
+
+class _Bars:
+    """One live bar per task key, and the judgment of when to repaint them.
+
+    Rich normally drives a ``Progress`` from a thread that repaints ten times a second whether or not anything moved, and each repaint erases every row from the bottom upward before rewriting them top down. Every row is therefore blank for a moment on each frame, and the further down a row sits the longer that moment lasts — which is why the top row looks settled while the ones below it flicker.
+
+    Nothing here changes faster than the poll that feeds it, so most of those frames redraw a picture identical to the one already showing. This drives the repaint instead, and only when a reader would see a difference: when a bar's own state moves, once a second while a clock is still counting, and at Rich's own cadence while a bar with no known span is pulsing. A display whose tasks have all settled repaints not at all.
+    """
+
+    def __init__(self, progress: Progress) -> None:
+        self._progress = progress
+        self._ids: dict[str, TaskID] = {}
+        self._shown: dict[str, tuple[str, int, int | None]] = {}
+        self._stopped: set[str] = set()
+        self._painted_at = 0.0
+
+    def update(self, records: list[dict[str, Any]]) -> None:
+        """Reflect the latest memo records onto the bars, repainting only if that changed what a reader sees."""
+        moved = False
+        for rec in records:
+            key = rec["key"]
+            shape = _bar_state(rec)
+            desc, step, total = shape
+            if key not in self._ids:
+                self._ids[key] = self._progress.add_task(desc, total=total)
+            if self._shown.get(key) != shape:
+                self._progress.update(self._ids[key], completed=step, total=total, description=desc)
+                self._shown[key] = shape
+                moved = True
+            # Freeze a settled task's clock: it has stopped meaning anything, and with
+            # nothing left counting there is nothing left to repaint for. Once only —
+            # ``stop_task`` re-stamps the stop time on every call, which would let the
+            # elapsed column creep on and leave a wrong final reading behind.
+            if key not in self._stopped and _rec_state(rec) in SETTLED:
+                self._progress.stop_task(self._ids[key])
+                self._stopped.add(key)
+        if moved or time.monotonic() - self._painted_at >= self._quiescent_for():
+            self._progress.refresh()
+            self._painted_at = time.monotonic()
+
+    def _quiescent_for(self) -> float:
+        """How long the display may go unpainted while nothing but time passes."""
+        live = [t for t in self._progress.tasks if t.start_time is not None and t.stop_time is None]
+        if any(t.total is None for t in live):
+            return _PULSE_S
+        return _CLOCK_S if live else float("inf")
 
 
 def _progress(console: Console | None) -> Progress:
-    """The shared live-bar layout (one row per task key)."""
+    """The shared live-bar layout (one row per task key).
+
+    ``auto_refresh`` is off because :class:`_Bars` decides when to repaint — see its docstring for why a timer-driven redraw flickers here. Rich still paints on its own at the two moments that matter regardless: ``start`` shows the empty display, ``stop`` leaves the final state on screen, and a log record printed through the console redraws the bars beneath it.
+    """
     return Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
         TimeElapsedColumn(),
         console=console or Console(),
+        auto_refresh=False,
     )
-
-
-def _rec_state(rec: dict[str, Any]) -> RunState:
-    return RunState(rec["state"]) if rec.get("state") else RunState.PENDING
 
 
 def _stale_reason(rec: dict[str, Any]) -> str | None:
@@ -131,12 +187,12 @@ def watch(
     baseline: set[str] | None = None  # keys already terminal at the first poll
     stale_polls: dict[str, int] = {}  # consecutive polls a key has looked stale
     with _progress(console) as progress:
-        bars: dict[str, TaskID] = {}
+        bars = _Bars(progress)
         while True:
             apparatus.enforce_budget(store)  # tear down a run past its wall-clock budget (→ CANCELLED)
             records = cache.records(store)
             apparatus.reap_dead(store, records)  # settle vanished workers — read-only path, never relaunches
-            _refresh(progress, bars, records)
+            bars.update(records)
             # Settle on the *current* records only: a superseded key (fn edited,
             # config removed) will never be requested again, so waiting on its
             # record would watch forever. Split each poll — another process may
@@ -175,28 +231,28 @@ def drive_and_watch(
     """
     store = apparatus.memo_store()
     with _progress(console) as progress:
-        bars: dict[str, TaskID] = {}
+        bars = _Bars(progress)
         while True:
             if store.budget_expired():  # don't launch a new stage past the deadline
                 cancelled = apparatus.enforce_budget(store)
-                _refresh(progress, bars, store.records())
+                bars.update(store.records())
                 raise BudgetExpired(cancelled)
             done, payload = tick(experiment, apparatus, keep_stale=keep_stale)  # advance DAG, launch missing work
             # A tick can launch new keys and reset retried ones, so the cache for
             # this stage starts fresh — only the settled tail *within* a poll loop
             # is immutable, which is where the cheap re-reads pay off.
             cache = PollCache()
-            _refresh(progress, bars, cache.records(store))
+            bars.update(cache.records(store))
             if done:
                 return payload
             # Read-only poll until the in-flight set settles — no re-ticking.
             while True:
                 if cancelled := apparatus.enforce_budget(store):  # over budget — tear down in-flight tasks
-                    _refresh(progress, bars, store.records())
+                    bars.update(store.records())
                     raise BudgetExpired(cancelled)
                 records = cache.records(store)
                 apparatus.reap_dead(store, records)  # settle vanished workers so a kill can't wedge the drain
-                _refresh(progress, bars, records)
+                bars.update(records)
                 if not any(r.get("state") == RunState.RUNNING for r in records):
                     break
                 time.sleep(poll)

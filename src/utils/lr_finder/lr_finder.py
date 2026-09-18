@@ -91,7 +91,8 @@ def lr_finder_search(
         for i, lr in enumerate(lr_schedule):
             opt_state.hyperparams["learning_rate"] = lr  # ty: ignore[unresolved-attribute]
             inputs, targets = next(batches)
-            key, step_key = jr.split(key)
+            # jr.split is annotated as returning Any; the cast describes what the unpack yields.
+            key, step_key = cast(tuple[PRNGKeyArray, PRNGKeyArray], jr.split(key))
             trial_model, opt_state, loss = test_lr(trial_model, opt_state, inputs, targets, step_key)
             loss = float(loss)
 

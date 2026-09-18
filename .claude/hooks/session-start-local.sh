@@ -35,14 +35,20 @@ cd "${CLAUDE_PROJECT_DIR:-.}"
 ) || true
 echo
 
-# Only the resource note below needs `free`; the tooling above lands either way.
+echo "## Environment"
+echo
+
+# Which storage pair this session writes to. Read from the variable rather than
+# resolved through `mini.store`, so this stays pure bash on the synchronous path;
+# `./go auth --check` prints the resolved names and what the token can reach.
+echo "MINI_PROFILE=${MINI_PROFILE:-prod}"
+
+# Only the resource note below needs `free`; everything above lands either way.
 command -v free >/dev/null 2>&1 || exit 0
 
 mem="$(free -h | awk '/^Mem:/ {print $7" free / "$2" total"}')"
 swap="$(free -h | awk '/^Swap:/ {print $3" used / "$2" total"}')"
 disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $4" free / "$2" total ("$5" used)"}')"
 
-echo "## Environment"
-echo
 echo "RAM: $mem · Swap: $swap · Disk (/): $disk"
 echo "Consider the available resources before launching jobs on this machine."

@@ -289,7 +289,7 @@ def _phase_hook(
 
     A step-free span the task declares — a checkpoint upload, a dataset pull — has to reach both judges of "is this worker wedged?", or one of them still says yes. The *watchdog* is the one with teeth: without its phase, a post-loop upload trips the tight step threshold and a finished task is aborted and re-run from scratch. The *record* stamp is what :func:`~mini.runs.stale_progress` reads, so the monitor doesn't badge a healthy upload as a wedge for as long as it runs.
 
-    The stamp is written whether or not a watchdog is armed: the badge is computed from the record either way.
+    The stamp is written whether or not a watchdog is armed: the badge is computed from the record either way. It is also written *inside* the watchdog's phase, so the span's budget covers the write that declares it — see the comment on ``phase`` below.
     """
     open_spans: dict[int, tuple[float, str]] = {}  # token -> (deadline, label)
     tokens = count()
@@ -313,17 +313,24 @@ def _phase_hook(
 
     @contextmanager
     def phase(label: str, timeout_s: float) -> Iterator[None]:
+        # The watchdog's budget goes on first and comes off last, so it covers the two
+        # stamps as well as the span between them. Those stamps are control-plane writes
+        # — a store-wide ``flock`` locally, a network round trip on Modal — and they make
+        # no step progress either, so with either one outside the budget the tight step
+        # threshold governs it: a task that emits its last step and then declares an
+        # upload could be aborted while writing the very record that says why it paused
+        # (run 34319699866, one sub-second stall blamed on the 0.25s step watchdog).
         token = next(tokens)
-        with lock:
-            open_spans[token] = (time.time() + timeout_s, label)
-        restamp()
-        try:
-            with watchdog.phase(label, timeout_s) if watchdog is not None else nullcontext():
-                yield
-        finally:
+        with watchdog.phase(label, timeout_s) if watchdog is not None else nullcontext():
             with lock:
-                open_spans.pop(token, None)
+                open_spans[token] = (time.time() + timeout_s, label)
             restamp()
+            try:
+                yield
+            finally:
+                with lock:
+                    open_spans.pop(token, None)
+                restamp()
 
     return phase
 

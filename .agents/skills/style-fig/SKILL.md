@@ -20,6 +20,20 @@ A chart (loss curve, score sweep, schedule) keeps its axes. Use the stylesheet d
 
 A geometry panel shows a space (latent scatter, embedding projection) rather than a chart of one. The space is the message, so draw the domain rather than chart furniture: limits fixed from the domain — never autoscaled, since panels must be comparable across conditions and a collapsed dimension should _look_ collapsed — axes hidden, and the bound of the domain drawn instead. Equal aspect, marks and rim annotations with `clip_on=False`, and 3D projections orthographic and top-down (`ax.view_init(elev=90, azim=-90)`, `ax.set_proj_type('ortho')`, view margin 0) so the panel reads as a 2D slice.
 
+## Gates and thresholds
+
+Where a hypothesis is scored against a gate, draw the gate in the figure so the reader can see the verdict rather than compute it: a dashed rule at the gate level, a dotted rule for a secondary level under it (a partial-credit bar, a reference value), and the **failing side hatched** — `axhspan(..., facecolor="none", edgecolor=..., hatch="//", lw=0, alpha=0.1, zorder=0)`. Hatching rather than a tint, because a tint would compete with the marks' own color, and color is data. A miss then reads as a region a mark has strayed into, and the eye needs no arithmetic to tell which side is which.
+
+Two mechanics to get right. `axhspan` reads the current y-limits to size itself and then counts as data for autoscaling, so draw it after the marks and put the limits back (`lo, hi = ax.get_ylim()` … `ax.set_ylim(lo, hi)`); everything else the panel draws should come *before* it, or the frozen limits will clip it. And when the same gate appears in two sections, draw it the same way both times — a reader who has decoded one panel should not have to decode it again. A small `gate_line(ax, level, ...)` helper in the report keeps the two sections identical.
+
+
+## Legends
+
+A legend belongs to the figure, not to one axes: `fig.legend(handles, labels, loc="outside upper center", ncols=len(labels), frameon=False)` under `layout="constrained"`, taking the handles from whichever axes carries the full set. Inside the axes it competes with the data for space and lands on top of a hatched gate region; above the panels it reads as a key to the whole figure, which is what it is.
+
+Better still is no legend: where the marks carry the encoding themselves (see *Color is data*), a legend is a second copy of the information.
+
+
 ## Color is data
 
 Color the marks with the colors they represent; a legend or colorbar is almost always the wrong tool. Encode comparisons in the mark itself: facecolor shows the model output, edgecolor (or an inset patch, for grids) shows the true input, so an error shows as a face/edge mismatch. Loss-vs-hue lines draw as segments colored by the color at each x (round capstyle to avoid gaps).
@@ -32,7 +46,7 @@ The same rule holds in prose and HTML tables: name a palette color with an inlin
 
 A subline is the text itself with one sparkline per series running underneath, aligned to the tokens: `subline.subline.Subline(…).plot(tokens, series)`, whose docstring holds the mechanics. Tokens may be any width — a wide one draws as a plateau across its glyphs, the same grammar as `smooth_step`. Reach for it when the reader needs to see _which_ token a value lands on; per-character surprisal or predictive entropy over one prompt is the standing case. A matplotlib chart of the same series gives up the alignment with the glyphs, and a heatmap gives up the rate of change.
 
-Two things are ours rather than the library's. Pass `css="svg { --bg-color: light-dark(#fff, #181c1a); }"`: its light background already matches, but its dark default is a lighter grey that reads as a box on the notebook. Then wrap the SVG with `figure_html` and externalize the group, on the same terms as any other figure.
+Two things are ours rather than the library's. Pass `css="svg { --bg-color: light-dark(#fff, #181c1a); }"`: its light background already matches, but its dark default is a lighter grey that reads as a box on the notebook. Then wrap the SVG with `figure_html` and externalize the group, on the same terms as any other figure. Give that wrapper an `aria_label`: an inlined strip has no alt text of its own, and this is what a screen reader announces and what a Markdown render puts in place of the markup — see the `alt-text` skill for what to write.
 
 ## Result tables
 

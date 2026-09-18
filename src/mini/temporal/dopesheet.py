@@ -107,7 +107,7 @@ class Dopesheet:
 
         is_phase_end = step == current_phase_end_step
 
-        _t: int = steps_col[idx]
+        _t = cast(int, steps_col[idx])  # a pandas Int64 cell — `.astype("Int64")` in resolve_timesteps
         if _t != step:
             return Frame(
                 t=step,

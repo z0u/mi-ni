@@ -210,6 +210,8 @@ ul:has(>li>p),
   gap: 0.5rem;
   overflow-x: auto;
   margin-block: 0.75em;
+  scrollbar-color: light-dark(#c1c1c1, #6b6b6b) transparent;
+  scrollbar-width: thin;
 }
 
 .fig-strip img {
@@ -219,6 +221,29 @@ ul:has(>li>p),
   max-width: none;
   border: 1px solid var(--border);
   border-radius: 4px;
+}
+
+/* The report's PDF, first in its strip: a page-shaped chip the height of a thumbnail. */
+.fig-strip-pdf {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 4.5rem;
+  width: 3.25rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-muted);
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+}
+
+.fig-strip-pdf:hover,
+.fig-strip-pdf:focus-visible {
+  color: var(--fg);
+  border-color: var(--fg-muted);
 }
 
 /* A tag row under an index entry: quieter than body text, so it reads as metadata. */

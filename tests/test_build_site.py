@@ -1,6 +1,7 @@
 """Tests for the static-site builder's author-link resolver (pure policy)."""
 
 import pytest
+from pathlib import Path
 
 from mini.reports import github_slug
 
@@ -26,7 +27,7 @@ def test_strip_index(url, want):
     "heading",
     [
         "Provenance & cost",  # the `&` goes, its two spaces both become hyphens
-        "Fig 2.1: width in a transformer",
+        "D2.1: anchoring in a transformer",
         "Hotfix safety: avoid double-spending",
         "`test_local_apparatus_concurrent` failed on a pristine tree",
         "Keeps_underscores",
@@ -392,3 +393,67 @@ def test_missing_bases_degrade_to_unresolved():
     assert r.resolve("../acts/report.py", externalizing=True, **kw) is None
     # …but localize still keeps rendered links relative (no base needed).
     assert r.resolve("../acts/report.py", externalizing=False, **kw) == "../../acts/report/index.html"
+
+
+@pytest.mark.parametrize(
+    ("html", "base_href", "pdf", "expected"),
+    [
+        (
+            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
+            "https://hf.co/d/r/resolve/abc/exports/k/",
+            None,
+            "report.pdf",
+        ),
+        (
+            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
+            None,
+            Path("report.pdf"),
+            "report.pdf",
+        ),
+        (
+            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
+            None,
+            None,
+            None,
+        ),
+        ("<html><head></head></html>", "https://hf.co/d/r/resolve/abc/exports/k/", None, None),
+    ],
+    ids=[
+        "externalize: the base serves it",
+        "localize: copied beside the page",
+        "localize: declared but not on disk",
+        "a bundle exported before PDFs",
+    ],
+)
+def test_the_pdf_link_follows_the_declared_alternate_and_the_asset_mode(html, base_href, pdf, expected):
+    assert build_site._Bundle(html, base_href=base_href, pdf=pdf).pdf_url == expected
+
+
+@pytest.mark.parametrize(
+    ("base_href", "externalizing", "expected"),
+    [
+        (
+            "https://hf.co/d/r/resolve/abc123/exports/probe/report/",
+            True,
+            "https://hf.co/d/r/resolve/abc123/exports/probe/report/report.pdf",
+        ),
+        (None, False, "probe/report/report.pdf"),
+    ],
+    ids=["externalize: the pinned CDN base", "localize: beside the copied page"],
+)
+def test_figure_strip_opens_with_the_pdf_the_export_printed(base_href, externalizing, expected):
+    """The index links the same file the report's nav chip does, at the same base as the figures."""
+    from mini.reports import ReportFigure
+
+    strip = build_site.FigureStrip(
+        "probe/report", base_href, (ReportFigure("f", light="_assets/f.png"),), pdf="report.pdf"
+    )
+    out = build_site._figure_strip_html(strip, from_dir="", externalizing=externalizing)
+    assert out.startswith(f'<div class="fig-strip"><a class="fig-strip-pdf" href="{expected}"')
+    assert out.index("fig-strip-pdf") < out.index("<img")  # first, so it is never scrolled out of view
+
+
+def test_figure_strip_of_a_figureless_report_still_links_its_pdf():
+    strip = build_site.FigureStrip("probe/report", None, (), pdf="report.pdf")
+    out = build_site._figure_strip_html(strip, from_dir="", externalizing=False)
+    assert 'href="probe/report/report.pdf"' in out and "<img" not in out

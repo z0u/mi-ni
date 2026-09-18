@@ -508,7 +508,7 @@ def main() -> int:
     backup_api = HfApi(token=write_token or False)
     bucket_api = HfApi(token=os.environ.get("HF_BUCKET_TOKEN") or write_token or False)
     missing_path = args.state.with_name("store-missing.json")
-    missing: dict[str, str] = json.loads(missing_path.read_text()) if missing_path.is_file() else {}
+    missing: dict[str, str] = dict(json.loads(missing_path.read_text())) if missing_path.is_file() else {}
     state: dict[str, Any] = {
         "ran_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "mirror": mirror,

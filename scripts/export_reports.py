@@ -14,9 +14,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))  # so `import clean_docs` (sibling) works
 
+from build_site import LinkResolver, resolve_html_links  # noqa: E402
 from clean_docs import clean_html, default_hidden_code  # noqa: E402
+from mini.report_print import print_bundle  # noqa: E402
 from mini.reports import (  # noqa: E402
     EXPORTING_ENV,
+    PDF_LEAF,
+    PDF_TYPE,
     PROVENANCE_ASSET,
     export_dir,
     export_key,
@@ -26,6 +30,7 @@ from mini.reports import (  # noqa: E402
     publish_lock,
     report_notebooks,
     save_pins,
+    set_alternate,
     set_provenance,
     write_thumbnails,
 )
@@ -85,6 +90,25 @@ def export_one(nb: Path) -> Path:
     if thumbs:
         print(f"  thumbs {len(thumbs)} figure(s) -> {assets.relative_to(ROOT)}/thumbs/")
     out.write_text(html, "utf-8")
+    # The PDF, for reading on paper or e-ink (todo/eng/pdf-exports.md): printed here, the
+    # half that holds the bundle, and synced beside the HTML so the site build can link it
+    # without a browser of its own. Author links are resolved the way the published page
+    # resolves them, in the printed copy only, so the PDF's links work and its bytes are a
+    # function of the report alone (left relative, they would carry the loopback port the
+    # print served from, and an unchanged report would upload a new file every time).
+    pdf = out.parent / PDF_LEAF
+    pdf.unlink(missing_ok=True)  # the last export's, which a skipped print must not leave to sync
+    from_dir = nb.parent.relative_to(DOCS).as_posix()
+    printable = resolve_html_links(
+        html,
+        LinkResolver.discover(),
+        from_dir="" if from_dir == "." else from_dir,
+        out_dir=export_key(nb),
+        externalizing=True,
+    )
+    print(f"  print  {out.relative_to(ROOT)} -> {pdf.relative_to(ROOT)} (headless Chromium; a few seconds)")
+    if print_bundle(out.parent, pdf, html=printable) is not None:
+        out.write_text(set_alternate(html, type=PDF_TYPE, href=PDF_LEAF), "utf-8")
     return out.parent
 
 

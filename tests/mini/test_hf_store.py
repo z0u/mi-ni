@@ -2,7 +2,7 @@
 
 Talks to a real bucket at ~2-3s per commit, so it is deselected by default (the ``hf`` marker) and, when selected, skipped unless a bucket is configured *and* the ambient Hugging Face token (``HF_TOKEN``, else the ``hf auth login`` cache) can write to it — a read-only token skips the module rather than failing every write. It writes only under a unique ``cas/`` blob and a per-run ``refs/_test/<uuid>`` / ``published/_test/<uuid>`` prefix, and deletes everything it created in teardown, so it never collides with real artifacts.
 
-Which bucket: the ``dev`` storage profile's pair when the project configures one (``[tool.mini.profiles.dev]``, see the storage-envs skill), so the suite's probes stay out of production; otherwise the active pair. ``MINI_STORE_BUCKET`` / ``MINI_PUBLISH_REPO`` override either, as everywhere — an environment configured by env vars alone points them at its dev pair directly.
+Which bucket: the ``dev`` storage profile's pair when the project configures one (``[tool.mini.profiles.dev]``, see the mi-ni skill's storage reference), so the suite's probes stay out of production; otherwise the active pair. ``MINI_STORE_BUCKET`` / ``MINI_PUBLISH_REPO`` override either, as everywhere — an environment configured by env vars alone points them at its dev pair directly.
 
 Run it with::
 
@@ -69,7 +69,9 @@ def api():
                 f"the HF token can't write to {BUCKET} (HTTP {status}); the bucket integration test needs a write token"
             )
         if status == 404:  # a profile's pair that is configured but not yet created
-            pytest.skip(f"bucket {BUCKET} does not exist (HTTP 404) — create it first (see the storage-envs skill)")
+            pytest.skip(
+                f"bucket {BUCKET} does not exist (HTTP 404) — create it first (see the mi-ni skill's storage reference)"
+            )
         raise
     api.batch_bucket_files(BUCKET, delete=[probe])
     return api

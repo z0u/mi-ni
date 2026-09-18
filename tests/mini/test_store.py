@@ -14,6 +14,7 @@ from mini.store import (
     Artifact,
     LocalStore,
     active_profile,
+    modal_environment,
     get,
     get_ref,
     get_store,
@@ -285,7 +286,13 @@ def profiled_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A project with a production pair and a `dev` profile carrying a bucket only, and a clean env."""
     (tmp_path / "pyproject.toml").write_text(PROFILED)
     monkeypatch.chdir(tmp_path)
-    for var in ("MINI_STORE_BUCKET", "MINI_PUBLISH_REPO", "MINI_PROFILE", "MINI_NO_PROJECT_CONFIG"):
+    for var in (
+        "MINI_STORE_BUCKET",
+        "MINI_PUBLISH_REPO",
+        "MINI_PROFILE",
+        "MINI_NO_PROJECT_CONFIG",
+        "MODAL_ENVIRONMENT",
+    ):
         monkeypatch.delenv(var, raising=False)
     return tmp_path
 
@@ -337,6 +344,25 @@ def test_unknown_profile_yields_no_pair_and_warns_once(profiled_project: Path, m
         assert store_bucket() is None
     warnings = [r for r in caplog.records if "profiles.staging" in r.getMessage()]
     assert len(warnings) == 1
+
+
+def test_modal_environment_is_the_profiles_own(profiled_project: Path, monkeypatch):
+    """`modal-environment` follows the same rule as the pair: the profile's table alone, never the base's.
+
+    The dev profile's Environment keeps its memo records and Volumes beside production's, so a run under it can't read production's memo state while writing to the dev bucket. A profile that leaves the key out gets Modal's default rather than production's Environment, and the env var — Modal's own — wins over both.
+    """
+    (profiled_project / "pyproject.toml").write_text(PROFILED + 'modal-environment = "dev"\n')
+    assert modal_environment() is None
+    monkeypatch.setenv("MINI_PROFILE", "dev")
+    assert modal_environment() == "dev"
+    assert modal_environment(profile=None) is None
+    # A base Environment is not inherited by a profile that names none.
+    (profiled_project / "mini.local.toml").write_text('[tool.mini]\nmodal-environment = "prod"\n')
+    assert modal_environment(profile=None) == "prod"
+    monkeypatch.setenv("MINI_PROFILE", "staging")
+    assert modal_environment() is None
+    monkeypatch.setenv("MODAL_ENVIRONMENT", "shell")
+    assert modal_environment() == "shell"
 
 
 def test_store_for_threads_publish_repo_into_the_hfstore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

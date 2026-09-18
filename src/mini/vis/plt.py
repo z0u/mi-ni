@@ -13,6 +13,9 @@ import matplotlib.transforms as mtransforms
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
+from matplotlib.legend import Legend
+from matplotlib.legend_handler import HandlerBase
+from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path as MplPath
 
@@ -161,6 +164,29 @@ def _fillet_path(
     return MplPath(np.array(verts), codes)
 
 
+class _StepLine:
+    """Marker for a step patch that draws a line rather than fills a region.
+
+    A step line is a :class:`~matplotlib.patches.PathPatch` because the risers are cubics, and matplotlib draws a patch in a legend as a filled swatch — a box, whatever the patch actually looks like on the axes. Tagging the line patches lets :class:`_HandlerStepLine` give them a line sample instead. Matplotlib resolves a handler along the handle's MRO, so registering the mixin covers the plain and filleted patches both.
+    """
+
+
+class _HandlerStepLine(HandlerBase):
+    """Draw a step line's legend entry as a stroke in the line's own color, weight, and dash."""
+
+    def create_artists(self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans):
+        line = Line2D([-xdescent, -xdescent + width], [(height - ydescent) / 2] * 2)
+        line.set_color(orig_handle.get_edgecolor())
+        line.set_linewidth(orig_handle.get_linewidth())
+        line.set_linestyle(orig_handle.get_linestyle())
+        line.set_alpha(orig_handle.get_alpha())
+        line.set_transform(trans)
+        return [line]
+
+
+Legend.update_default_handler_map({_StepLine: _HandlerStepLine()})
+
+
 class _FilletStepPatch(PathPatch):
     """A filleted step line or band, laid out in display space each time it is drawn.
 
@@ -186,18 +212,32 @@ class _FilletStepPatch(PathPatch):
         return paths[0] if len(paths) == 1 else _band_path(*paths)
 
 
+class _PlainStepLinePatch(_StepLine, PathPatch):
+    """One S-curved step line."""
+
+
+class _FilletStepLinePatch(_StepLine, _FilletStepPatch):
+    """One filleted step line."""
+
+
 def _add_step_patch(ax: "Axes", x, ys, hs, breaks, fillet, style: dict) -> PathPatch:
     """Add a step line (one series) or band (upper, lower) to *ax*, filleted or S-curved."""
+    line = len(ys) == 1
     if fillet is None:
         paths = [_step_path(x, y, hs, breaks) for y in ys]
-        patch = PathPatch(paths[0] if len(paths) == 1 else _band_path(*paths), **style)
+        cls = _PlainStepLinePatch if line else PathPatch
+        patch = cls(paths[0] if line else _band_path(*paths), **style)
     else:
         transform = style.pop("transform", ax.transData)
-        patch = _FilletStepPatch(ax, x, ys, hs, breaks, fillet, transform, **style)
+        cls = _FilletStepLinePatch if line else _FilletStepPatch
+        patch = cls(ax, x, ys, hs, breaks, fillet, transform, **style)
         # The identity transform hides the patch from autoscaling; report the data extent ourselves.
         dx = (x[-1] - x[0]) / (len(x) - 1)
         ax.update_datalim([(x[0] - dx / 2, min(map(np.min, ys))), (x[-1] + dx / 2, max(map(np.max, ys)))])
     ax.add_patch(patch)
+    # `add_patch` records the extent but never asks for a rescale, so an axes drawn only from these would keep
+    # matplotlib's placeholder 0..1 limits and clip the first and last plateaus. Ask for it here.
+    ax.autoscale_view()
     return patch
 
 
@@ -318,10 +358,12 @@ def smooth_step_marks(
 
     Two strokes: the full path at *riser_weight* times the line width and *riser_alpha* times its opacity, and over it the same line at full weight broken at every riser. A row then reads as a run of level marks with a hint of the path between them, rather than as a curve that happens to be flat in places. Use it where the x axis is a handful of discrete sites and the measurements are the plateaus; where a riser can span unprobed ground the reader has to judge, keep :func:`smooth_step`'s solid risers (or *elide* those stretches).
 
-    *breaks* and the other keywords pass through to both strokes. Returns the marks' patch.
+    *breaks* and the other keywords pass through to both strokes, except *label*, which only the marks carry so a legend lists the series once. Returns the marks' patch.
     """
     x = np.asarray(x, float)
     lw = kwargs.pop("lw", kwargs.pop("linewidth", 1.0))
     alpha = kwargs.pop("alpha", None) or 1.0
+    label = kwargs.pop("label", None)
     smooth_step(ax, x, y, breaks=breaks, lw=lw * riser_weight, alpha=alpha * riser_alpha, **kwargs)
-    return smooth_step(ax, x, y, breaks=set(breaks or ()) | set(range(len(x) - 1)), lw=lw, alpha=alpha, **kwargs)
+    marks = set(breaks or ()) | set(range(len(x) - 1))
+    return smooth_step(ax, x, y, breaks=marks, lw=lw, alpha=alpha, label=label, **kwargs)

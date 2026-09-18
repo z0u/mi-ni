@@ -68,11 +68,13 @@ __all__ = [
     "store_bucket",
     "publish_repo",
     "active_profile",
+    "modal_environment",
     "profiles",
     "STORE_BUCKET_ENV",
     "PUBLISH_REPO_ENV",
     "PROFILE_ENV",
     "PROFILE_KEYS",
+    "MODAL_ENVIRONMENT_ENV",
     "LOCAL_CONFIG",
     "NO_PROJECT_CONFIG_ENV",
 ]
@@ -97,7 +99,15 @@ PROFILE_ENV = "MINI_PROFILE"
 # half-written dev profile falls to the local store rather than publishing into
 # production. Every other key (`app`, `env`, `region`) is inherited and may be
 # overridden.
-PROFILE_KEYS = ("store-bucket", "publish-repo")
+PROFILE_KEYS = ("store-bucket", "publish-repo", "modal-environment")
+
+# Env var naming the Modal *Environment* — Modal's own variable, which its client
+# and CLI already read — and an override for `[tool.mini] modal-environment` (see
+# `modal_environment`). An Environment is a namespace inside a workspace with its
+# own apps, Dicts, Volumes and Secrets, so it is the third thing a profile keeps
+# apart: the memo control plane and per-experiment Volumes, beside the two storage
+# repos. Unset → Modal's default (`main`, or whatever `modal config` names).
+MODAL_ENVIRONMENT_ENV = "MODAL_ENVIRONMENT"
 
 # A gitignored sibling of `pyproject.toml` carrying the same `[tool.mini]` keys,
 # overlaid on the committed table (see `_project_config`). For a setting that
@@ -589,7 +599,8 @@ def _project_config(profile: str | None | types.EllipsisType = ...) -> dict:
             _warned_profiles.add(profile)
             log.warning(
                 "%s=%r but no [tool.mini.profiles.%s] table is configured — the storage pair is unset, "
-                "so this session uses the local store. Add the table (see the storage-envs skill) or unset %s.",
+                "so this session uses the local store. Add the table (see the mi-ni skill's storage reference) "
+                "or unset %s.",
                 PROFILE_ENV,
                 profile,
                 profile,
@@ -617,6 +628,16 @@ def publish_repo(*, profile: str | None | types.EllipsisType = ...) -> str | Non
     When set, :meth:`~mini.hf_store.HFStore.publish` and the report-export methods target this public, git-backed dataset repo instead of the durable bucket — so the CAS bucket can be private (persisting an artifact never makes its bytes world-readable) and published views get real history (a citation pins to a commit sha). Unset → publish/exports stay in the bucket, the single-store default. Resolution mirrors :func:`store_bucket` (``MINI_PUBLISH_REPO`` env first, else ``[tool.mini] publish-repo`` from ``pyproject.toml`` or :data:`LOCAL_CONFIG`, under the same *profile* rules); the repo id isn't a secret.
     """
     return os.environ.get(PUBLISH_REPO_ENV) or _project_config(profile).get("publish-repo")
+
+
+def modal_environment(*, profile: str | None | types.EllipsisType = ...) -> str | None:
+    """The Modal Environment the run's control plane lives in, or ``None`` for Modal's default.
+
+    A Modal Environment is a namespace inside a workspace: apps, Dicts, Volumes and Secrets looked up by name resolve within it, so an experiment run under one Environment never sees another's memo records or Volume. It is what keeps a dev run of a production experiment name from reading production's memo state while writing its artifacts to the dev bucket — the same separation the storage pair gets, for the third store a run touches (see ``eng/environments.md``).
+
+    Resolution mirrors :func:`store_bucket`: :data:`MODAL_ENVIRONMENT_ENV` first (Modal's own variable, so a shell or a container that already names one is followed), else ``[tool.mini] modal-environment`` under the same *profile* rules — the key is one of :data:`PROFILE_KEYS`, so a profile that leaves it out gets Modal's default rather than the base configuration's Environment. The Environment must exist (``modal environment create <name>``): lookups do not create one.
+    """
+    return os.environ.get(MODAL_ENVIRONMENT_ENV) or _project_config(profile).get("modal-environment")
 
 
 def _hf_token() -> str | None:

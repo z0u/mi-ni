@@ -15,7 +15,7 @@ import sys
 from asyncio.subprocess import DEVNULL, PIPE
 from collections.abc import Callable, Coroutine
 from typing import Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -23,10 +23,15 @@ class Status:
     label: str
     ok: bool
     detail: str = ""
+    notes: list[str] = field(default_factory=list)
 
     def line(self) -> str:
         mark = "✅" if self.ok else "❌"
-        return f"  {mark} {self.label:<18} {self.detail}".rstrip()
+        head = f"  {mark} {self.label:<18} {self.detail}".rstrip()
+        # Continuation lines align under `detail` as a terminal lays it out: two spaces,
+        # the mark (one character, two columns), a space, the padded label, a space.
+        indent = " " * (2 + 2 + 1 + 18 + 1)
+        return "\n".join([head, *(f"{indent}{n}" for n in self.notes)])
 
 
 async def _run(*cmd: str, timeout: float = 15.0) -> tuple[int, str, str]:
@@ -70,13 +75,107 @@ async def check_modal() -> Status:
     # The line reads "Workspace: <name> (<internal-id>)"; keep the name, drop the id.
     match = re.search(r"^\s*Workspace:\s*(\S+)", out, re.MULTILINE)
     workspace = match.group(1) if match else ""
-    return Status("Modal", True, f"workspace {workspace}" if workspace else "authenticated")
+    # Only shown when set — unset is Modal's default Environment, the production case.
+    from mini.store import modal_environment
+
+    parts = [f"workspace {workspace}" if workspace else "authenticated"]
+    if env := modal_environment():
+        parts.append(f"environment {env}")
+    return Status("Modal", True, ", ".join(parts))
+
+
+# -- which storage pairs the token can reach ---------------------------------
+#
+# `store-bucket` / `publish-repo` name one pair per profile, but the token decides
+# which of them can be written (see eng/environments.md). Reading the names alone
+# can't tell a sandbox credential from one that also reaches production, so the
+# check reports the token's own grants. They come from `whoami()`, which returns
+# the scope list for a fine-grained token: no write is attempted, and no part of
+# the token appears in the output.
+
+# What a Hub grant list has to contain for each level, most-privileged first.
+_REPO_PERMS = (("write", {"repo.write"}), ("read only", {"repo.content.read", "repo.access.read"}))
+
+
+def _configured_pairs() -> list[tuple[str, list[str]]]:
+    """Each configured storage pair as ``(label, repo ids)`` — production first, then each profile."""
+    from mini.store import profiles, publish_repo, store_bucket
+
+    pairs = []
+    for profile in (None, *profiles()):
+        repos = [r for r in (store_bucket(profile=profile), publish_repo(profile=profile)) if r]
+        if repos:
+            pairs.append((profile or "production", repos))
+    return pairs
+
+
+def _repo_access(access_token: dict, repo: str) -> str:
+    """The level *access_token* grants on *repo* (``namespace/name``): ``write``, ``read only``, or ``""``."""
+    fine = access_token.get("fineGrained")
+    if fine is None:
+        # A classic token carries one role over everything the account can see.
+        return {"write": "write", "read": "read only"}.get(access_token.get("role", ""), "")
+    namespace = repo.split("/")[0]
+    granted: set[str] = {p for p in fine.get("global", []) if p.startswith("repo.")}
+    for scope in fine.get("scoped", []):
+        entity = scope.get("entity", {})
+        # A repo-scoped grant names the repo; a user- or org-scoped one covers the namespace.
+        if entity.get("name") in (repo, namespace if entity.get("type") in ("user", "org") else None):
+            granted |= set(scope.get("permissions", []))
+    return next((level for level, need in _REPO_PERMS if granted & need), "")
+
+
+def _pair_access(access_token: dict, repos: list[str]) -> str:
+    """The level the whole pair shares — a pair is only writable if both halves are."""
+    levels = [_repo_access(access_token, r) for r in repos]
+    if all(lv == "write" for lv in levels):
+        return "write"
+    if all(levels):
+        return "read only"
+    return "partial" if any(levels) else "none"
+
+
+async def _whoami() -> dict:
+    """The Hub's account record for the active token. Its own function so a test can stand in for it."""
+    from huggingface_hub import HfApi
+
+    return await asyncio.wait_for(asyncio.to_thread(HfApi().whoami), 15.0)
+
+
+async def _token_scope() -> str | None:
+    """One line naming what the Hugging Face token can do to each configured pair, or ``None`` if unknown."""
+    try:
+        pairs = _configured_pairs()
+        if not pairs:
+            return None
+        access_token = (await _whoami()).get("auth", {}).get("accessToken") or {}
+        by_level: dict[str, list[str]] = {}
+        for label, repos in pairs:
+            by_level.setdefault(_pair_access(access_token, repos), []).append(label)
+    except Exception:
+        # Advisory detail only — a check that already knows the token works shouldn't
+        # fail because the scope lookup didn't.
+        return None
+    # Ordered most-privileged first, each with the phrasing that reads as a sentence.
+    phrasing = [
+        ("write", "write on"),
+        ("read only", "read only on"),
+        ("partial", "partial on"),
+        ("none", "no access to"),
+    ]
+    return "token: " + "; ".join(f"{say} {_and_list(by_level[lv])}" for lv, say in phrasing if lv in by_level)
+
+
+def _and_list(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 
 async def check_hf() -> Status:
     from mini.store import active_profile, publish_repo, store_bucket
 
-    code, out, err = await _run("hf", "auth", "whoami")
+    # The CLI probe answers "is this shell authenticated"; the scope lookup answers
+    # "what can it write". Run them together so the second costs no wall clock.
+    (code, out, err), scope = await asyncio.gather(_run("hf", "auth", "whoami"), _token_scope())
     text = out + err
     if code != 0 or "not logged in" in text.lower():
         return Status("Hugging Face", False, "not logged in — run ./go auth")
@@ -92,11 +191,11 @@ async def check_hf() -> Status:
             f"profile {profile}" if profile else "",
             f"bucket {bucket}" if bucket else "no store-bucket set",
             # Only shown when set — the publish tier is opt-in (#38); unset means publish stays in the bucket.
-            f"publish-repo {repo}" if repo else "",
+            f"dataset {repo}" if repo else "",
         )
         if p
     ]
-    return Status("Hugging Face", True, ", ".join(parts))
+    return Status("Hugging Face", True, ", ".join(parts), notes=[scope] if scope else [])
 
 
 async def check_github() -> Status:

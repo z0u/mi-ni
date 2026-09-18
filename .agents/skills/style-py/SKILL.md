@@ -108,12 +108,38 @@ with app.setup(hide_code=True):
     None  # Prevent the docstring from rendering
 
 
+@app.class_definition(hide_code=True)
+@dataclass(frozen=True)
+class Curves:
+    data: tuple[dict[str, dict[str, np.ndarray]], np.ndarray]
+
+    def stat(self, key: str, arch: str) -> np.ndarray:
+        return np.array([r[key] for r in self.data[arch]], float)
+
+
 @app.function(hide_code=True)
-def load_curves() -> tuple[dict[str, dict[str, np.ndarray]], np.ndarray] | None:
+def load_curves() -> tuple[dict[str, dict[str, np.ndarray]], np.ndarray]:
     # This is a "reusable function" cell
     ...
     return data
+
+
+@app.cell(hide_code=True)
+def _():
+    curves: Curves = Curves(data=load_curves())  # annotate, so downstream cells see the type
+    return (curves,)
+
+
+@app.cell(hide_code=True)
+def _(curves: Curves):
+    _stat = curves.stat(...)  # now properly typed
+    ...
+    return
 ```
+
+Method defaults and annotations may read the setup cell, and the class body and its methods are type-checked like any module-level class. Annotating the instance is what carries that to the call sites: Marimo copies `Curves` onto every downstream signature, and `ty` then catches a misspelled method or a wrong argument in the cells that use it. Leave the instance bare and those cells go unchecked.
+
+This is for a bundle several cells share. A `_plot()` closure inside one figure cell stays where it is — it has one caller, and the state it reads is right above it.
 
 ### Matplotlib axes
 
