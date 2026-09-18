@@ -7,6 +7,7 @@ This module provides a live progress display for apparatus by collecting Progres
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import threading
 from contextlib import contextmanager
@@ -51,10 +52,11 @@ def _route_logging_to(console: Console):
 
 def _is_in_notebook() -> bool:
     """Detect if we're running in a notebook-like environment (Jupyter, IPython, Marimo, etc.)."""
+    # Loaded by name: IPython is not a dependency, only present where a kernel was installed
+    # into the env (VS Code's "Run Cell" does that), so a static import is an unresolved
+    # import in CI and an unused suppression locally, and the push hook fails either way.
     try:
-        from IPython.core.getipython import get_ipython  # type: ignore
-
-        if get_ipython() is not None:
+        if importlib.import_module("IPython.core.getipython").get_ipython() is not None:
             return True
     except ImportError:
         pass
