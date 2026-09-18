@@ -576,8 +576,6 @@ def convert_markdown(links: LinkResolver, externalizing: bool, strips: dict[str,
     for md_file in sorted(DOCS_DIR.rglob("*.md")):
         if md_file.name in skip:
             continue
-        if "```{python}" in md_file.read_text("utf-8"):
-            continue  # a literate document (mini.lit), woven separately rather than converted as a page
         rel = md_file.relative_to(DOCS_DIR).with_suffix(".html")
         dest = SITE_DIR / rel
         dest.parent.mkdir(parents=True, exist_ok=True)

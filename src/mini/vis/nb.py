@@ -140,7 +140,7 @@ def themed(
 def _render_caption(caption: str | None) -> str | None:
     """Render a Markdown caption to an HTML fragment for a ``<figcaption>``.
 
-    The same dialect as a document body (``mini.lit.page``, python-markdown with the pymdownx extensions ``mo.md`` uses), so a caption renders alike in a Marimo report and a literate document. Dedented first, so a triple-quoted string with indentation renders cleanly.
+    The same dialect as a document body (``mini.lit.page``, python-markdown with the pymdownx extensions ``mo.md`` uses), so a caption renders alike in a Marimo report and a literate script. Dedented first, so a triple-quoted string with indentation renders cleanly.
     """
     if caption is None:
         return None

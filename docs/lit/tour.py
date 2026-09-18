@@ -1,9 +1,9 @@
-# title: A tour of literate documents
+# title: A tour of literate scripts
 
 r"""
-# A tour of literate documents
+# A tour of literate scripts
 
-This page exercises what a report needs: interpolated numbers, a table built by a loop, math, footnotes, admonitions, a cached figure, and an early stop that leaves the rest of the document readable. Cell code is hidden, as it is by default: a report hides its plumbing. A page that is about the code, like the themed-plots one, opts in with `# code: show` at the top of the file.
+This page exercises what a report needs: interpolated numbers, a table built by a comprehension, math, footnotes, admonitions, a cached figure, and an early stop that leaves the rest of the document readable. Cell code is hidden, as it is by default: a report hides its plumbing. A page that is about the code, like the themed-plots one, opts in with `# code: show` at the top of the file.
 
 The file is plain Python, so ruff, ty, and the IDE see every cell. A top-level string is prose (this paragraph is one), and the code between two of them is a cell.
 """
@@ -35,20 +35,18 @@ CONDS = [
 GATE = 0.45
 best = max(CONDS, key=lambda c: c.mean)
 
-"""
+rf"""
 ## Numbers in prose
 
-The best condition is `{{ best.name }}` at {{ "%.3f"|format(best.mean) }} ± {{ "%.3f"|format(best.spread) }} over {{ best.seeds }} seeds, against a gate of {{ GATE }}. Jinja's `format` filter does what an f-string spec would; a helper in a cell can do anything more involved.
+The best condition is `{best.name}` at {best.mean:.3f} ± {best.spread:.3f} over {best.seeds} seeds, against a gate of {GATE}. Prose that quotes a value is an f-string, so a format spec does what it does anywhere in Python, and the names are real references that ruff, ty, and go-to-definition see; a helper in a cell can do anything more involved.
 
-## A table from a loop
+## A table from a comprehension
 
-Today a table like this is assembled as a Markdown string in Python. With a template it is written where it appears:
+Today a table like this is assembled as a Markdown string in Python. Here the rows are one field, written where the table appears:
 
 | condition | seeds | mean | verdict |
 | --- | ---: | ---: | --- |
-{% for c in CONDS %}
-| `{{ c.name }}` | {{ c.seeds }} | {{ "%.3f"|format(c.mean) }} ± {{ "%.3f"|format(c.spread) }} | {{ "**pass**" if c.mean >= GATE else "miss" }} |
-{% endfor %}
+{"\n".join(f"| `{c.name}` | {c.seeds} | {c.mean:.3f} ± {c.spread:.3f} | {'**pass**' if c.mean >= GATE else 'miss'} |" for c in CONDS)}
 """
 
 r"""
@@ -60,11 +58,13 @@ The same Markdown extensions as `mo.md`: inline math \(\bar\alpha = \frac{1}{n}\
 \mathcal{L} = \mathcal{L}_\text{task} + \lambda \, \lVert h - a \rVert^2,
 \]
 
-a footnote[^1], and an admonition:
+a footnote[^1], and an admonition. This paragraph is a plain raw string, since the math is full of braces; the admonition below quotes a value, so it is a separate f-string (a paragraph that needs both doubles its math braces).
+"""
 
+rf"""
 /// admonition | A note on the gate
     type: note
-The gate of {{ GATE }} comes from the reference experiment, quoted here from the same constant the cells use.
+The gate of {GATE} comes from the reference experiment, quoted here from the same constant the cells use.
 ///
 
 [^1]: Footnotes number from one per document, since the whole page is rendered in one pass.
@@ -101,7 +101,7 @@ conditions_figure(samples, GATE)
 """
 ## Stopping early
 
-A preregistration is written before its results exist. `stop()` ends execution with a message, and every later interpolation renders as a pending mark instead of an error, so the whole document still reads.
+A preregistration is written before its results exist. `stop()` ends execution with a message, and every later field that cannot be evaluated renders as a pending mark instead of an error, so the whole document still reads: headings, paragraphs, and the values that are known.
 """
 
 results = None
@@ -109,8 +109,8 @@ if results is None:
     stop("/// admonition | Results to come\n    type: warning\nThe experiment has not been published yet.\n///")
 summary = results["summary"]
 
-"""
-**Results.** The anchored condition reached {{ summary.m_line }} with a lead of {{ summary.lead }}; see {{ h2_figure(results) }}.
+rf"""
+**Results.** The anchored condition reached {summary.m_line} with a lead of {summary.lead}; see {summary.figure}.
 
 This paragraph has no interpolation, so it renders as written.
 """

@@ -6,7 +6,7 @@
 
 `themed` wraps a plot function to render in both light and dark modes, producing a single HTML element that switches on `prefers-color-scheme`. The same function runs twice — once per theme — so you can use `light_dark()` inside to pick theme-dependent values.
 
-This page is the `docs/themed.py` notebook, rewritten as a literate document: a plain Python file where each top-level string is prose and the code between them is a cell.
+This page is the `docs/themed.py` notebook, rewritten as a literate script: a plain Python file where each top-level string is prose and the code between them is a cell.
 """
 
 import matplotlib.pyplot as plt
@@ -72,6 +72,6 @@ def _plot_raw() -> plt.Figure:
 
 themed(_plot_raw, alt_text="Damped sine wave")()
 
-"""
-The prose can also quote values from the namespace: the grid has {{ x.size }} points and its last value is {{ "%.3f"|format(x[-1]) }}.
+rf"""
+The prose can also quote values from the namespace: the grid has {x.size} points and its last value is {x[-1]:.3f}.
 """
