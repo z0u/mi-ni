@@ -140,13 +140,15 @@ def themed(
 def _render_caption(caption: str | None) -> str | None:
     """Render a Markdown caption to an HTML fragment for a ``<figcaption>``.
 
-    Marimo owns the Markdown pipeline, so we defer to :func:`marimo.md` (and import it lazily — the library core stays marimo-free for callers that never caption). It dedents internally, so a triple-quoted string with indentation renders cleanly.
+    The same dialect as a document body (``mini.lit.page``, python-markdown with the pymdownx extensions ``mo.md`` uses), so a caption renders alike in a Marimo report and a literate document. Dedented first, so a triple-quoted string with indentation renders cleanly.
     """
     if caption is None:
         return None
-    import marimo as mo
+    import textwrap
 
-    return mo.md(caption).text
+    from mini.lit.page import render_fragment
+
+    return render_fragment(textwrap.dedent(caption).strip())
 
 
 def figure_html(
