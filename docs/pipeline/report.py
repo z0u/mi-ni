@@ -9,7 +9,7 @@ from mini.vis import themed
 r"""
 # Pipeline report
 
-This notebook is a **report**, not the experiment. The experiment is defined
+This page is a **report**, not the experiment. The experiment is defined
 in [`experiment.py`](./experiment.py) as an importable `main(ctx)` DAG, and
 run from the command line:
 
@@ -17,7 +17,7 @@ run from the command line:
 bin/mini run docs/pipeline/experiment.py --watch --workers 3
 ```
 
-That writes durable, content-addressed results to a memo store. This notebook
+That writes durable, content-addressed results to a memo store. This page
 reads them back and renders them — it never launches or re-runs the work, so
 it opens standalone (no GPU, no waiting) and shows the last run's results.
 """

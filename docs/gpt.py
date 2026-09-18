@@ -1,153 +1,119 @@
-import marimo
+# title: Character-level GPT
+# mini:source-only — this notebook trains inline (a full run on every execution), so
+# it doesn't fit the read-from-store report model the site build assumes. It's excluded
+# from the published report set: the build never runs it, and links to it (e.g. from
+# docs/index.md) resolve to its GitHub source rather than a rendered page. Run it
+# interactively with `./go open docs/gpt.py` (pick the Modal apparatus for the GPU).
 
-__generated_with = "0.23.3"
-app = marimo.App(width="medium", auto_download=["html"], css_file="report.css")
+r"""
+# Character-level GPT
 
-with app.setup(hide_code=True):
-    import logging
-    from functools import partial
+This experiment trains a tiny transformer on character-level data, based on a port
+of [nanoGPT](https://github.com/karpathy/nanoGPT). Most of the code lives in
+modules under [src/experiment](../src/experiment); this notebook ties it together.
+"""
 
-    import marimo as mo  # noqa: F401
-    import matplotlib.pyplot as plt
+import asyncio
+import logging
+from functools import partial
 
-    from experiment.config import (
-        DataConfig,
-        ModelConfig,
-        OptimizerConfig,
-        SchedulerConfig,
-        TokenizerConfig,
-        TrainingConfig,
-    )
-    from experiment.utils import align
-    from mini import LocalApparatus, ModalApparatus, get_data_dir  # noqa: F401
-    from mini.logging import SimpleLoggingConfig
-    from mini.reports import report_bundle, use_publisher
-    from mini.vis import themed
-    from utils.lr_finder.vis import plot_lr_finder
-    from utils.time import duration as t
+import matplotlib.pyplot as plt
 
-    logging_config = SimpleLoggingConfig().info("notebook", "experiment", "mini", "utils")
-    logging_config.apply()
+from experiment.config import (
+    DataConfig,
+    ModelConfig,
+    OptimizerConfig,
+    SchedulerConfig,
+    TokenizerConfig,
+    TrainingConfig,
+)
+from experiment.utils import align
+from mini import LocalApparatus, ModalApparatus, get_data_dir
+from mini.logging import SimpleLoggingConfig
+from mini.vis import themed
+from subline.series import Series
+from subline.subline import Subline
+from utils.lr_finder.vis import plot_lr_finder
+from utils.time import duration as t
 
-    log = logging.getLogger("notebook")
+logging_config = SimpleLoggingConfig().info("notebook", "experiment", "mini", "utils")
+logging_config.apply()
 
-    # mini:source-only — this notebook trains inline (a full run on every execution), so
-    # it doesn't fit the read-from-store report model the site build assumes. It's excluded
-    # from the published report set: the build never runs it, and links to it (e.g. from
-    # docs/index.md) resolve to its GitHub source rather than a rendered page. Run it
-    # interactively with `./go open docs/gpt.py` (pick the Modal apparatus for the GPU).
+log = logging.getLogger("notebook")
 
-    # Externalize every themed figure to a file beside the exported HTML, referenced
-    # by a relative URL — keeps the report light, and `build_site` repoints those URLs
-    # at the bucket (one <base> tag) when publishing. No publisher → figures inline.
-    use_publisher(report_bundle(__file__))
+# What to run — edit these in place rather than wiring up a UI, since this file is
+# run from source, not published.
+APP_TYPE = "local"  # "local" or "modal" (pick modal for the GPU)
+ARCH = "gpt"  # "gpt" or "ngpt"
+NGPT_VARIANT = "crude"  # "crude" or "full" — only matters when ARCH == "ngpt"
 
+_is_ngpt = ARCH == "ngpt"
+config = TrainingConfig(
+    model=ModelConfig(
+        vocab_size=64,  # set after loading the dataset
+        block_size=512,
+        n_embd=32,
+        n_head=8,
+        n_head_dim=8,
+        n_ff=128,
+        n_layer=12,
+        dropout=0 if _is_ngpt else 0.1,
+        architecture=ARCH,
+        ngpt_variant=NGPT_VARIANT,
+    ),
+    tokenizer=TokenizerConfig(vocabulary=[]),
+    data=DataConfig(
+        batch_size=16,
+        oversample=2,
+        train_split=0.8,
+        padding_chance=0.1,
+    ),
+    optimizer=OptimizerConfig(
+        weight_decay=0 if _is_ngpt else 1e-3,
+        learning_rate=0,  # set by LR finder
+        betas=(0.9, 0.95),
+    ),
+    scheduler=SchedulerConfig(
+        epochs=100,
+        warmup_epochs=10,
+        min_lr_factor=0.01,
+    ),
+)
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    # Character-level GPT
-
-    This experiment trains a tiny transformer on character-level data, based on a port
-    of [nanoGPT](https://github.com/karpathy/nanoGPT). Most of the code lives in
-    modules under [src/experiment](../src/experiment); this notebook ties it together.
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(app_type, arch, ngpt_variant, run_button):
-    mo.md(f"""
-    {arch} {ngpt_variant if arch.value == "ngpt" else ""}
-
-    {app_type} {run_button}
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def configuration(arch, is_headless, ngpt_variant, run_button):
-    mo.stop(not run_button.value and not is_headless)
-
-    _is_ngpt = arch.value == "ngpt"
-    config = TrainingConfig(
-        model=ModelConfig(
-            vocab_size=64,  # set after loading the dataset
-            block_size=512,
-            n_embd=32,
-            n_head=8,
-            n_head_dim=8,
-            n_ff=128,
-            n_layer=12,
-            dropout=0 if _is_ngpt else 0.1,
-            architecture=arch.value,
-            ngpt_variant=ngpt_variant.value,
-        ),
-        tokenizer=TokenizerConfig(vocabulary=[]),
-        data=DataConfig(
-            batch_size=16,
-            oversample=2,
-            train_split=0.8,
-            padding_chance=0.1,
-        ),
-        optimizer=OptimizerConfig(
-            weight_decay=0 if _is_ngpt else 1e-3,
-            learning_rate=0,  # set by LR finder
-            betas=(0.9, 0.95),
-        ),
-        scheduler=SchedulerConfig(
-            epochs=100,
-            warmup_epochs=10,
-            min_lr_factor=0.01,
-        ),
-    )
-    return (config,)
-
-
-@app.cell(hide_code=True)
-def apparatus(app_type, is_headless, run_button):
-    mo.stop(not run_button.value and not is_headless)
-
-    if app_type.value == "local":
-        app = LocalApparatus("nanogpt")
-    elif app_type.value == "modal":
-        app = (
-            ModalApparatus("nanogpt")
-            .w(
-                gpu="L4",
-                max_containers=1,
-                timeout=int(t("30 min")),  # cold L4: JIT-compile + a full 100-epoch run
-            )
-            .before_each(logging_config.apply)
+if APP_TYPE == "local":
+    app = LocalApparatus("nanogpt")
+elif APP_TYPE == "modal":
+    app = (
+        ModalApparatus("nanogpt")
+        .w(
+            gpu="L4",
+            max_containers=1,
+            timeout=int(t("30 min")),  # cold L4: JIT-compile + a full 100-epoch run
         )
-    else:
-        raise ValueError(f"Unknown apparatus {app_type.value}")
+        .before_each(logging_config.apply)
+    )
+else:
+    raise ValueError(f"Unknown apparatus {APP_TYPE}")
 
-    mo.md(f"Using **{app}**")
-    return (app,)
+rf"""
+Using **{app}**
 
+## Data
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Data
+We'll grab a book from a [HuggingFace mirror of Project Gutenberg](https://huggingface.co/datasets/larenwell/book-gutenberg-train). It's just one big block of
+text from which we take random substrings. These may overlap, but we aim to take
+roughly the entire corpus on each epoch.
 
-    We'll grab a book from a [HuggingFace mirror of Project Gutenberg](https://huggingface.co/datasets/larenwell/book-gutenberg-train). It's just one big block of
-    text from which we take random substrings. These may overlap, but we aim to take
-    roughly the entire corpus on each epoch.
+Of note: the "labels" $y$ are the same as the input $x$, shifted by one, since
+we want to predict each next token.
 
-    Of note: the "labels" $y$ are the same as the input $x$, shifted by one, since
-    we want to predict each next token.
-
-    ```python
-    x = data[s : s + block_size]
-    y = data[s + 1 : s + block_size + 1]
-    ```
-    """)
-    return
+```python
+x = data[s : s + block_size]
+y = data[s + 1 : s + block_size + 1]
+```
+"""
 
 
-@app.function(hide_code=True)
 def download_pride_and_prejudice():
     """Download Pride and Prejudice from the Gutenberg HuggingFace dataset."""
     import ftfy
@@ -169,7 +135,6 @@ def download_pride_and_prejudice():
     return text, metadata
 
 
-@app.function(hide_code=True)
 def prepare_data():
     """Download, tokenize, and save training data to the volume."""
     from experiment.compute.data_pipelines import save_data
@@ -182,29 +147,21 @@ def prepare_data():
     return metadata
 
 
-@app.cell
-async def _(app, config):
-    input_metadata = await app.arun(prepare_data)
+input_metadata = asyncio.run(app.arun(prepare_data))
 
-    config.tokenizer = input_metadata.tokenizer_config.model_copy()
-    config.model.vocab_size = align(config.tokenizer.vocab_size, 64)
+config.tokenizer = input_metadata.tokenizer_config.model_copy()
+config.model.vocab_size = align(config.tokenizer.vocab_size, 64)
 
-    input_metadata.model_dump(exclude={"tokenizer_config"})
-    return
+input_metadata.model_dump(exclude={"tokenizer_config"})
 
+r"""
+## Learning rate search
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Learning rate search
-
-    Before training, we run a multi-scale learning rate range test. The finder
-    progressively narrows the search space to improve stability.
-    """)
-    return
+Before training, we run a multi-scale learning rate range test. The finder
+progressively narrows the search space to improve stability.
+"""
 
 
-@app.function(hide_code=True)
 def find_learning_rate(config):
     """Run a multi-scale LR range test and return (lr, config, history)."""
     import jax.random as jr
@@ -236,38 +193,24 @@ def find_learning_rate(config):
     )
 
 
-@app.cell(hide_code=True)
-async def _(app, config):
-    suggested_lr, lr_config, lr_history = await app.arun(find_learning_rate, config)
+suggested_lr, lr_config, lr_history = asyncio.run(app.arun(find_learning_rate, config))
 
-    config.optimizer.learning_rate = suggested_lr
-    mo.output.append(mo.md(f"Suggested learning rate: **{suggested_lr:.2e}**"))
-    return lr_config, lr_history
+config.optimizer.learning_rate = suggested_lr
 
+f"Suggested learning rate: **{suggested_lr:.2e}**"
 
-@app.cell(hide_code=True)
-def _(lr_config, lr_history):
-    mo.Html(
-        themed(plot_lr_finder, alt_text="Learning-rate finder plot")(
-            lr_history,
-            lr_config,
-        )
-    )
-    return
+# %%
+
+themed(plot_lr_finder, alt_text="Learning-rate finder plot")(lr_history, lr_config)
+
+r"""
+## Training
+
+Now that we have a good learning rate, let's do a full training run. Checkpoints
+are saved to the volume periodically.
+"""
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Training
-
-    Now that we have a good learning rate, let's do a full training run. Checkpoints
-    are saved to the volume periodically.
-    """)
-    return
-
-
-@app.function(hide_code=True)
 def train(config):
     """Run a full training loop. Return per-epoch metrics."""
     from experiment.compute.training import train_model
@@ -277,43 +220,32 @@ def train(config):
     return metrics
 
 
-@app.cell
-async def _(app, config):
-    training_metrics = await app.arun(train, config)
-    return (training_metrics,)
+training_metrics = asyncio.run(app.arun(train, config))
+
+epochs = [m.epoch + 1 for m in training_metrics]
+val_losses = [m.val_loss for m in training_metrics]
 
 
-@app.cell(hide_code=True)
-def _(training_metrics):
-    # Plot training curve
-    epochs = [m.epoch + 1 for m in training_metrics]
-    val_losses = [m.val_loss for m in training_metrics]
-
-    @themed
-    def plot():
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.set_title("Validation loss")
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("Loss")
-        ax.plot(epochs, val_losses)
-        return fig
-
-    mo.Html(plot())
-    return
+@themed
+def training_curve() -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.set_title("Validation loss")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.plot(epochs, val_losses)
+    return fig
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Generate continuations
+training_curve()
 
-    Inference runs through the apparatus too: we don't need to download the
-    (potentially large) model. Only the results come back.
-    """)
-    return
+r"""
+## Generate continuations
+
+Inference runs through the apparatus too: we don't need to download the
+(potentially large) model. Only the results come back.
+"""
 
 
-@app.function(hide_code=True)
 def generate(prompts: list[str], max_new_tokens: int, temperature: float):
     """Load the trained model and generate continuations."""
     from typing import cast
@@ -337,98 +269,49 @@ def generate(prompts: list[str], max_new_tokens: int, temperature: float):
     return tokenizer.decode_each(toks), output
 
 
-@app.cell(hide_code=True)
-async def _(app):
-    prompts = [
-        "It is a truth uni",
-        "Mr. Darcy walked across the",
-    ]
-    continuations, gen_metadata = await app.arun(
-        partial(generate, prompts=prompts, max_new_tokens=300, temperature=0.5),
-    )
+prompts = [
+    "It is a truth uni",
+    "Mr. Darcy walked across the",
+]
+continuations, gen_metadata = asyncio.run(
+    app.arun(partial(generate, prompts=prompts, max_new_tokens=300, temperature=0.5))
+)
 
-    for seq in continuations:
-        print("".join(seq)[:80])
-    return continuations, gen_metadata
+for seq in continuations:
+    print("".join(seq)[:80])
 
+r"""
+### Token metrics: Surprisal and entropy
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### Token metrics: Surprisal and entropy
+* **Entropy** measures how diffuse the next-token distribution is *before*
+  sampling -- the model's uncertainty.
+* **Surprisal** measures how unlikely the chosen token was -- the
+  cross-entropy loss for that position.
 
-    * **Entropy** measures how diffuse the next-token distribution is *before*
-      sampling -- the model's uncertainty.
-    * **Surprisal** measures how unlikely the chosen token was -- the
-      cross-entropy loss for that position.
+Together they reveal how the prompt and temperature affect generation.
+Notably, *entropy is unaffected by temperature* whereas surprisal *is*
+(because it's calculated after sampling).
+"""
 
-    Together they reveal how the prompt and temperature affect generation.
-    Notably, *entropy is unaffected by temperature* whereas surprisal *is*
-    (because it's calculated after sampling).
-    """)
-    return
+viz = Subline(chars_per_line=80)
+svg = viz.plot(
+    continuations[0],
+    [
+        Series(gen_metadata[0].surprise_surprise, label="S₂"),
+        Series(-gen_metadata[0].surprise_surprise, label="-S₂", dasharray="1"),
+    ],
+)
+svg
 
+r"""
+## References
 
-@app.cell(hide_code=True)
-def _(continuations, gen_metadata):
-    from subline.series import Series
-    from subline.subline import Subline
+Karpathy, A. (2022). nanoGPT [Computer software]. GitHub.
+https://github.com/karpathy/nanoGPT
 
-    viz = Subline(chars_per_line=80)
-    svg = viz.plot(
-        continuations[0],
-        [
-            Series(gen_metadata[0].surprise_surprise, label="S\u2082"),
-            Series(-gen_metadata[0].surprise_surprise, label="-S\u2082", dasharray="1"),
-        ],
-    )
-    mo.Html(svg)
-    return
+Sanderson, G. (2024a). Visualizing attention, a transformer's heart.
+3Blue1Brown. https://www.3blue1brown.com/lessons/attention
 
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## References
-
-    Karpathy, A. (2022). nanoGPT [Computer software]. GitHub.
-    https://github.com/karpathy/nanoGPT
-
-    Sanderson, G. (2024a). Visualizing attention, a transformer's heart.
-    3Blue1Brown. https://www.3blue1brown.com/lessons/attention
-
-    Sanderson, G. (2024b). How might LLMs store facts. 3Blue1Brown.
-    https://www.3blue1brown.com/lessons/mlp
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def options():
-    app_type = mo.ui.radio(
-        label="Apparatus",
-        options=["local", "modal"],
-        value=str(mo.cli_args().get("app", "local")),
-        inline=True,
-    )
-    arch = mo.ui.radio(
-        label="Architecture",
-        options=["gpt", "ngpt"],
-        value=str(mo.cli_args().get("arch", "gpt")),
-        inline=True,
-    )
-    ngpt_variant = mo.ui.radio(
-        label="nGPT variant",
-        options=["crude", "full"],
-        value=str(mo.cli_args().get("ngpt_variant", "crude")),
-        inline=True,
-    )
-    run_button = mo.ui.run_button(
-        label="Run",
-    )
-    is_headless = mo.app_meta().request is None
-    return app_type, arch, is_headless, ngpt_variant, run_button
-
-
-if __name__ == "__main__":
-    app.run()
+Sanderson, G. (2024b). How might LLMs store facts. 3Blue1Brown.
+https://www.3blue1brown.com/lessons/mlp
+"""

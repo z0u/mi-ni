@@ -1,61 +1,51 @@
-import marimo
+# title: Getting started
 
-__generated_with = "0.23.3"
-app = marimo.App(width="medium", auto_download=["html"], css_file="report.css")
+r"""
+# Getting started
 
-with app.setup(hide_code=True):
-    import marimo as mo  # noqa: F401
-    import json
-    import tempfile
-    import time
-    from pathlib import Path
-    from mini import LocalApparatus, ModalApparatus  # noqa: F401
-    from mini import emit_progress, get_data_dir
+This page demonstrates basic use of the Apparatus. An Apparatus is like a [thread pool](https://docs.python.org/3/library/concurrent.futures.html#threadpoolexecutor), but it abstracts away the distribution pattern.
 
+General workflow:
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    # Getting started
+1. Write general Python functions:
+    ```py
+    def f(x):
+        ...
+    ```
 
-    This is a notebook that demonstrates basic use of the Apparatus. An Apparatus is like a [thread pool](https://docs.python.org/3/library/concurrent.futures.html#threadpoolexecutor), but it abstracts away the distribution pattern.
+2. Create an apparatus and map over data:
 
-    General workflow:
+    ```py
+    app = LocalApparatus('experiment-1', num_workers=2)
+    results = app.map(f, data)
+    ```
 
-    1. Write general Python functions:
-        ```py
-        def f(x):
-            ...
-        ```
+3. Swap out the apparatus depending on your workload:
 
-    2. Create an apparatus and map over data:
+    ```py
+    app = ModalApparatus('experiment-1').w(gpu='A100', max_containers=30)
+    results = app.map(f, big_data)
+    ```
 
-        ```py
-        app = LocalApparatus('experiment-1', num_workers=2)
-        results = app.map(f, data)
-        ```
+Each apparatus comes with a *volume* — a shared storage area that persists across function calls. Functions call `get_data_dir()` to read and write files in it, so you can chain steps together: one function prepares data, the next consumes it.
+"""
 
-    3. Swap out the apparatus depending on your workload:
+import asyncio
+import json
+import tempfile
+import time
+from pathlib import Path
 
-        ```py
-        app = ModalApparatus('experiment-1').w(gpu='A100', max_containers=30)
-        results = app.map(f, big_data)
-        ```
+from mini import LocalApparatus, ModalApparatus, emit_progress, get_data_dir
 
-    Each apparatus comes with a *volume* — a shared storage area that persists across function calls. Functions call `get_data_dir()` to read and write files in it, so you can chain steps together: one function prepares data, the next consumes it.
-    """)
-    return
+# Which apparatus this demo uses when exported.
+APP_TYPE = "local"
 
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    We'll define two functions that pass data through the volume. First, `prep` writes shared configuration; then `train` reads it, runs a mock workload, and saves per-item results.
-    """)
-    return
+"""
+We'll define two functions that pass data through the volume. First, `prep` writes shared configuration; then `train` reads it, runs a mock workload, and saves per-item results.
+"""
 
 
-@app.function
 def prep() -> str:
     """Write shared configuration to the volume."""
     data_dir = get_data_dir()
@@ -64,7 +54,6 @@ def prep() -> str:
     return f"Wrote config to {data_dir / 'config.json'}"
 
 
-@app.function
 def train(x: int) -> int:
     """Read config, run a mock workload, and save results to the volume."""
     data_dir = get_data_dir()
@@ -83,21 +72,8 @@ def train(x: int) -> int:
     return result
 
 
-@app.cell(hide_code=True)
-def _(app_type, run_button):
-    mo.md(f"""
-    {app_type} {run_button}
-    """)
-    return
-
-
-@app.cell
-async def main(app_type, is_headless, run_button):
-    # Gate on the button when a human is driving, but continue automatically
-    # in a headless session.
-    mo.stop(not run_button.value and not is_headless)
-
-    if app_type.value == "local":
+async def main() -> None:
+    if APP_TYPE == "local":
         app = LocalApparatus("mi-ni-getting-started", max_workers=3)
     else:
         app = ModalApparatus("mi-ni-getting-started").w(max_containers=3)
@@ -118,31 +94,6 @@ async def main(app_type, is_headless, run_button):
         for p in sorted(Path(tmp, "outputs").iterdir()):
             print(f"\n--- {p.name} ---")
             print(p.read_text())
-    return
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Utilities
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def options():
-    app_type = mo.ui.radio(
-        label="Apparatus",
-        options=["local", "modal"],
-        value=str(mo.cli_args().get("app", "local")),
-        inline=True,
-    )
-    run_button = mo.ui.run_button(
-        label="Run",
-    )
-    is_headless = mo.app_meta().request is None
-    return app_type, is_headless, run_button
-
-
-if __name__ == "__main__":
-    app.run()
+asyncio.run(main())

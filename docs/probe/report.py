@@ -14,7 +14,7 @@ from mini.vis import themed
 r"""
 # Probe report
 
-This notebook is a **report**, not the experiment. The experiment in
+This page is a **report**, not the experiment. The experiment in
 [`experiment.py`](./experiment.py)
 resolves an activation cache that a *different* experiment
 ([`docs/acts`](../acts/experiment.py))
