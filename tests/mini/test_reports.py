@@ -251,6 +251,17 @@ def test_rewrite_links_only_replaces_attribute_values():
     assert "the word a/b.py in prose stays" in out
 
 
+def test_insert_base_pins_fragment_links_to_the_page():
+    # A bare #fragment resolves against the <base>, i.e. to the bucket; with the page's URL
+    # each one is spelled out as the same document, so footnotes and permalinks stay put.
+    html = '<html><head></head><body><a href="#fn:1">1</a><a href=\'#top\'>t</a><a href="x.html#s">s</a></body></html>'
+    out = insert_base(html, "https://cdn/b/", page_url="https://o.github.io/r/tour/")
+    assert 'href="https://o.github.io/r/tour/#fn:1"' in out
+    assert "href='https://o.github.io/r/tour/#top'" in out
+    assert 'href="x.html#s"' in out  # a path with a fragment is the resolver's business, and stays
+    assert insert_base(html, "https://cdn/b/").count("#fn:1") == 1  # no URL: left as written
+
+
 def test_insert_base_adds_one_tag_in_head():
     out = insert_base("<html><head><meta></head><body></body></html>", "https://h/r/name/")
     assert out.count("<base ") == 1

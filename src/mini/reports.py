@@ -736,11 +736,18 @@ def rewrite_links(html: str, mapping: dict[str, str]) -> str:
     return html
 
 
-def insert_base(html: str, href: str) -> str:
-    """Insert a single ``<base href>`` as the first thing in ``<head>``.
+_FRAGMENT_HREF = re.compile(r"""(href\s*=\s*)(["'])#""")
+
+
+def insert_base(html: str, href: str, *, page_url: str | None = None) -> str:
+    """Insert a single ``<base href>`` as the first thing in ``<head>``, and pin the page's own fragment links to *page_url*.
 
     Placed before any resource reference so it governs all of them. Idempotent enough for a build step: it rewrites the first ``<head>`` only.
+
+    A ``<base>`` repoints *every* relative URL, and a bare ``#section`` is one: the browser resolves it against the base, so a footnote, a heading permalink, or a table-of-contents entry would leave for the bucket. With *page_url* (the page's own published URL), each ``href="#…"`` becomes ``href="<page_url>#…"``, which is the same document again. Without it the fragments are left alone, which is the broken form; the caller should know its URL.
     """
+    if page_url is not None:
+        html = _FRAGMENT_HREF.sub(lambda m: f"{m.group(1)}{m.group(2)}{page_url}#", html)
     return re.sub(r"(<head[^>]*>)", lambda m: f'{m.group(1)}\n    <base href="{href}" />', html, count=1)
 
 

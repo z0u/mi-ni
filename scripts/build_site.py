@@ -364,7 +364,12 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
         html = set_banner(html, index_url=index_url, source_url=source_url, pdf_url=bundle.pdf_url)
         html = set_report_styles(html, report_css)  # last, so shared report rules win ties
         if bundle.base_href:
-            html = insert_base(html, bundle.base_href)
+            # The base sends every relative URL to the bucket, a bare `#fragment` included,
+            # so the page's own anchors are spelled out against its published URL.
+            page_url = links.resolve(key, from_dir="", out_dir=key, externalizing=True)
+            if page_url is None:
+                print(f"  ! {key}: no site URL, so its in-page links (#footnotes, headings) will follow the <base>")
+            html = insert_base(html, bundle.base_href, page_url=page_url)
         dest = SITE_DIR / key / "index.html"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, "utf-8")
