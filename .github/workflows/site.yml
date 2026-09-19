@@ -64,7 +64,7 @@ jobs:
         # Playwright pins a Chromium build per release, so the key follows the lockfile.
         # A checkout whose lockfile pins another release fetches its own build in the
         # deploy script; the system libraries installed below serve any of them.
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
