@@ -117,3 +117,36 @@ def test_ink_extents_of_a_blank_page_is_none(tmp_path: Path):
     pdf.add_blank_page(page_size=(200, 400))
     pdf.save(out)
     assert report_print.ink_extents(out) == [None]
+
+
+def test_route_remote_serves_https_from_a_python_filled_cache(browser, tmp_path: Path):
+    """The math and fonts come from CDNs the print browser may not reach; Python fetches once and the page gets the cached copy."""
+    calls = []
+
+    def fetch(url, headers):
+        calls.append(url)
+        return "text/css", b"body { color: rgb(1, 2, 3); }"
+
+    for _ in range(2):
+        page = browser.new_page()
+        report_print.route_remote(page, cache=tmp_path, fetch=fetch)
+        page.set_content(
+            '<html><head><link rel="stylesheet" href="https://cdn.test/x.css"></head><body>hi</body></html>'
+        )
+        page.wait_for_load_state("load")
+        assert page.evaluate("getComputedStyle(document.body).color") == "rgb(1, 2, 3)"
+        page.close()
+    assert calls == ["https://cdn.test/x.css"]  # the second page read the cache
+
+
+def test_route_remote_prints_on_when_a_fetch_fails(browser, tmp_path: Path, caplog):
+    def fetch(url, headers):
+        raise OSError("no route to host")
+
+    page = browser.new_page()
+    report_print.route_remote(page, cache=tmp_path, fetch=fetch)
+    page.set_content('<html><head><link rel="stylesheet" href="https://cdn.test/x.css"></head><body>hi</body></html>')
+    page.wait_for_load_state("load")
+    assert page.locator("body").inner_text() == "hi"
+    assert "cdn.test unreachable" in caplog.text
+    assert not list(tmp_path.iterdir())

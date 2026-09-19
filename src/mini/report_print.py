@@ -1,6 +1,6 @@
 """Print an exported report bundle to PDF, offline, with a headless browser.
 
-A bundle (``mini.lit``) is a self-styled static page with its figures beside it, so :func:`served_bundle` copies it to a throwaway serve root and serves that on a loopback port; nothing is fetched from the network. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
+A bundle (``mini.lit``) is a self-styled static page with its figures beside it, so :func:`served_bundle` copies it to a throwaway serve root and serves that on a loopback port. What the page pulls from elsewhere (KaTeX and the fonts, from CDNs) is fetched by Python and cached (:func:`route_remote`): a browser in a proxied sandbox cannot reach a CDN, and a print that could would still render the math of the day; from the cache, a print is offline and repeatable. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
 
 This runs at export (``scripts/export_reports.py``), the half of publishing that holds the bundle on disk: the PDF lands beside ``index.html``, rides the bundle sync, and is pinned by the same ``publish.lock`` entry as the page. The site build only links it. Chromium stamps a creation date and a random document ID into every PDF, which would make each re-export of an unchanged report a new publish-tier commit, so :func:`normalize_pdf` strips both after printing; two prints of one bundle are then byte-equal.
 
@@ -14,11 +14,14 @@ from __future__ import annotations
 import http.server
 import logging
 import os
+import hashlib
 import re
 import shutil
 import socketserver
 import threading
-from collections.abc import Iterator
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -27,6 +30,7 @@ __all__ = [
     "served_bundle",
     "print_bundle",
     "print_page",
+    "route_remote",
     "ink_extents",
     "normalize_pdf",
     "chromium_path",
@@ -114,6 +118,54 @@ def served_bundle(bundle: Path, *, html: str | None = None) -> Iterator[str]:
         httpd.shutdown()
         httpd.server_close()
         shutil.rmtree(root, ignore_errors=True)
+
+
+def cache_dir() -> Path:
+    """Where fetched remote resources are kept: ``$XDG_CACHE_HOME/mini/remote`` (``~/.cache/...``)."""
+    base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return base / "mini" / "remote"
+
+
+def _fetch(url: str, headers: dict[str, str]) -> tuple[str, bytes]:
+    """GET *url* with Python's TLS (which honours the proxy's CA); returns (content type, body)."""
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
+        return r.headers.get("content-type", "application/octet-stream"), r.read()
+
+
+Fetch = Callable[[str, dict[str, str]], tuple[str, bytes]]
+
+
+def route_remote(page: Any, *, cache: Path | None = None, fetch: Fetch = _fetch) -> None:
+    """Serve *page*'s ``https://`` requests from a cache that Python fills, rather than the browser's own network.
+
+    The page's stylesheet links KaTeX and the fonts from CDNs. A headless Chromium in a proxied sandbox rejects the proxy's certificate and gets neither, so the math printed as its source; Python trusts the certificate (``SSL_CERT_FILE``), so it fetches instead, once per URL, into :func:`cache_dir`. The request's own headers go along, since Google Fonts picks the font format by user agent. A fetch that fails is aborted, with one warning per host, and the print goes on without it: the PDF is a convenience beside the page.
+    """
+    root = cache if cache is not None else cache_dir()
+    warned: set[str] = set()
+
+    def handle(route: Any) -> None:
+        req = route.request
+        if req.method != "GET":
+            route.continue_()
+            return
+        key = hashlib.sha256(req.url.encode()).hexdigest()
+        body, kind = root / key, root / (key + ".type")
+        if not body.exists():
+            try:
+                content_type, data = fetch(req.url, {k: v for k, v in req.headers.items() if k.lower() != "host"})
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                host = req.url.split("/")[2]
+                if host not in warned:
+                    warned.add(host)
+                    log.warning("print: %s unreachable (%s); printing without it", host, e)
+                route.abort()
+                return
+            root.mkdir(parents=True, exist_ok=True)
+            body.write_bytes(data)
+            kind.write_text(content_type)
+        route.fulfill(status=200, content_type=kind.read_text(), body=body.read_bytes())
+
+    page.route(re.compile(r"^https://"), handle)
 
 
 def print_page(page: Any, out: Path, *, settle: float = 3.0, fit: bool = True) -> Path:
@@ -266,8 +318,11 @@ def print_bundle(
             # A bare headless Chromium in a locale-less container reports no
             # navigator.language; pin one so nothing on the page has to guess.
             page = browser.new_page(viewport={"width": 1100, "height": 1400}, locale="en-US")
+            route_remote(page)
             page.goto(url)
             page.locator("main.lit").first.wait_for(timeout=timeout * 1000)
+            if page.locator(".arithmatex").count() and not page.locator(".katex").count():
+                log.warning("print: the page has math but KaTeX did not render it; the PDF shows the source")
             return print_page(page, out, settle=settle)
         finally:
             browser.close()
