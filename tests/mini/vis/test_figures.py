@@ -9,8 +9,8 @@ import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from mini.reports import Publisher, report_bundle, use_publisher
-from mini.vis.nb import figure_html, themed
+from mini.reports import Publisher, use_publisher
+from mini.vis.figures import figure_html, themed
 
 matplotlib.use("Agg")
 
@@ -163,7 +163,7 @@ def test_use_publisher_default_is_picked_up(tmp_path: Path):
     assert re.search(r'src="_assets/dummy_plot-light\.png"', result)
 
 
-def test_report_bundle_targets_export_dir(tmp_path: Path):
+def test_export_key_and_dir_collapse_a_directory_report(tmp_path: Path):
     from mini.reports import export_dir, export_key
 
     (tmp_path / "pyproject.toml").write_text("")
@@ -172,10 +172,6 @@ def test_report_bundle_targets_export_dir(tmp_path: Path):
     nb.write_text("")
     assert export_key(nb) == "gpt-sweep"  # a directory's report.py collapses to the dir
     assert export_dir(nb) == tmp_path / ".mini" / "exports" / "gpt-sweep"
-    pub = report_bundle(nb)
-    assert pub is not None
-    assert pub.asset_dir == tmp_path / ".mini" / "exports" / "gpt-sweep" / "_assets"
-    assert pub.link == "_assets"
 
 
 def test_img_pins_physical_size_from_dpi():

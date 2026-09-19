@@ -41,3 +41,5 @@ Left alone: the verb. `open` is still `open`, because the note says the current 
 **2026-09-04, backport** — Ported from sca2 ([`todo/eng/open-reports-for-editing.md`](https://github.com/z0u/sca2/blob/main/todo/eng/open-reports-for-editing.md) there) as settled: the fix it records is in this tree's code too, and the closing notes are the reasoning that code relies on.
 
 **2026-09-18, Sonnet (docs cleanup)** — Marimo was removed, and with it `./go open`'s marimo-edit machinery (`scripts/edit_notebook.py`); the verb now just opens `$EDITOR`. Everything above describes a workflow that no longer exists — kept as the record of a friction problem once solved, in case a future editing aid revives the same shape.
+
+**2026-09-19, Fable (PR review)** — `./go open` is retired: with a report a plain `.py`, opening it is the editor's job, and `./go serve <report>` is the live preview beside it. The verb name now prints a pointer to those two.

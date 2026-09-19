@@ -96,7 +96,8 @@ _KATEX = """
   onload="renderMathInElement(document.body, {delimiters: [{left: '\\\\(', right: '\\\\)', display: false}, {left: '\\\\[', right: '\\\\]', display: true}]})"></script>
 """
 
-_FONTS = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400..700&family=PT+Sans:wght@400;700&family=Fira+Mono:wght@400;500;700&display=swap">'
+# One <link> shared with the site's Markdown pages (scripts/build_site.py), so every page loads the same faces from the same place.
+FONTS = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400..700&family=PT+Sans:wght@400;700&family=Fira+Mono:wght@400;500;700&display=swap">'
 
 
 def page(body_html: str, *, title: str, extra_head: str = "", extra_body: str = "") -> str:
@@ -107,7 +108,7 @@ def page(body_html: str, *, title: str, extra_head: str = "", extra_body: str = 
         '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>{html.escape(title)}</title>\n"
-        f"{_FONTS}\n<style>\n{stylesheet()}</style>\n{katex}{extra_head}</head>\n"
+        f"{FONTS}\n<style>\n{stylesheet()}</style>\n{katex}{extra_head}</head>\n"
         f'<body>\n<main class="lit">\n{body_html}\n</main>\n{extra_body}</body>\n</html>\n'
     )
 

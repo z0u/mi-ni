@@ -18,18 +18,17 @@ Every report is conventionally named `report.py` (see [authoring.md](./authoring
 
 ### Produce
 
-Set a `Publisher` once near the top of the report; every `themed` figure then externalizes through it (figure code is unchanged), and `asset_url` is the general verb for any blob a report's JS reads (a large JSON for a data browser, an SPA's data files):
+The runner installs a `Publisher` for the document before its first cell runs, so every `themed` figure externalizes with no setup in the report (figure code is unchanged). `asset_url` on that publisher is the general verb for any blob a report's JS reads (a large JSON for a data browser, an SPA's data files):
 
 ```py
-from mini.reports import use_publisher, report_bundle
+from mini.reports import current_publisher
 
-pub = use_publisher(report_bundle(__file__))   # assets → this report's bundle dir
-url = pub.asset_url(points_json, name="points.json")   # -> '_assets/points.json'
+url = current_publisher().asset_url(points_json, name="points.json")   # -> '_assets/points.json'
 ```
 
 Each asset is written to `_assets/<name>`, keyed by its readable name, so the URL is stable across re-exports and a re-render overwrites in place (nothing accumulates on the bucket), and a browser "Save as" suggests that name (it takes the URL's last segment; the bucket sets no `Content-Disposition`). Two *different* blobs under one name in an export raises (give each a distinct `name=`).
 
-`report_bundle` picks the destination from the context, because the two documents resolve relative URLs against different roots. Exporting, that's the bundle's `_assets/` beside `index.html`. In `./go lit serve`, it's a scratch dir keyed to the script, next to the live page. Both are gitignored. Externalizing while editing too is what lets a figure-heavy report render at all without blowing past a sane page size. With no publisher at all, figures still inline, so a no-frills export works.
+The runner picks the destination from the context, because the two documents resolve relative URLs against different roots. Exporting, that's the bundle's `_assets/` beside `index.html`. Under `./go serve`, it's a scratch dir keyed to the script (`.mini/lit-live/<key>/`), next to the live page. Both are gitignored. Externalizing while editing too is what lets a figure-heavy report render at all without blowing past a sane page size. Outside the runner (a test, a plain `python report.py`) there is no publisher and figures inline, so a no-frills run still works.
 
 ### Consume
 

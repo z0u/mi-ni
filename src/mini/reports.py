@@ -33,10 +33,8 @@ from mini.store import active_profile
 
 __all__ = [
     "Publisher",
-    "report_bundle",
     "export_key",
     "export_dir",
-    "render_path",
     "input_dir",
     "inputs_touched_at",
     "is_stale",
@@ -108,7 +106,7 @@ PROVENANCE_ASSET = "provenance.json"
 class Publisher:
     """Writes a report's heavy assets out as files beside the exported HTML, referenced by a **relative** URL.
 
-    Each blob is written under ``asset_dir`` (the report's bundle ``_assets/`` — :func:`report_bundle`) at its readable *name*. The name *is* the key, so the URL is stable across re-exports — a re-render overwrites in place rather than piling up a new content-addressed copy each time (which is what kept the bucket accumulating orphans). The name is also what a browser "Save as" suggests (it derives the filename from the URL's last segment, the bucket setting no ``Content-Disposition``). The reference is ``<link>/<name>``; because it's relative, the same HTML resolves to the local files when opened off disk and to the HF bucket when published (a single ``<base href>`` is inserted at build time — see ``scripts/build_site.py``).
+    Each blob is written under ``asset_dir`` (the report's bundle ``_assets/``) at its readable *name*. The name *is* the key, so the URL is stable across re-exports — a re-render overwrites in place rather than piling up a new content-addressed copy each time (which is what kept the bucket accumulating orphans). The name is also what a browser "Save as" suggests (it derives the filename from the URL's last segment, the bucket setting no ``Content-Disposition``). The reference is ``<link>/<name>``; because it's relative, the same HTML resolves to the local files when opened off disk and to the HF bucket when published (a single ``<base href>`` is inserted at build time — see ``scripts/build_site.py``).
     """
 
     asset_dir: Path
@@ -188,12 +186,12 @@ def _project_root(start: Path) -> Path:
     return start.parent
 
 
-def export_key(notebook_file: str | Path) -> str:
+def export_key(report: str | Path) -> str:
     """The docs-relative, suffix-less key naming a report's self-contained bundle.
 
     ``docs/gpt.py`` → ``gpt``; ``docs/gpt-sweep/report.py`` → ``gpt-sweep``. A report named ``report.py`` takes its *directory* as the key, so the common one-experiment, one-report split publishes at ``gpt-sweep/`` rather than the redundant ``gpt-sweep/report/``. A second report alongside it keeps its own stem (``docs/foo/aside.py`` → ``foo/aside``), so the convention extends to multiple reports per experiment without collision. The key names the report's on-disk export dir *and* its ``exports/<key>/`` prefix on the bucket, and (served as ``index.html``) its URL ``<key>/`` — so each report is one independently syncable bundle.
     """
-    p = Path(notebook_file).resolve()
+    p = Path(report).resolve()
     docs = _project_root(p) / "docs"
     try:
         rel = p.relative_to(docs)
@@ -205,62 +203,51 @@ def export_key(notebook_file: str | Path) -> str:
     return key.as_posix()
 
 
-def export_dir(notebook_file: str | Path) -> Path:
+def export_dir(report: str | Path) -> Path:
     """The local (gitignored) dir holding a report's exported ``index.html`` + ``_assets/``.
 
     ``<root>/.mini/exports/<key>/`` — the unit that mirrors to bucket ``exports/<key>/``. Kept under ``.mini`` (already gitignored) so exported HTML never enters Git.
     """
-    p = Path(notebook_file).resolve()
+    p = Path(report).resolve()
     return _project_root(p) / ".mini" / "exports" / export_key(p)
 
 
-def render_path(notebook_file: str | Path) -> Path:
-    """The local (gitignored) Markdown render of a report: ``<root>/.mini/renders/<key>.md``.
-
-    The text-only sibling of :func:`export_dir`, written by ``./go render``. Same key, so a report's bundle and its render are named alike and one report can't overwrite another's. A single file rather than a directory, since the render's its figures go beside it under ``<key>.assets/`` by the same rule any Markdown output follows.
-
-    Scratch, like the bundle: regenerated on demand and never committed. The durable copy of a report is its published bundle.
-    """
-    p = Path(notebook_file).resolve()
-    return _project_root(p) / ".mini" / "renders" / f"{export_key(p)}.md"
-
-
-def input_dir(notebook_file: str | Path) -> Path | None:
+def input_dir(report: str | Path) -> Path | None:
     """The directory whose files are this report's *local* inputs, or ``None`` if it has none.
 
-    The mirror of :func:`export_dir`: that names what a report writes, this names what it reads from the repo. A report that owns a directory (``docs/ex-2.1.8/report.py``) reads the files beside it — the ``experiment.py`` defining its tasks, a ``dopesheet.csv``, whatever else the author put there — so an edit to any of them dates the report's bundle exactly as an edit to the notebook does. Callers that only watch the ``.py`` see a report re-run against new results and report itself unchanged.
+    The mirror of :func:`export_dir`: that names what a report writes, this names what it reads from the repo. A report that owns a directory (``docs/ex-2.1.8/report.py``) reads the files beside it — the ``experiment.py`` defining its tasks, a ``dopesheet.csv``, whatever else the author put there — so an edit to any of them dates the report's bundle exactly as an edit to the script does. Callers that only watch the ``.py`` see a report re-run against new results and report itself unchanged.
 
     Scoped to the directory rather than a parsed import graph because the directory *is* the convention here (:func:`export_key` already derives a report's identity from it), and it stays right without anyone maintaining it. It's deliberately the loose end of the two: a shared module under ``src/`` is an input too, and nothing local can see that — the bundle's ``PROVENANCE_ASSET`` sidecar is where that question gets answered, at the cost of store access.
 
     ``None`` for a report living directly in ``docs/`` (``docs/overview.py``): the docs root is shared site space — ``publish.lock``, ``index.md``, ``report.css`` — not one report's inputs, and reading it as such would date every root-level report on every publish.
     """
-    parent = Path(notebook_file).resolve().parent
+    parent = Path(report).resolve().parent
     docs = _project_root(parent) / "docs"
     return parent if parent != docs and docs in parent.parents else None
 
 
-def inputs_touched_at(notebook_file: str | Path) -> float:
-    """The mtime of the most recently edited thing *notebook_file* is built from.
+def inputs_touched_at(report: str | Path) -> float:
+    """The mtime of the most recently edited thing *report* is built from.
 
-    The notebook, plus everything in its input directory (:func:`input_dir`) — an experiment definition, a dopesheet — since editing one of those dates any render of the report exactly as editing the notebook does. Directories are stamped too, so deleting an input registers (a delete bumps the parent's mtime while touching no surviving file).
+    The script, plus everything in its input directory (:func:`input_dir`) — an experiment definition, a dopesheet — since editing one of those dates any render of the report exactly as editing the script does. Directories are stamped too, so deleting an input registers (a delete bumps the parent's mtime while touching no surviving file).
 
     Skips ``__pycache__`` and dotfiles: importing ``experiment.py`` rewrites its bytecode, which would otherwise read as an edit and re-render the report every time something imported it. The *first* such import still registers, since creating ``__pycache__/`` stamps the directory holding it — one spurious re-render per fresh checkout, which is the price of noticing deletes at all.
     """
-    nb = Path(notebook_file).resolve()
-    paths = [nb]
-    if d := input_dir(nb):
+    script = Path(report).resolve()
+    paths = [script]
+    if d := input_dir(script):
         junk = (".", "__pycache__")
         paths += [d, *(p for p in d.rglob("*") if not any(s.startswith(junk) for s in p.relative_to(d).parts))]
     return max(p.stat().st_mtime for p in paths if p.exists())
 
 
-def is_stale(notebook_file: str | Path, output: Path) -> bool:
-    """Whether *output* is missing or older than anything *notebook_file* is built from (:func:`inputs_touched_at`).
+def is_stale(report: str | Path, output: Path) -> bool:
+    """Whether *output* is missing or older than anything *report* is built from (:func:`inputs_touched_at`).
 
-    A cheap mtime heuristic shared by both renders of a report — the bundle's ``index.html`` (``./go preview``) and the Markdown (``./go render``). It misses edits to imported ``src/`` modules and to the stored results a report reads, so callers offer a ``--force`` that skips the check.
+    A cheap mtime heuristic for the bundle's ``index.html`` (``./go preview --stale-only``, the default). It misses edits to imported ``src/`` modules and to the stored results a report reads, so callers offer a ``--force`` that skips the check.
     """
     out = Path(output)
-    return not out.exists() or out.stat().st_mtime < inputs_touched_at(notebook_file)
+    return not out.exists() or out.stat().st_mtime < inputs_touched_at(report)
 
 
 # The pin manifest: export key → the publish-tier commit sha its bundle was last
@@ -345,14 +332,6 @@ def is_manually_published(path: str | Path) -> bool:
     return MANUAL_PUBLISH_MARKER in Path(path).read_text("utf-8", errors="ignore")
 
 
-def report_bundle(notebook_file: str | Path, *, link: str = "_assets") -> Publisher:
-    """A :class:`Publisher` for a report's exported bundle: its ``_assets/`` under :func:`export_dir`.
-
-    ``mini.lit``'s renderer installs its own publisher for a render, so a report never calls this itself; it is here for tooling that writes into a bundle by hand. *link* names the bundle's asset subdir, so ``<link>/<name>`` resolves next to the exported ``index.html`` (and, once published, against the ``<base href>`` pointing at the bucket).
-    """
-    return Publisher(asset_dir=export_dir(notebook_file) / link, link=link)
-
-
 _default_publisher: Publisher | None = None
 
 
@@ -372,11 +351,12 @@ def current_publisher() -> Publisher | None:
 
 
 # Stamped on an externalized fragment's root element, carrying that fragment's sidecar
-# URL. Nothing in the browser reads it — it is there for a reader of the *Markdown*
-# render, which swaps the whole element for a link to the sidecar rather than carry a
-# page of path data. Because nothing fetches it, it can stay the bundle-relative URL;
-# ``insert_base`` and
-# :func:`stray_links` both look at ``src``/``href`` only, so it rides along untouched.
+# URL. Nothing in the browser reads it — it is there for tooling that reads the page
+# or its Markdown as text, so the file behind a screenful of path data is named on the
+# element itself (a render can swap the element for a link to it; see
+# todo/eng/svg-bulk-in-markdown-renders.md). Because nothing fetches it, it can stay the
+# bundle-relative URL; ``insert_base`` and :func:`stray_links` both look at
+# ``src``/``href`` only, so it rides along untouched.
 ASSET_MARKER = "data-mini-asset"
 
 # The opening tag of a fragment's root element: leading whitespace, ``<``, a tag name.
@@ -388,7 +368,7 @@ def externalize_html(fragment: str, *, name: str, publish: Publisher | None = No
 
     The inline copy is the one readers see — an inlined SVG participates in the page's CSS (theming, fonts), which a referenced file can't. But an inlined fragment is a screenful of path data in the page, so tooling that reads the document as text has to wade through it. The sidecar under ``_assets/`` is the escape hatch: the same fragment as a plain file, like the PNGs ``themed`` writes. *name* keeps its extension if it has one (``.svg`` for a bare SVG element), else ``.html``. With no publisher (*publish* or the report default), this is a no-op pass-through.
 
-    The returned copy differs from *fragment* in one inert attribute: :data:`ASSET_MARKER` on the root element, naming the sidecar's URL. That is what lets ``./go render`` replace a screenful of inlined SVG with a link — the sidecar is written under a name of the caller's choosing, so without the stamp, matching an SVG in the document back to the file it came from would mean comparing content. Pass a single root element: the stamp lands on the first tag, and it is that one element the render swaps out. Give it an ``aria-label`` (``figure_html``'s *aria_label*) and the render uses it as the link's description — the same text a screen reader gets.
+    The returned copy differs from *fragment* in one inert attribute: :data:`ASSET_MARKER` on the root element, naming the sidecar's URL. That is what lets a text reader (or a Markdown render) find the file behind a screenful of inlined SVG — the sidecar is written under a name of the caller's choosing, so without the stamp, matching an SVG in the document back to the file it came from would mean comparing content. Pass a single root element: the stamp lands on the first tag. Give it an ``aria-label`` (``figure_html``'s *aria_label*) so a reader, and a screen reader, get a description.
 
     The sidecar holds the fragment as authored, without the stamp: it is the figure, not a reference to itself.
     """
@@ -470,7 +450,7 @@ def _decode_attr(value: str) -> str:
 class ReportFigure:
     """One figure in a report's exported HTML, with its light/dark variants folded together.
 
-    ``light`` and ``dark`` are the bundle-relative asset URLs (``_assets/<stem>-light.png``); ``dark`` is ``None`` for an unthemed image. ``alt`` is the figure's own alt text, as authored. ``width``/``height`` are the CSS-pixel display size the export stamped on the ``<img>`` (see :func:`mini.vis.nb.themed_figure_html`), or ``None`` when the tag carried none.
+    ``light`` and ``dark`` are the bundle-relative asset URLs (``_assets/<stem>-light.png``); ``dark`` is ``None`` for an unthemed image. ``alt`` is the figure's own alt text, as authored. ``width``/``height`` are the CSS-pixel display size the export stamped on the ``<img>`` (see :func:`mini.vis.figures.themed_figure_html`), or ``None`` when the tag carried none.
     """
 
     stem: str
@@ -792,7 +772,7 @@ _LIGHTBOX_JS = r"""
   }
   function want(img){
     // The size the report asked for, stamped by the export on the figure's tag and on the
-    // index thumbnail made from it: the figure's *physical* size (see mini.vis.nb), which
+    // index thumbnail made from it: the figure's *physical* size (see mini.vis.figures), which
     // for a plot saved at 2x is half its pixels. That is the size it is meant to be drawn
     // at and the size it looks sharp at on a dense screen, so it is the panel's ceiling
     // as well as its shape — and it is in the markup before the panel has any bytes.

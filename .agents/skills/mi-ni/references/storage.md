@@ -104,7 +104,7 @@ publish-repo = "your-namespace/your-publish-repo"   # public, versioned dataset 
 
 With `publish-repo` set, `publish`/report-exports route to that dataset repo (a citation can pin to `…/resolve/<commit-sha>/…`); `put`/`get`/refs stay in the bucket. It costs no extra storage — Xet dedups chunks account-wide — so publishing is a commit, not a byte re-transfer. See [`eng/publishing.md`](/eng/publishing.md) and issue #38 for the design.
 
-Reports don't call `publish` directly; they go through a report bundle (`use_publisher` + `asset_url`, and the publish/build split): [reports.md](./reports.md).
+Reports don't call `publish` directly; they go through the report's bundle (the runner's publisher and its `asset_url`, and the publish/build split): [reports.md](./reports.md).
 
 ## Profiles: a dev pair beside production
 

@@ -20,7 +20,7 @@ if command -v uv >/dev/null 2>&1; then
 fi
 
 show_usage() {
-    echo "usage: $SELF [-h] {install,auth,check,deps,open,lit,render,preview,publish,site,todo,worktrees} ..."
+    echo "usage: $SELF [-h] {install,auth,check,deps,render,serve,preview,publish,site,todo,worktrees} ..."
 }
 
 show_help() {
@@ -45,21 +45,18 @@ show_help() {
 		                       uv audit and npm audit, Action pins against their newest
 		                       upstream tag, and upgrades available to packages we declare.
 		                       Read-only; the upgrade check is a --dry-run
-		  open    <file>:      open a file in \$VISUAL/\$EDITOR (a report is a plain .py; pair
-		                       it with \`lit serve\` for a live preview while you edit)
-		  lit     render <doc.py> [--pdf] | serve <doc.py> [--port N]:
-		                       weave a literate script (mini.lit: a .py with string prose
-		                       between cells) to .mini/lit/<key>/, or serve it with live
-		                       reload while you edit; preview/publish/render take it as a report
-		  render  [...nbs] [--force]:
-		                       render each report to readable Markdown at .mini/renders/<key>.md,
-		                       figures linked beside it — for reading a report as a document
-		                       (skips reports newer than their inputs; --force re-renders)
-		  preview [...nbs] [--no-serve] [--force] [--port N]:
+		  render  [...reports] [--pdf]:
+		                       weave each report (mini.lit: a .py with string prose between
+		                       cells) to .mini/lit/<key>/ — index.html and index.md, figures
+		                       beside them under _assets/ — for reading it as a document
+		  serve   <report> [--port N]:
+		                       serve one report with live reload while you edit it
+		  preview [...reports] [--no-serve] [--force] [--port N]:
 		                       export stale reports (each with a report.pdf beside its
 		                       index.html, for review on paper or e-ink), assemble the site
 		                       with local assets (never touches the network), and serve it
-		  publish <nbs|--all>: export reports and sync their bundles (PDF included) to the
+		  publish <reports|--all>:
+		                       export reports and sync their bundles (PDF included) to the
 		                       publish tier
 		  site:                assemble the public site from *published* bundles into _site/
 		                       (for CI; read-only, never runs a report)
@@ -83,10 +80,6 @@ case "${1:-}" in
     auth)
         shift
         "$SCRIPT_DIR/auth.sh" "$@"
-        ;;
-    lit)
-        shift
-        uv run python -m mini.lit "$@"
         ;;
     format|formatting)
         shift
@@ -130,57 +123,46 @@ case "${1:-}" in
             "$SCRIPT_DIR/check.sh" --lint --format --typecheck --test --links
         fi
         ;;
-    o|edit|open)
-        shift
-        if [[ $# -eq 0 ]]; then
-            echo "open what? pass a file (opens in \$VISUAL/\$EDITOR)." 1>&2
-            exit 2
-        fi
-        editor="${VISUAL:-${EDITOR:-code}}"
-        if ! command -v "$editor" > /dev/null; then
-            echo "no editor: '$editor' not found — set \$VISUAL or \$EDITOR" 1>&2
-            exit 127
-        fi
-        ( set -x; "$editor" "$@" )
-        ;;
     render)
-        # One report at a time: rendering runs the report's cells, so a bare `render` over
-        # every report would be compute nobody asked for. Flags pass through to the script
-        # (--force, --assets-dir DIR).
+        # Named reports only: rendering runs the report's cells, so a bare `render` over
+        # every report would be compute nobody asked for. Flags pass through (--pdf).
         shift
-        nbs=() flags=()
+        paths=() flags=()
         while [[ $# -gt 0 ]]; do
             case "$1" in
-                --assets-dir) flags+=("$1" "${2:?--assets-dir needs a value}"); shift ;;
                 -*) flags+=("$1") ;;
-                *) nbs+=("$1") ;;
+                *) paths+=("$1") ;;
             esac
             shift
         done
-        if [[ ${#nbs[@]} -eq 0 ]]; then
+        if [[ ${#paths[@]} -eq 0 ]]; then
             echo "render what? name one or more reports, e.g." 1>&2
             echo "  $0 render docs/pipeline/report.py" 1>&2
             exit 2
         fi
-        for nb in "${nbs[@]}"; do
-            ( set -x; uv run "$SCRIPT_DIR/export_report_md.py" "$nb" "${flags[@]}" )
+        for path in "${paths[@]}"; do
+            ( set -x; uv run python -m mini.lit render "$path" "${flags[@]}" )
         done
+        ;;
+    serve)
+        shift
+        ( set -x; uv run python -m mini.lit serve "$@" )
         ;;
     p|preview)
         shift
         serve=1 port=8000 stale=--stale-only
-        nbs=()
+        paths=()
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --no-serve) serve=0 ;;
                 --force) stale= ;;
                 --port) port="${2:?--port needs a value}"; shift ;;
                 -*) echo "preview: unknown flag '$1' (flags: --no-serve --force --port N)" 1>&2; exit 2 ;;
-                *) nbs+=("$1") ;;
+                *) paths+=("$1") ;;
             esac
             shift
         done
-        ( set -x; uv run "$SCRIPT_DIR/export_reports.py" ${stale:+"$stale"} "${nbs[@]}" )
+        ( set -x; uv run "$SCRIPT_DIR/export_reports.py" ${stale:+"$stale"} "${paths[@]}" )
         ( set -x; uv run "$SCRIPT_DIR/build_site.py" --localize )
         if [[ $serve -eq 1 ]]; then
             ( set -x; uv run "$SCRIPT_DIR/preview_server.py" "$PROJECT_ROOT/_site" "$port" )
@@ -208,13 +190,14 @@ case "${1:-}" in
         shift
         uv run "$SCRIPT_DIR/worktrees.py" "$@"
         ;;
-    e|export|r|run|s|serve|build|scrub|clean)
+    e|export|r|run|build|scrub|clean|lit|o|edit|open)
         case "$1" in
             e|export)     echo "'export' is gone — '$0 preview --no-serve' exports stale reports to .mini/exports/" ;;
             r|run)        echo "'run' is gone — 'bin/mini run <experiment.py>' runs experiments; '$0 preview' renders reports; 'uv run ...' for anything else" ;;
-            s|serve)      echo "'serve' is gone — '$0 preview' exports what's stale, then builds and serves" ;;
             build)        echo "'build' split in two — '$0 preview' assembles locally; '$0 site' assembles the public site from published bundles (CI)" ;;
             scrub|clean)  echo "'scrub' is gone — a literate script's export has nothing to scrub" ;;
+            lit)          echo "'lit' is gone — '$0 render <report>' weaves a literate script; '$0 serve <report>' serves it with live reload" ;;
+            o|edit|open)  echo "'open' is gone — a report is a plain .py, so open it in your editor; '$0 serve <report>' previews it live" ;;
         esac 1>&2
         exit 2
         ;;

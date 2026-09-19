@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
+from mini.lit.page import FONTS
 from mini.reports import (
     PDF_TYPE,
     PUBLISH_LOCK,
@@ -72,7 +73,7 @@ await mermaid.run();
 
 # Source suffixes that the build renders into a report page (so an author link to one
 # resolves to the rendered result, not the dead source file).
-_RENDERED_SUFFIXES = (".py", ".ipynb", ".md")
+_RENDERED_SUFFIXES = (".py", ".md")
 
 
 def prepare_dirs():
@@ -166,16 +167,16 @@ class LinkResolver:
                 continue
             rel = md.relative_to(DOCS_DIR).as_posix()
             render_map[rel] = PurePosixPath(rel).with_suffix(".html").as_posix()
-        for nb in reports(DOCS_DIR):
-            out = f"{export_key(nb)}/index.html"
-            stem_rel = nb.relative_to(DOCS_DIR)
+        for report in reports(DOCS_DIR):
+            out = f"{export_key(report)}/index.html"
+            stem_rel = report.relative_to(DOCS_DIR)
             # The report came from this script; register every suffix an author might
             # have linked (``report.py`` → its rendered ``<key>/index.html``), plus the
             # bare directory (``../ex-2.1.1/``) — the canonical published URL one report
             # naturally uses to link another.
             for suffix in _RENDERED_SUFFIXES:
                 render_map[stem_rel.with_suffix(suffix).as_posix()] = out
-            render_map[export_key(nb)] = out
+            render_map[export_key(report)] = out
 
         source_files = frozenset(p.relative_to(DOCS_DIR).as_posix() for p in DOCS_DIR.rglob("*") if p.is_file())
         site_assets = frozenset(p.relative_to(DOCS_DIR).as_posix() for p in site_asset_files())
@@ -276,18 +277,18 @@ class _Bundle:
         return href if href and (self.base_href is not None or self.pdf is not None) else None
 
 
-def _read_bundle(nb: Path, *, store, pins: dict[str, str], externalizing: bool) -> _Bundle:
+def _read_bundle(report: Path, *, store, pins: dict[str, str], externalizing: bool) -> _Bundle:
     """Read one report's exported ``index.html`` — off the bucket, or from ``.mini/exports/``.
 
     Externalize reads *only* the HTML. The page's ``_assets/`` links stay relative and the ``<base>`` sends them to the bundle on the CDN, so pulling the whole bundle here would fetch megabytes of figures the build has no use for. It's also the one step that waits on the network, which is why it's separable: the reports are independent, so the caller runs these together instead of serially.
 
     A report pinned in ``docs/publish.lock`` is read *and* based at that revision, so the page serves exactly what its publish uploaded — a later re-publish (e.g. from a branch whose PR hasn't merged) can't swap the assets under this build. An unpinned report falls back to the mutable branch head, with a warning.
     """
-    key = export_key(nb)
+    key = export_key(report)
     if not externalizing:
-        bundle = export_dir(nb)
+        bundle = export_dir(report)
         if not (bundle / "index.html").exists():
-            nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
+            nb_rel = report.relative_to(WORKSPACE_ROOT).as_posix()
             return _Bundle(None, notes=(f"  ! {key}: not exported locally — run `./go preview {nb_rel}` (skipping)",))
         assets = bundle / ASSET_LINK
         html = (bundle / "index.html").read_text("utf-8")
@@ -339,20 +340,22 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
     # rather than the sum of all of them. Assembly below is CPU-cheap and stays sequential
     # in report order, so the log reads the same however the threads interleaved.
     with ThreadPoolExecutor(max_workers=min(8, max(len(nbs), 1))) as pool:
-        bundles = pool.map(lambda nb: _read_bundle(nb, store=store, pins=pins, externalizing=externalizing), nbs)
+        bundles = pool.map(
+            lambda report: _read_bundle(report, store=store, pins=pins, externalizing=externalizing), nbs
+        )
 
     strips: dict[str, FigureStrip] = {}
-    for nb, bundle in zip(nbs, list(bundles), strict=True):
-        key = export_key(nb)
+    for report, bundle in zip(nbs, list(bundles), strict=True):
+        key = export_key(report)
         for note in bundle.notes:
             print(note)
         if bundle.html is None:
             continue
         figures = tuple(report_figures(bundle.html, link=ASSET_LINK))
         strips[key] = FigureStrip(key, bundle.base_href, figures, pdf=bundle.pdf_url)
-        from_dir = nb.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
+        from_dir = report.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
         from_dir = "" if from_dir == "." else from_dir
-        nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
+        nb_rel = report.relative_to(WORKSPACE_ROOT).as_posix()
 
         html = resolve_html_links(bundle.html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
         html = mark_figures(html, link=ASSET_LINK)  # defer offscreen figures; mark them zoomable
@@ -400,7 +403,7 @@ def resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, out_dir
 
 
 _ASSET_SKIP_DIRS = {"__pycache__"}
-_ASSET_SKIP_SUFFIXES = {".py", ".md", ".ipynb", ".pyc", ".pyo"}
+_ASSET_SKIP_SUFFIXES = {".py", ".md", ".pyc", ".pyo"}
 
 
 def site_asset_files() -> list[Path]:
@@ -595,7 +598,7 @@ def convert_markdown(links: LinkResolver, externalizing: bool, strips: dict[str,
             '<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             f"<title>{title}</title>\n"
-            f'<link rel="stylesheet" href="{root}md.css">\n'
+            f'{FONTS}\n<link rel="stylesheet" href="{root}md.css">\n'
             + (MERMAID_SCRIPT if has_mermaid else "")
             + (lightbox_chrome() if has_strip else "")
             + "</head>\n"

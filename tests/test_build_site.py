@@ -209,7 +209,7 @@ def test_figures_marker_for_an_unbuilt_report_renders_nothing(resolver, strips, 
 
 def test_nav_urls_absolute_when_externalizing(resolver):
     # With an asset <base>, the index link must be absolute (the site root); source is
-    # always the notebook on GitHub.
+    # always the report's source on GitHub.
     index, source = build_site._nav_urls(resolver, key="pipeline", nb_rel="docs/pipeline/report.py", externalizing=True)
     assert index == "https://o.github.io/r/"
     assert source == "https://github.com/o/r/blob/main/docs/pipeline/report.py"
@@ -240,7 +240,7 @@ def test_rendered_link_stays_relative_when_localizing(resolver):
 
 def test_directory_form_link_resolves_like_the_report_file(resolver):
     # A report links a sibling by its canonical published URL (``../acts/``, the directory),
-    # not the notebook file — both must reach the same rendered page.
+    # rather than the report file — both must reach the same rendered page.
     assert (
         resolver.resolve("../acts/report/", from_dir="probe", out_dir="probe/report", externalizing=True)
         == "https://o.github.io/r/acts/report/"

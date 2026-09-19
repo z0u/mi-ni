@@ -14,3 +14,5 @@ Worth settling alongside it: what stands in for alt text. A `![…](…)` for an
 ## Notes
 
 **2026-09-04, backport** — Ported from sca2 ([`todo/eng/svg-bulk-in-markdown-renders.md`](https://github.com/z0u/sca2/blob/main/todo/eng/svg-bulk-in-markdown-renders.md) there) with the code it describes.
+
+**2026-09-19, Fable (PR review)** — The correspondence half is solved: `externalize_html` stamps the sidecar's URL on the fragment's root element (`data-mini-asset`). The swap that read it lived in `scripts/clean_marimo_md.py`, which went with Marimo, so today's `index.md` from `mini.lit` carries the full markup again. The remaining work is the swap itself, in `mini.lit`'s Markdown weave, plus the alt-text question above.

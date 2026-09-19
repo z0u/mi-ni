@@ -33,7 +33,7 @@ figure.report-figure > figcaption {
  * a single `--sw`, so the square tracks the same pair a `light_dark` figure uses. The two
  * hexes ride in separate properties because the element's own `style=` would outrank any
  * rule that tried to reassign `--sw` directly. Theme detection mirrors the themed-figure
- * CSS in mini.vis.nb: an explicit theme on the body element wins, and the OS preference
+ * CSS in mini.vis.figures: an explicit theme on the body element wins, and the OS preference
  * applies only where the body states none. (No literal body tag in this comment: the
  * export injects its chips after the first one it finds.) */
 .sw-themed {
@@ -207,7 +207,7 @@ main.lit details:not(:open) {
     display: table-header-group;
   }
 
-  /* Figures are always the light variant. The themed-figure CSS (mini.vis.nb) picks
+  /* Figures are always the light variant. The themed-figure CSS (mini.vis.figures) picks
    * the pair by the page theme; paper has one. */
   figure[class*="mini-themed-figure"] .mini-themed-img-light {
     display: block !important;

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Export reports to self-contained bundles, optionally syncing to the bucket.
 
-Each report (a literate script under ``docs/``; :func:`~mini.reports.is_report`) exports to its own bundle at ``.mini/exports/<key>/`` — ``index.html`` plus the name-keyed ``_assets/`` its publisher wrote (``mini.lit.render`` aims the publisher at :func:`~mini.reports.report_bundle`). After the weave, provenance, thumbnails, the PDF and the sync follow. With ``--publish`` each bundle is then mirrored to the configured HF bucket at ``exports/<key>/``: the authenticated half of publishing (it needs the data the report reads + a write token). ``scripts/build_site.py`` assembles the site from these bundles — the synced ones in CI (read-only), the local ones offline.
+Each report (a literate script under ``docs/``; :func:`~mini.reports.is_report`) exports to its own bundle at ``.mini/exports/<key>/`` — ``index.html`` plus the name-keyed ``_assets/`` its publisher wrote (``mini.lit.render`` installs a publisher aimed at the output's ``_assets/``). After the weave, provenance, thumbnails, the PDF and the sync follow. With ``--publish`` each bundle is then mirrored to the configured HF bucket at ``exports/<key>/``: the authenticated half of publishing (it needs the data the report reads + a write token). ``scripts/build_site.py`` assembles the site from these bundles — the synced ones in CI (read-only), the local ones offline.
 """
 
 import argparse
@@ -54,18 +54,18 @@ def reports_to_export(paths: list[str]) -> list[Path]:
         if is_report(path):
             keep.append(path)
         else:
-            print(f"  skip {path.name}: source-only example, not a rendered report — see `./go lit render`")
+            print(f"  skip {path.name}: source-only example, not a rendered report — see `./go render`")
     return keep
 
 
-def bundle_is_stale(nb: Path) -> bool:
-    """Whether *nb*'s bundle is missing or older than anything it's built from."""
-    return is_stale(nb, export_dir(nb) / "index.html")
+def bundle_is_stale(path: Path) -> bool:
+    """Whether *path*'s bundle is missing or older than anything it's built from."""
+    return is_stale(path, export_dir(path) / "index.html")
 
 
-def export_one(nb: Path) -> Path:
-    """Export *nb* to ``.mini/exports/<key>/index.html`` (assets land beside it). Returns the dir."""
-    out = export_dir(nb) / "index.html"
+def export_one(path: Path) -> Path:
+    """Export *path* to ``.mini/exports/<key>/index.html`` (assets land beside it). Returns the dir."""
+    out = export_dir(path) / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)
     # The render rewrites every asset it still produces, and the sync mirrors whatever is
     # here; clear the last export's first so a figure the report no longer draws (or a
@@ -73,8 +73,8 @@ def export_one(nb: Path) -> Path:
     assets = out.parent / "_assets"
     shutil.rmtree(assets, ignore_errors=True)
     sidecar = assets / PROVENANCE_ASSET
-    print(f"  export {nb.relative_to(ROOT)} -> {out.relative_to(ROOT)}")
-    html = _weave(nb, out)
+    print(f"  export {path.relative_to(ROOT)} -> {out.relative_to(ROOT)}")
+    html = _weave(path, out)
     if sidecar.exists():  # the render read store refs — cite their producers in a footer
         refs = json.loads(sidecar.read_text()).get("refs", {})
         html = set_provenance(html, refs)
@@ -92,12 +92,12 @@ def export_one(nb: Path) -> Path:
     # print served from, and an unchanged report would upload a new file every time).
     pdf = out.parent / PDF_LEAF
     pdf.unlink(missing_ok=True)  # the last export's, which a skipped print must not leave to sync
-    from_dir = nb.parent.relative_to(DOCS).as_posix()
+    from_dir = path.parent.relative_to(DOCS).as_posix()
     printable = resolve_html_links(
         html,
         LinkResolver.discover(),
         from_dir="" if from_dir == "." else from_dir,
-        out_dir=export_key(nb),
+        out_dir=export_key(path),
         externalizing=True,
     )
     print(f"  print  {out.relative_to(ROOT)} -> {pdf.relative_to(ROOT)} (headless Chromium; a few seconds)")
@@ -124,13 +124,13 @@ def _weave(script: Path, out: Path) -> str:
     return html
 
 
-def publish_one(nb: Path, store) -> str | None:
-    """Export *nb*, mirror its bundle to ``exports/<key>/``, and return its revision.
+def publish_one(path: Path, store) -> str | None:
+    """Export *path*, mirror its bundle to ``exports/<key>/``, and return its revision.
 
     The revision (a publish-tier commit sha, ``None`` on a history-less bucket) is what the caller pins in ``docs/publish.lock`` — the site serves the bundle at that exact commit, so this publish changes nothing deployed until the pin lands on main.
     """
-    bundle = export_one(nb)
-    key = export_key(nb)
+    bundle = export_one(path)
+    key = export_key(path)
     print(f"  sync   {bundle.relative_to(ROOT)} -> exports/{key}/")
     return store.sync_export(bundle, key)
 
@@ -140,7 +140,7 @@ def update_pins(new: dict[str, str]) -> None:
 
     Pruning uses the *full* report set (not just what was published now), so a partial publish never drops other reports' pins, but a deleted report's pin doesn't linger. The production manifest must be committed for the pins to take effect — it's the identity half of a publish; the upload was only evidence. A profile's manifest is gitignored: dev pins never reach CI.
     """
-    live = {export_key(nb) for nb in reports(DOCS)}
+    live = {export_key(path) for path in reports(DOCS)}
     pins = {k: v for k, v in (load_pins(ROOT) | new).items() if k in live}
     save_pins(ROOT, pins)
 
@@ -162,24 +162,26 @@ def main() -> None:
     if args.publish and not args.reports and not args.all:
         ap.error("refusing to publish every report implicitly — name the reports, or pass --all")
 
-    nbs = reports_to_export(args.reports)
-    if not nbs:
+    paths = reports_to_export(args.reports)
+    if not paths:
         sys.exit("No reports found under docs/.")
 
     if not args.publish:
         if args.stale_only:
-            for nb in (fresh := [nb for nb in nbs if not bundle_is_stale(nb)]):
-                print(f"  fresh  {nb.relative_to(ROOT)} (bundle newer than script — `--force` re-exports)")
-            nbs = [nb for nb in nbs if nb not in fresh]
-        for nb in nbs:
-            export_one(nb)
-        print(f"\n{len(nbs)} bundle(s) exported to .mini/exports/." if nbs else "\nNothing stale; bundles untouched.")
+            for path in (fresh := [path for path in paths if not bundle_is_stale(path)]):
+                print(f"  fresh  {path.relative_to(ROOT)} (bundle newer than script — `--force` re-exports)")
+            paths = [path for path in paths if path not in fresh]
+        for path in paths:
+            export_one(path)
+        print(
+            f"\n{len(paths)} bundle(s) exported to .mini/exports/." if paths else "\nNothing stale; bundles untouched."
+        )
         return
 
-    publish_all(nbs)
+    publish_all(paths)
 
 
-def publish_all(nbs: list[Path]) -> None:
+def publish_all(paths: list[Path]) -> None:
     """Publish each report's bundle, then pin the revisions in ``docs/publish.lock``."""
     from mini.hf_store import HFStore
     from mini.store import store_for
@@ -188,13 +190,13 @@ def publish_all(nbs: list[Path]) -> None:
     if not isinstance(store, HFStore):
         sys.exit("No HF bucket configured — set [tool.mini] store-bucket and run `./go auth`, then retry --publish.")
     pins = {}
-    for nb in nbs:
-        if (rev := publish_one(nb, store)) is not None:
-            pins[export_key(nb)] = rev
+    for path in paths:
+        if (rev := publish_one(path, store)) is not None:
+            pins[export_key(path)] = rev
     target = store.publish_repo or store.bucket  # exports route to the repo when a publish tier is set (#38)
     profile = active_profile()
     where = f"{target} (profile {profile})" if profile else target
-    print(f"\nPublished {len(nbs)} report(s) to {where}.")
+    print(f"\nPublished {len(paths)} report(s) to {where}.")
     if pins:
         update_pins(pins)
         pinned = f"Pinned in {publish_lock()}: " + ", ".join(f"{k} @ {v[:12]}" for k, v in sorted(pins.items()))

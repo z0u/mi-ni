@@ -7,7 +7,7 @@ description: View a report's figures, or export its text to Markdown. Read matpl
 
 ## Fast path: read the figure PNGs directly (no browser)
 
-Most report figures are matplotlib, and the `report_bundle` publisher (`mini.reports` + the `themed`/`light_dark` vis helpers) writes each one to disk as a real file, `_assets/<name>-light.png` / `-dark.png`, during the bundle build, regardless of the surrounding HTML. So the ergonomic way to see those figures is to build the bundle and `Read` the PNGs. No browser, no runtime, no network:
+Most report figures are matplotlib, and the publisher the runner installs (`mini.reports` + the `themed`/`light_dark` vis helpers) writes each one to disk as a real file, `_assets/<name>-light.png` / `-dark.png`, during the bundle build, regardless of the surrounding HTML. So the ergonomic way to see those figures is to build the bundle and `Read` the PNGs. No browser, no runtime, no network:
 
 ```bash
 ./go preview --no-serve docs/gpt-sweep/report.py   # -> .mini/exports/gpt-sweep/
@@ -16,7 +16,7 @@ ls .mini/exports/gpt-sweep/_assets/*.png           # then Read the ones you want
 
 The preview also assembles `_site/`, which has a copy of each bundle's `_assets/`, so `_site/<key>/_assets/*.png` is the same file. The two differ only in `report.css` (see the gotchas).
 
-This covers the bulk of every current report. Inline-HTML figures (e.g. `subline` sparklines) that the report wraps in `externalize_html(html, name=…)` (`mini.reports`) are likewise on disk as `_assets/<name>.html`, plain markup you can `Read` (or rasterize, below) without touching the page. A Markdown render links each one where the markup used to sit, so the path is in the document rather than something to go looking for. Reach for the browser in two cases. The first is inline/JS output without such a sidecar: it lives only inside the page's client-hydrated data island (JSON, unicode-escaped `<svg…`), so there's no file to read and the page is blank until the runtime renders it. The second is when you need the whole page (prose + figures together, layout, the show-code toggle).
+This covers the bulk of every current report. Inline-HTML figures (e.g. `subline` sparklines) that the report wraps in `externalize_html(html, name=…)` (`mini.reports`) are likewise on disk as `_assets/<name>.html`, plain markup you can `Read` (or rasterize, below) without touching the page. The inline copy carries the sidecar's URL on a `data-mini-asset` attribute, so `rg data-mini-asset` on the page or its `index.md` lists the paths. Reach for the browser in two cases. The first is inline/JS output without such a sidecar: it lives only inside the page's client-hydrated data island (JSON, unicode-escaped `<svg…`), so there's no file to read and the page is blank until the runtime renders it. The second is when you need the whole page (prose + figures together, layout, the show-code toggle).
 
 A standalone `.svg` file (no browser runtime involved) rasterizes to a readable PNG without a browser via cairosvg — `libcairo`/`librsvg` are present in this env:
 
@@ -29,12 +29,12 @@ uv run --with cairosvg python -c "import cairosvg; cairosvg.svg2png(url='x.svg',
 To *read* a report — prose, headings, tables and figure alt text, assembled in order — export it to Markdown. No browser, no bundle:
 
 ```bash
-./go render docs/gpt-sweep/report.py      # -> .mini/renders/gpt-sweep.md
+./go render docs/gpt-sweep/report.py      # -> .mini/lit/gpt-sweep/index.md (and index.html)
 ```
 
-This weaves the document (`mini.lit`; a `# title:` header at the top of the `.py`) in seconds with no browser, and moves the figures to `<key>.assets/` beside the render; they appear as `<figure>` HTML with the report's real alt text. The links resolve from the render's own directory, so `Read` follows one straight to the PNG, and a report newer than its last render is skipped (`--force` re-renders). This is what the `report-structure` agent reads. A published literate report also serves its woven Markdown beside the page as `<key>/index.md`.
+This weaves the document (`mini.lit`; a `# title:` header at the top of the `.py`) with no browser, writing `index.md` beside `index.html` with the figures under `_assets/`; in the Markdown they appear as `<figure>` HTML with the report's real alt text. The links resolve from the render's own directory, so `Read` follows one straight to the PNG. This is what the `report-structure` agent reads. A published literate report also serves the same woven Markdown beside its page as `<key>/index.md`.
 
-The default output keeps one render per report, named by the same key as its bundle (`mini.reports.render_path`). To put it elsewhere, call the script under the verb with an output path: `uv run scripts/export_report_md.py <nb> out.md`. The bundle's `index.html` holds the same document at about ten times the size, most of it framework markup, so reach for it only when you need the page as a page.
+Rendering runs the report's cells (memoized work comes from the cache), so name the reports you want; `--pdf` also prints the page. The export bundle from `./go preview` holds the same document plus provenance, thumbnails, and the PDF. Its `index.html` is several times the size of `index.md`, most of it the inline stylesheet, so reach for it only when you need the page as a page.
 
 ## Browser path: for inline/JS figures, full page, or DOM assertions
 
@@ -87,5 +87,5 @@ wide = page.evaluate("document.querySelector('main.lit table.report-table').scro
   uv run playwright install-deps chromium   # OS libs (libxkbcommon0, …)
   ```
   A candidate for baking into the dev container if this becomes routine; on-demand is fine otherwise (one download, then cached).
-- A missing favicon/font 404 is cosmetic; the page still renders (the webfonts come from jsDelivr, so offline the fallback fonts show).
+- A missing favicon/font 404 is cosmetic; the page still renders (the webfonts come from Google Fonts, so offline the fallback fonts show).
 - Shared report styles (`docs/report.css`: `.sw` swatch variants, `.report-table`, the print rules) ride along two ways: inlined into each export by the exporter, and re-inlined from source at build time by `mini.reports.set_report_styles` (so central edits restyle every report without a re-export). A raw `.mini/exports/<key>/` bundle therefore carries the baked copy, so rendering it shows the styles; to preview a central edit to `report.css` without re-exporting, rebuild the site (`./go preview`) and render from `_site/<key>/` instead.

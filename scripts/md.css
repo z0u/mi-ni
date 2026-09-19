@@ -1,44 +1,5 @@
-/*
- * Webfonts for the site's pages (PT Sans / Lora / Fira Mono), loaded from a
- * jsDelivr-hosted frontend bundle that ships them. Filenames are content-hashed,
- * so the package version is pinned; bump the pin and the hashes together.
- */
-@font-face {
-  font-family: "PT Sans";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/PTSans-Regular-Bam3NpBI.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
-@font-face {
-  font-family: "PT Sans";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/PTSans-Bold-C_DwAp7Z.woff2") format("woff2");
-  font-weight: 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Lora";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/Lora-VariableFont_wght-CZceb_kH.woff2") format("woff2");
-  font-weight: 400 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fira Mono";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Regular-CEsLFVD9.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fira Mono";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Medium-D5MAsWEG.woff2") format("woff2");
-  font-weight: 500;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fira Mono";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Bold-C6PDArdf.woff2") format("woff2");
-  font-weight: 700;
-  font-display: swap;
-}
+/* Fonts (PT Sans / Lora / Fira Mono) come from the same Google Fonts <link> as the
+   woven report pages: `mini.lit.page.FONTS`, emitted by scripts/build_site.py. */
 
 :root {
   color-scheme: light dark;

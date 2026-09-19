@@ -12,7 +12,6 @@ from mini.reports import (
     SOURCE_ONLY_MARKER,
     Publisher,
     is_manually_published,
-    export_dir,
     export_key,
     externalize_html,
     input_dir,
@@ -22,7 +21,6 @@ from mini.reports import (
     load_pins,
     mark_figures,
     relative_urls,
-    render_path,
     report_figures,
     reports,
     rewrite_links,
@@ -287,17 +285,6 @@ def test_export_key_drops_redundant_report_segment(tmp_path):
     # A top-level report.py has no directory to take, so it keeps its stem.
     (docs / "report.py").write_text(_APP)
     assert export_key(docs / "report.py") == "report"
-
-
-def test_render_path_names_the_markdown_by_the_same_key(tmp_path):
-    # The bundle and the Markdown render are two views of one report, so one key names both.
-    (tmp_path / "pyproject.toml").write_text("")
-    docs = tmp_path / "docs"
-    (docs / "m2" / "ex-1").mkdir(parents=True)
-    (docs / "m2" / "ex-1" / "report.py").write_text(_APP)
-    nb = docs / "m2" / "ex-1" / "report.py"
-    assert render_path(nb) == tmp_path / ".mini" / "renders" / "m2" / "ex-1.md"
-    assert export_dir(nb) == tmp_path / ".mini" / "exports" / "m2" / "ex-1"
 
 
 def test_input_dir_is_the_report_own_directory(tmp_path):

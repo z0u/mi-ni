@@ -1,9 +1,9 @@
 # title: Character-level GPT
-# mini:source-only — this notebook trains inline (a full run on every execution), so
+# mini:source-only — this script trains inline (a full run on every execution), so
 # it doesn't fit the read-from-store report model the site build assumes. It's excluded
 # from the published report set: the build never runs it, and links to it (e.g. from
 # docs/index.md) resolve to its GitHub source rather than a rendered page. Run it
-# interactively with `./go lit render docs/gpt.py` (pick the Modal apparatus for the GPU).
+# interactively with `./go render docs/gpt.py` (pick the Modal apparatus for the GPU).
 
 r"""
 # Character-level GPT
@@ -36,10 +36,10 @@ from subline.subline import Subline
 from utils.lr_finder.vis import plot_lr_finder
 from utils.time import duration as t
 
-logging_config = SimpleLoggingConfig().info("notebook", "experiment", "mini", "utils")
+logging_config = SimpleLoggingConfig().info("report", "experiment", "mini", "utils")
 logging_config.apply()
 
-log = logging.getLogger("notebook")
+log = logging.getLogger("report")
 
 # What to run — edit these in place rather than wiring up a UI, since this file is
 # run from source, not published.

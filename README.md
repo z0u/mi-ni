@@ -23,7 +23,7 @@ app.volume.download("outputs", "local/outputs")
 ```
 
 ```bash
-./go lit serve ./docs/getting_started.py  # Edit with live reload
+./go serve docs/getting_started.py  # Edit with live reload
 ```
 
 [See: getting started report](./docs/getting_started.py).
@@ -49,22 +49,19 @@ mini status pipeline                            # poll later, from anywhere
 **Report, then publish.** `report.py` is a literate script that reads the durable results from the experiment and renders them. Figures are externalized and bundled, allowing agents to view them and keeping the report light:
 
 ```python
-from mini.reports import report_bundle, use_publisher
 from mini.vis import themed
 
-use_publisher(report_bundle(__file__))   # themed figures → _assets/, by name
-
-@themed(alt_text="Final validation loss...")
-def _loss_chart() -> plt.Figure: ...
+@themed(alt_text="Final validation loss...")   # → _assets/loss_chart-{light,dark}.png
+def loss_chart() -> plt.Figure: ...
 ```
 
 ```bash
-./go lit serve docs/pipeline/report.py  # edit live, with reload
+./go serve docs/pipeline/report.py      # edit live, with reload
 ./go preview                            # export stale reports → local site → :8000
 ./go publish docs/pipeline/report.py    # export + mirror to the bucket (needs ./go auth)
 ```
 
-At export the HTML is cleaned: progress-bar terminal sequences are collapsed, and Modal app URLs (which would leak your username) are redacted.
+At export, a provenance footer cites the stored artifacts the report read, and a PDF is printed beside the page for review on paper or e-ink.
 
 [See: pipeline report](./docs/pipeline/report.py).
 
@@ -85,7 +82,7 @@ At export the HTML is cleaned: progress-bar terminal sequences are collapsed, an
 ```bash
 ./go install  # CPU deps for local venv
 ./go auth     # Authenticate with Modal for remote compute
-./go lit serve docs/getting_started.py  # Open the report in your browser, with live reload
+./go serve docs/getting_started.py  # Open the report in your browser, with live reload
 ```
 
 For a more complete example, have a look at the [nanoGPT report](./docs/gpt.py).

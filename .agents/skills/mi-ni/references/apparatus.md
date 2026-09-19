@@ -47,7 +47,7 @@ APP_TYPE = "local"  # "local" or "modal" (pick modal for the GPU)
 app = ModalApparatus("demo").w(gpu="L4") if APP_TYPE == "modal" else LocalApparatus("demo")
 ```
 
-Then run it headless with `./go lit render docs/gpt.py`. A published report never launches compute at all: it reads results the experiment already produced (see `reports.md`). Confirm which backend actually ran from the logs: a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally`.
+Then run it headless with `./go render docs/gpt.py`. A published report never launches compute at all: it reads results the experiment already produced (see `reports.md`). Confirm which backend actually ran from the logs: a Modal run prints `Creating Modal image …` then `Running … on Modal`; a local one prints `Running … locally`.
 
 Always use the async methods `arun` and `amap` in a report and wherever there is an asynchronous context: Modal will complain otherwise. In other contexts, you can use the synchronous variants `run` and `map`, which are just wrappers provided for convenience.
 

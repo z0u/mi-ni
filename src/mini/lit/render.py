@@ -16,25 +16,18 @@ from pathlib import Path
 
 from mini.lit.document import Document, Runner, Woven, parse
 from mini.lit.page import page, to_html
-from mini.reports import Publisher
+from mini.reports import Publisher, export_key
 from mini.runs import data_root
 
 __all__ = ["render", "compose", "Rendered", "to_pdf", "output_dir"]
 
 
 def output_dir(doc: Path, *, live: bool = False) -> Path:
-    """``.mini/lit/<key>/``, where the key is the document's path under ``docs/`` without its suffix (``report.py`` takes its directory's name).
+    """``.mini/lit/<key>/``, keyed the way the report's export bundle is (:func:`mini.reports.export_key`).
 
     The live server writes to ``.mini/lit-live/<key>/`` instead: its page carries a reload script and versioned asset URLs, so it is a different artifact from a render, and keeping the trees apart means a ``render`` while the server is up never overwrites the page a browser is watching.
     """
-    doc = doc.resolve()
-    root = data_root().parent
-    try:
-        rel = doc.relative_to(root / "docs")
-    except ValueError:
-        rel = Path(doc.name)
-    key = rel.parent if rel.stem == "report" and rel.parent != Path(".") else rel.with_suffix("")
-    return data_root() / ("lit-live" if live else "lit") / key
+    return data_root() / ("lit-live" if live else "lit") / export_key(doc)
 
 
 @dataclass

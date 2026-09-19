@@ -28,8 +28,8 @@ dependencies = [
     "numpy>=2.2.3",  # numerical computing (multi-dimensional arrays)
     "optax>=0.2.4",  # gradient transformations and optimizers for JAX
     "pandas>=2.2.3",  # tabular data manipulation
-    "pydantic>=2.13.4",
-    "pymdown-extensions>=10.21",  # data validation
+    "pydantic>=2.13.4",  # data validation
+    "pymdown-extensions>=10.21",
     "pyzmq>=27.1.0",
     "requests>=2.32.3",
     "rich>=14.3.2",  # pretty terminal output
@@ -48,7 +48,6 @@ mini = "mini.__main__:main"
 #     image = modal.Image.debian_slim().pip_install(*deps)
 #
 dev = [
-    "markdownify>=1.2.3",
     "pandas-stubs",
     "pikepdf>=10.13.0.post1",
     "playwright>=1.62.0",
@@ -70,9 +69,6 @@ local = [
 # Excluded from local installs by `uv sync --no-group cuda` (see install.sh).
 cuda = [
     "jax[cuda12]>=0.6",
-]
-pages = [
-    "markdown>=3",
 ]
 
 [tool.mini]
@@ -181,13 +177,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"**/*.ipynb" = [
-    "C408", "C416",
-    "D205", "D400", "D401", "D407", "D415", "D416", "D417",
-    "E402", "E701", "E731", "E741",
-    "F811",
-]
-"docs/*.py" = [
+"docs/**/*.py" = [
     "B018",  # a literate script displays a cell's last expression
 ]
 "**/experiment/**/*.py" = [
@@ -218,7 +208,6 @@ addopts = ["-n", "auto", "-m", "not hf"]
 [tool.vulture]
 exclude = [
     "*/__pycache__/*",
-    "*.ipynb_checkpoints/*",
     "*/.venv/*",
     "*.egg-info/*"
 ]

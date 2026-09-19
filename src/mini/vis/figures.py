@@ -1,7 +1,7 @@
 """
 Utilities for rendering themed matplotlib figures as HTML.
 
-A report's figures are heavy (a themed plot is *two* PNGs, light and dark). Inlined as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry. A :class:`~mini.reports.Publisher` instead writes each blob out as a file (keyed by its readable name) and references it by a **relative** URL, so the HTML stays light. ``mini.lit.render`` installs one per report (:func:`~mini.reports.report_bundle`), so every ``@themed`` figure externalizes with no per-figure ceremony::
+A report's figures are heavy (a themed plot is *two* PNGs, light and dark). Inlined as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry. A :class:`~mini.reports.Publisher` instead writes each blob out as a file (keyed by its readable name) and references it by a **relative** URL, so the HTML stays light. ``mini.lit.render`` installs one per report, so every ``@themed`` figure externalizes with no per-figure ceremony::
 
     # in a cell of the literate script
     @themed(alt_text='…')
@@ -98,7 +98,7 @@ def themed(
 
     By default the figure is inlined as a ``data:`` URI. To externalize it (keeping the report HTML light enough to render and to ship), set a default :class:`~mini.reports.Publisher` with :func:`~mini.reports.use_publisher`, or pass ``publish=`` one here. *name* is the externalized figure's readable basename (it ends up in the asset filename and the download name); it defaults to the plot function's name.
 
-    *caption* is **Markdown** rendered into a ``<figcaption>`` inside the ``<figure>``, so the caption travels with the image. Write it as a triple-quoted string — ``mo.md`` dedents, so leading indentation is stripped for you.
+    *caption* is **Markdown** rendered into a ``<figcaption>`` inside the ``<figure>``, so the caption travels with the image. Write it as a triple-quoted string; it is dedented, so leading indentation is stripped for you.
 
     The plot function is called once per theme, so everything inside it runs twice — including work that has nothing to do with color. Compute the data in the cell, outside the decorated function, and let it receive and draw. This matters most for anything sampled or fitted: a null distribution, a bootstrap, a bisection.
     """

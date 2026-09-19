@@ -1,6 +1,6 @@
 """Tests for the preview-path staleness heuristic — which bundles `--stale-only` re-exports.
 
-The heuristic itself is :func:`mini.reports.is_stale`, shared with the Markdown render; these drive it through the bundle path that names ``index.html`` as the output.
+The heuristic itself is :func:`mini.reports.is_stale`; these drive it through the bundle path that names ``index.html`` as the output.
 """
 
 import os

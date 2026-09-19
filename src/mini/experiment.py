@@ -1,7 +1,7 @@
 """
 Importable experiment definitions.
 
-An experiment is a ``main(ctx)`` orchestration. It carries no notebook/UI state, so the CLI and detached workers can both import it; the notebook becomes a report that reads durable results.
+An experiment is a ``main(ctx)`` orchestration. It carries no UI state, so the CLI and detached workers can both import it; the report is a separate script that reads durable results.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ __all__ = ["Experiment", "load_experiment"]
 class Experiment:
     """A named experiment with a memoized multi-step orchestration.
 
-    The definition carries no compute: the apparatus is injected at execution (by the CLI or a notebook) — ``tick(exp, apparatus)`` — so the same module runs locally or remotely without edits::
+    The definition carries no compute: the apparatus is injected at execution (by the CLI or a report) — ``tick(exp, apparatus)`` — so the same module runs locally or remotely without edits::
 
         def main(ctx):
             meta = ctx.run(prepare_data, role='prep')    # CPU prep

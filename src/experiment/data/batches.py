@@ -36,7 +36,7 @@ def batches_per_epoch(
     """Number of batches that make up one epoch over a corpus of *n_tokens*.
 
     Each epoch covers roughly `oversample / batch_size` of the corpus. (Sizing
-    inherited from the original sampler-based loader, so notebook results stay
+    inherited from the original sampler-based loader, so earlier results stay
     comparable across the JAX port.)
     """
     if oversample is None:

@@ -64,7 +64,7 @@ summary = json.loads(artifacts.get(result["summary"], dest).read_text())
 means = {layer: np.array(vals) for layer, vals in summary["per_layer_means"].items()}
 
 
-# `use_publisher` (installed by the lit runner) routes this figure out to a file
+# The publisher the lit runner installs routes this figure out to a file
 # beside the exported HTML; the rendered <img> points at its relative URL instead
 # of carrying the PNG inline, so the exported report stays light.
 @themed(

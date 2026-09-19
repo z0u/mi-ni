@@ -48,10 +48,10 @@ def changed_reports(base: str, root: Path = ROOT) -> list[Path]:
     found = reports(root / "docs")
     inputs = touched - set(found)  # a report beside a report is its own document, not an input to it
 
-    def dated(nb: Path) -> bool:
-        return nb in touched or ((d := input_dir(nb)) is not None and any(d in p.parents for p in inputs))
+    def dated(report: Path) -> bool:
+        return report in touched or ((d := input_dir(report)) is not None and any(d in p.parents for p in inputs))
 
-    return sorted(nb for nb in found if dated(nb) and not is_manually_published(nb))
+    return sorted(report for report in found if dated(report) and not is_manually_published(report))
 
 
 def pins_at(base: str, root: Path = ROOT) -> dict[str, str]:
@@ -75,7 +75,7 @@ def unpublished(base: str, root: Path = ROOT) -> list[Path]:
     # Production's manifest, whatever storage profile this shell has active: the question is
     # whether the *site* will serve a stale export, and a dev publish never moves that pin.
     before, after = pins_at(base, root), load_pins(root, profile=None)
-    return [nb for nb in changed_reports(base, root) if after.get(key := export_key(nb)) == before.get(key)]
+    return [report for report in changed_reports(base, root) if after.get(key := export_key(report)) == before.get(key)]
 
 
 def main() -> None:
@@ -83,8 +83,8 @@ def main() -> None:
     ap.add_argument("base", help="the ref to compare against, e.g. origin/main")
     args = ap.parse_args()
 
-    for nb in unpublished(args.base):
-        print(nb.relative_to(ROOT).as_posix())
+    for report in unpublished(args.base):
+        print(report.relative_to(ROOT).as_posix())
 
 
 if __name__ == "__main__":
