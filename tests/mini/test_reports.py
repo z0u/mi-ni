@@ -532,3 +532,26 @@ def test_body_injection_skips_a_body_tag_quoted_in_the_head():
         injected = ("<nav data-mini-banner", "<details data-mini-provenance", "<script>")
         assert any(tag in body for tag in injected), out
         assert not any(tag in head for tag in injected), out
+
+
+def test_link_externalized_swaps_a_stamped_element_for_a_link(tmp_path, caplog):
+    from mini.reports import link_externalized
+
+    pub = Publisher(tmp_path / "_assets")
+    svg = '<svg xmlns="http://www.w3.org/2000/svg"><g><path d="M0 0"/></g></svg>'
+    figure = externalize_html(
+        f'<figure aria-label="A strip of &quot;marks&quot;">{svg}<figcaption>c</figcaption></figure>',
+        name="strip",
+        publish=pub,
+    )
+    md = f"before\n\n{figure}\n\nafter"
+    assert (
+        link_externalized(md) == 'before\n\n\n\n[A strip of "marks"](_assets/strip.html)\n\n\n\nafter'
+    )  # nested tags, whole element gone
+
+    image = externalize_html(svg, name="spark.svg", publish=pub)
+    assert (
+        link_externalized(image) == "\n\n![spark](_assets/spark.svg)\n\n"
+    )  # an image sidecar is an image; no label → stem
+    assert "spark.svg carries no aria-label" in caplog.text
+    assert link_externalized("<p>plain</p>") == "<p>plain</p>"

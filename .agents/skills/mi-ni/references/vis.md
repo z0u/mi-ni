@@ -33,4 +33,6 @@ def plot(): ...
 plot()
 ```
 
+A figure drawn as inline SVG (a `subline` strip) goes through `svg_figure(svg, alt_text=…, name=…)` the same way: the page keeps the markup inline, where the stylesheet themes it, and the Markdown rendition links the `_assets/<name>.html` sidecar instead of carrying the path data.
+
 `name` (default: the plot function's name) is the figure's readable basename — it ends up in the asset filename and the saved-file name, and on a `data-asset-name` attribute for provenance. The publisher, the `asset_url` verb for arbitrary data blobs, and how the bundle reaches the web (the `<base>` switch + the relative-links rule) all live in [reports.md](./reports.md).

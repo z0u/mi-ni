@@ -192,3 +192,22 @@ def test_img_pins_physical_size_from_dpi():
     assert w < px_w  # displayed smaller than its pixel count: the rest is dpr crispness
     # Responsive: shrinks to the container but never past the physical size.
     assert result.count("max-width: 100%; height: auto;") == 2
+
+
+def test_svg_figure_externalizes_through_the_report_publisher(tmp_path: Path):
+    from mini.vis import svg_figure
+
+    svg = '<svg xmlns="http://www.w3.org/2000/svg"/>'
+    assert (
+        svg_figure(svg, alt_text="a mark", name="mark")
+        == '<figure aria-label="a mark"><svg xmlns="http://www.w3.org/2000/svg"/></figure>'
+    )  # no publisher: as is
+
+    use_publisher(Publisher(tmp_path / "_assets"))
+    try:
+        out = svg_figure([svg, svg], alt_text="two marks", name="marks", caption="cap")
+    finally:
+        use_publisher(None)
+    assert out.startswith('<figure data-mini-asset="_assets/marks.html" aria-label="two marks">')
+    assert out.count("<svg") == 2 and "<figcaption>" in out  # the page keeps the inline copy
+    assert (tmp_path / "_assets" / "marks.html").read_text() == out.replace(' data-mini-asset="_assets/marks.html"', "")

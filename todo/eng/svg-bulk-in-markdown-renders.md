@@ -1,5 +1,5 @@
 ---
-status: open
+status: done
 tags: [tooling, reports, vis]
 opened: 2026-09-03
 ---
@@ -16,3 +16,5 @@ Worth settling alongside it: what stands in for alt text. A `![…](…)` for an
 **2026-09-04, backport** — Ported from sca2 ([`todo/eng/svg-bulk-in-markdown-renders.md`](https://github.com/z0u/sca2/blob/main/todo/eng/svg-bulk-in-markdown-renders.md) there) with the code it describes.
 
 **2026-09-19, Fable (PR review)** — The correspondence half is solved: `externalize_html` stamps the sidecar's URL on the fragment's root element (`data-mini-asset`). The swap that read it lived in `scripts/clean_marimo_md.py`, which went with Marimo, so today's `index.md` from `mini.lit` carries the full markup again. The remaining work is the swap itself, in `mini.lit`'s Markdown weave, plus the alt-text question above.
+
+**2026-09-19, Fable (PR review)** — Done. `mini.reports.link_externalized` does the swap on the Markdown rendition (`mini.lit.render` applies it when writing `index.md`; the page keeps the inline copy), and `mini.vis.svg_figure` is the one-call form for a report: `figure_html` with the `aria-label` as required alt text, externalized through the runner's publisher like `themed`. The subline demo's Markdown went from 12.8 KB with three inline SVGs to 1.4 KB with three links.

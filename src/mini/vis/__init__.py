@@ -1,5 +1,5 @@
 from .color import mix, page_color
-from .figures import figure_html, themed
+from .figures import figure_html, svg_figure, themed
 from .plt import AxesGrid, AxesRow, smooth_step, smooth_step_area, smooth_step_band, smooth_step_marks, use_style
 from .theme import light_dark, use_theme
 
@@ -7,6 +7,7 @@ __all__ = [
     "AxesGrid",
     "AxesRow",
     "figure_html",
+    "svg_figure",
     "light_dark",
     "mix",
     "page_color",

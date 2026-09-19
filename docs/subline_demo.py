@@ -12,6 +12,7 @@ The visualization adapts to your system light/dark preference automatically.
 
 import numpy as np
 
+from mini.vis import svg_figure
 from subline.series import Series
 from subline.subline import Subline
 
@@ -37,7 +38,11 @@ surprise = np.array([
     0.30, 0.20, 0.90,             # fox
 ])  # fmt: skip
 
-Subline().plot(tokens, [Series(surprise, label="Surprisal")])
+svg_figure(
+    Subline().plot(tokens, [Series(surprise, label="Surprisal")]),
+    alt_text="The sentence 'The quick brown fox' with a sparkline beneath each character: low at spaces and common letters, peaking at the q and the x.",
+    name="single-series",
+)
 
 """
 ## Multiple series
@@ -51,12 +56,16 @@ rng = np.random.default_rng(0)
 model_a = np.clip(surprise + rng.normal(0, 0.08, len(tokens)), 0, 1)
 model_b = np.clip(surprise * 0.55 + rng.normal(0, 0.05, len(tokens)), 0, 1)
 
-Subline().plot(
-    tokens,
-    [
-        Series(model_a, label="Model A"),
-        Series(model_b, label="Model B", dasharray="2"),
-    ],
+svg_figure(
+    Subline().plot(
+        tokens,
+        [
+            Series(model_a, label="Model A"),
+            Series(model_b, label="Model B", dasharray="2"),
+        ],
+    ),
+    alt_text="The same sentence with two overlaid sparklines: model A solid, model B dashed and lower, following the same shape.",
+    name="multiple-series",
 )
 
 """
@@ -73,4 +82,8 @@ long_tokens = [long_tokens[0]] + [f" {tok}" for tok in long_tokens[1:]]
 rng2 = np.random.default_rng(1)
 vals = np.abs(rng2.normal(0.35, 0.2, len(long_tokens))).clip(0, 1)
 
-Subline(chars_per_line=50).plot(long_tokens, [Series(vals, label="Surprisal")])
+svg_figure(
+    Subline(chars_per_line=50).plot(long_tokens, [Series(vals, label="Surprisal")]),
+    alt_text="A line of Hamlet wrapped over two rows, a sparkline under each row with random-looking bumps per word.",
+    name="wrapped",
+)

@@ -25,11 +25,11 @@ from collections.abc import Sequence
 
 from matplotlib.figure import Figure
 
-from mini.reports import Publisher, current_publisher
+from mini.reports import Publisher, current_publisher, externalize_html
 from mini.vis.plt import Stylesheet
 
 
-__all__ = ["figure_html", "themed", "themed_figure_html"]
+__all__ = ["figure_html", "svg_figure", "themed", "themed_figure_html"]
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -172,6 +172,24 @@ def figure_html(
         attrs += f' aria-label="{html.escape(" ".join(aria_label.split()))}"'
     figcaption = f"<figcaption>{_render_caption(caption)}</figcaption>" if caption is not None else ""
     return f"<figure{attrs}>{body}{figcaption}</figure>"
+
+
+def svg_figure(
+    body: str | Sequence[str],
+    *,
+    alt_text: str,
+    name: str,
+    caption: str | None = None,
+    class_: str | None = None,
+    publish: Publisher | None = None,
+) -> str:
+    """A figure whose body is inline SVG (a subline strip, a swatch table), externalized the way :func:`themed` externalizes a plot.
+
+    *body* is one SVG string or several, shown in order inside one ``<figure>``. The markup stays inline in the page, where the stylesheet themes it, and the same fragment is written to ``_assets/<name>.html`` through the report's :class:`~mini.reports.Publisher` (or *publish*) so that the Markdown rendition can link it instead of carrying the path data (:func:`~mini.reports.link_externalized`). *alt_text* is the figure's accessible name and that link's text. With no publisher, the figure is returned as it is.
+    """
+    strip = body if isinstance(body, str) else "".join(body)
+    figure = figure_html(strip, caption=caption, aria_label=alt_text, class_=class_)
+    return externalize_html(figure, name=name, publish=publish if publish is not None else current_publisher())
 
 
 def themed_figure_html(

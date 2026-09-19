@@ -16,7 +16,7 @@ from pathlib import Path
 
 from mini.lit.document import Document, Runner, Woven, parse
 from mini.lit.page import page, to_html
-from mini.reports import Publisher, export_key
+from mini.reports import Publisher, export_key, link_externalized
 from mini.runs import data_root
 
 __all__ = ["render", "compose", "Rendered", "to_pdf", "output_dir"]
@@ -40,11 +40,14 @@ class Rendered:
     seconds: float  # markdown → html
 
     def write(self, *, markdown: bool = True) -> None:
-        """Write ``index.html`` (and ``index.md``) under :attr:`out_dir`."""
+        """Write ``index.html`` (and ``index.md``) under :attr:`out_dir`.
+
+        The Markdown is for reading as text, so a figure inlined as SVG (:func:`mini.vis.svg_figure`) is a link to its sidecar there (:func:`mini.reports.link_externalized`); the page keeps the inline copy, which its CSS themes.
+        """
         self.out_dir.mkdir(parents=True, exist_ok=True)
         _write(self.out_dir / "index.html", self.html)
         if markdown:
-            _write(self.out_dir / "index.md", self.woven.markdown)
+            _write(self.out_dir / "index.md", link_externalized(self.woven.markdown))
 
 
 def compose(woven: Woven, *, extra_body: str = "") -> tuple[str, float]:

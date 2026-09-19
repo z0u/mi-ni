@@ -25,7 +25,7 @@ import re
 import types
 import unicodedata
 from dataclasses import dataclass, field
-from html import escape as html_escape
+from html import escape as html_escape, unescape as html_unescape
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
@@ -50,6 +50,7 @@ __all__ = [
     "use_publisher",
     "current_publisher",
     "externalize_html",
+    "link_externalized",
     "ASSET_MARKER",
     "relative_urls",
     "stray_links",
@@ -351,10 +352,9 @@ def current_publisher() -> Publisher | None:
 
 
 # Stamped on an externalized fragment's root element, carrying that fragment's sidecar
-# URL. Nothing in the browser reads it — it is there for tooling that reads the page
-# or its Markdown as text, so the file behind a screenful of path data is named on the
-# element itself (a render can swap the element for a link to it; see
-# todo/eng/svg-bulk-in-markdown-renders.md). Because nothing fetches it, it can stay the
+# URL. Nothing in the browser reads it — it is there for :func:`link_externalized`,
+# which swaps the whole element for a link to the sidecar in the Markdown rendition
+# rather than carry a page of path data. Because nothing fetches it, it can stay the
 # bundle-relative URL; ``insert_base`` and :func:`stray_links` both look at
 # ``src``/``href`` only, so it rides along untouched.
 ASSET_MARKER = "data-mini-asset"
@@ -368,7 +368,7 @@ def externalize_html(fragment: str, *, name: str, publish: Publisher | None = No
 
     The inline copy is the one readers see — an inlined SVG participates in the page's CSS (theming, fonts), which a referenced file can't. But an inlined fragment is a screenful of path data in the page, so tooling that reads the document as text has to wade through it. The sidecar under ``_assets/`` is the escape hatch: the same fragment as a plain file, like the PNGs ``themed`` writes. *name* keeps its extension if it has one (``.svg`` for a bare SVG element), else ``.html``. With no publisher (*publish* or the report default), this is a no-op pass-through.
 
-    The returned copy differs from *fragment* in one inert attribute: :data:`ASSET_MARKER` on the root element, naming the sidecar's URL. That is what lets a text reader (or a Markdown render) find the file behind a screenful of inlined SVG — the sidecar is written under a name of the caller's choosing, so without the stamp, matching an SVG in the document back to the file it came from would mean comparing content. Pass a single root element: the stamp lands on the first tag. Give it an ``aria-label`` (``figure_html``'s *aria_label*) so a reader, and a screen reader, get a description.
+    The returned copy differs from *fragment* in one inert attribute: :data:`ASSET_MARKER` on the root element, naming the sidecar's URL. That is what lets :func:`link_externalized` replace a screenful of inlined SVG with a link in the Markdown rendition — the sidecar is written under a name of the caller's choosing, so without the stamp, matching an SVG in the document back to the file it came from would mean comparing content. Pass a single root element: the stamp lands on the first tag, and it is that one element the swap removes. Give it an ``aria-label`` (``figure_html``'s *aria_label*) and the link's text is that description — the same text a screen reader gets.
 
     The sidecar holds the fragment as authored, without the stamp: it is the figure, not a reference to itself.
     """
@@ -382,6 +382,59 @@ def externalize_html(fragment: str, *, name: str, publish: Publisher | None = No
         log.warning("externalize_html: %r does not start with an element, so a render can't link it", leaf)
         return fragment
     return f'{fragment[: m.end()]} {ASSET_MARKER}="{html_escape(url)}"{fragment[m.end() :]}'
+
+
+# The opening tag of an element carrying the stamp, with room for other attributes on
+# either side of it.
+_STAMPED_TAG = re.compile(rf'<(?P<tag>[a-zA-Z][\w.:-]*)\b[^>]*\s{ASSET_MARKER}="[^"]*"[^>]*>')
+_ATTR = re.compile(r'([\w-]+)="([^"]*)"')
+_IMAGE_SUFFIXES = {".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+
+def _element_end(text: str, start: int, tag: str) -> int:
+    """The index just past the ``</tag>`` that closes the element opening at *start* (nesting respected)."""
+    open_re = re.compile(rf"<{tag}\b")
+    close_re = re.compile(rf"</{tag}>")
+    pos = text.index(">", start) + 1
+    depth = 1
+    while depth:
+        nxt_open = open_re.search(text, pos)
+        nxt_close = close_re.search(text, pos)
+        if nxt_close is None:
+            raise ValueError(f"unbalanced <{tag}> at {start}")
+        if nxt_open and nxt_open.start() < nxt_close.start():
+            depth += 1
+            pos = nxt_open.end()
+        else:
+            depth -= 1
+            pos = nxt_close.end()
+    return pos
+
+
+def link_externalized(text: str) -> str:
+    """Replace each fragment that has a sidecar with a link to it, in place of its markup.
+
+    A report inlines some figures as SVG rather than as an ``<img>`` — subline strips, the swatch table — because inlined markup participates in the page's CSS, which a referenced file can't. That is right for the page and wrong for its Markdown rendition: on a report with eight of them the path data is more than half the document, sitting between the paragraphs a reader is there for. :func:`externalize_html` has already written each one out as a plain file beside the PNGs and stamped its URL on the element (:data:`ASSET_MARKER`), so the whole element can go and a link stand for it.
+
+    The link's text is the element's ``aria-label``, which is the description a screen reader gets and the closest thing these fragments have to alt text; failing that, the sidecar's stem, and a warning, since an undescribed figure is as opaque to a reader of the page as to a reader of this. A sidecar that is itself an image (``.svg``) is written as an image; an ``.html`` one as a plain link, which is what it is.
+    """
+    out: list[str] = []
+    pos = 0
+    while (m := _STAMPED_TAG.search(text, pos)) is not None:
+        out.append(text[pos : m.start()])
+        attrs = dict(_ATTR.findall(m.group(0)))
+        url = html_unescape(attrs[ASSET_MARKER])
+        leaf = PurePosixPath(url.partition("?")[0]).name
+        if label := attrs.get("aria-label"):
+            alt = html_unescape(label)
+        else:
+            alt = PurePosixPath(leaf).stem
+            log.warning("%s carries no aria-label; the Markdown links it as %r", leaf, alt)
+        bang = "!" if PurePosixPath(leaf).suffix in _IMAGE_SUFFIXES else ""
+        out.append(f"\n\n{bang}[{alt}]({url})\n\n")
+        pos = m.end() if m.group(0).endswith("/>") else _element_end(text, m.start(), m.group("tag"))
+    out.append(text[pos:])
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------

@@ -30,7 +30,7 @@ from experiment.config import (
 from experiment.utils import align
 from mini import LocalApparatus, ModalApparatus, get_data_dir
 from mini.logging import SimpleLoggingConfig
-from mini.vis import themed
+from mini.vis import svg_figure, themed
 from subline.series import Series
 from subline.subline import Subline
 from utils.lr_finder.vis import plot_lr_finder
@@ -294,14 +294,17 @@ Notably, *entropy is unaffected by temperature* whereas surprisal *is*
 """
 
 viz = Subline(chars_per_line=80)
-svg = viz.plot(
-    continuations[0],
-    [
-        Series(gen_metadata[0].surprise_surprise, label="S₂"),
-        Series(-gen_metadata[0].surprise_surprise, label="-S₂", dasharray="1"),
-    ],
+svg_figure(
+    viz.plot(
+        continuations[0],
+        [
+            Series(gen_metadata[0].surprise_surprise, label="S₂"),
+            Series(-gen_metadata[0].surprise_surprise, label="-S₂", dasharray="1"),
+        ],
+    ),
+    alt_text="The first generated continuation with a sparkline beneath each character: surprise-surprise (solid) and its negation (dashed), mirror images about the baseline.",
+    name="surprise-surprise",
 )
-svg
 
 r"""
 ## References

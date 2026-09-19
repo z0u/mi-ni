@@ -443,6 +443,18 @@ class TestRender:
         assert "v is 2" in (tmp_path / "out" / "index.md").read_text()
         assert r.woven.errors == []
 
+    def test_markdown_links_an_svg_figure_where_the_page_inlines_it(self, tmp_path):
+        p = write(
+            tmp_path,
+            'from mini.vis import svg_figure\n"""# T"""\nsvg_figure(\'<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>\', alt_text="a strip", name="strip")\n',
+        )
+        r = render(p, out_dir=tmp_path / "out")
+        assert r.woven.errors == []
+        assert "<path" in (tmp_path / "out" / "index.html").read_text()
+        md = (tmp_path / "out" / "index.md").read_text()
+        assert "<path" not in md and "[a strip](_assets/strip.html)" in md
+        assert (tmp_path / "out" / "_assets" / "strip.html").exists()
+
     def test_live_output_is_a_separate_tree(self, tmp_path, monkeypatch):
         from mini.lit.render import output_dir
 
