@@ -81,7 +81,7 @@ fi
     echo
     echo "Experiments (report.py dirs; annotated status in docs/index.md):"
     git ls-files 'docs/**/report.py' | sed 's#/report.py##; s#^docs/#  #' | paste -sd' '
-    echo "This is not an environment the human has direct access to, so if you are working on an experiment, *always* publish the report before pushing. Otherwise the human won't be able to see the rendered report and its figures, which hampers collaboration. When referring to figures in conversation you should share them with 'SendUserFile', or the 'Read' tool if you also want to see it too. The human reviews drafts on a reMarkable: after './go preview --no-serve <report>', send them '.mini/exports/<key>/report.pdf' the same way."
+    echo "This is not an environment the human has direct access to, so if you are working on an experiment, *always* publish the report before pushing. Otherwise the human won't be able to see the rendered report and its figures, which hampers collaboration. When referring to figures in conversation you should share them with 'SendUserFile', or the 'Read' tool if you also want to see it too. The human reviews drafts on a reMarkable: after './go preview --no-serve <report>', send them '_site/<key>/report.pdf' the same way."
     echo
     # The two CLIs, generated rather than pinned here so they can't drift. Both
     # are cheap enough for the synchronous path: `./go` prints its usage in pure

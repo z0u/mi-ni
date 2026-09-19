@@ -35,3 +35,7 @@ The print step is in: every export (`./go preview`, `./go publish`) writes `repo
 ## Note 2026-09-18 (Fable, with Sandy)
 
 The index links each PDF too (a chip at the head of the entry's figure strip, read from the same `<link rel="alternate">`), and the export says when it is printing. The paging problem is answered from the other side: rather than a taller fixed page, the print grows the page (from twice the stylesheet's height, doubling toward the 200-inch PDF limit) until the document has one page per section, then clips each page to its ink, so a section is exactly as long as it needs to be (ex-2.2.9: 14 pages from 230 mm to 1.9 m, where the fixed page gave 18 with four sections broken). The stylesheet's 1010 mm stays for the browser's print dialog, which cannot clip. With every section on one page there is nothing left for the break hints to do in the export; they still serve the browser route. Done.
+
+## Note 2026-09-19 (Fable, with Sandy)
+
+The print moved from the export to the site build, with a memo so an unchanged report is not printed again: `todo/eng/pdf-print-in-ci.md`, and the register entry in `eng/publishing.md`. What this item decided about the print itself (the grown-and-clipped page, the resolved links, the deterministic bytes) stands unchanged.

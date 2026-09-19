@@ -52,14 +52,15 @@ show_help() {
 		  serve   <report> [--port N]:
 		                       serve one report with live reload while you edit it
 		  preview [...reports] [--no-serve] [--force] [--port N]:
-		                       export stale reports (each with a report.pdf beside its
-		                       index.html, for review on paper or e-ink), assemble the site
-		                       with local assets (never touches the network), and serve it
+		                       export stale reports, assemble the site with local assets
+		                       (never touches the network; each report printed to
+		                       _site/<key>/report.pdf for review on paper or e-ink,
+		                       unchanged ones reused from .mini/pdfs/), and serve it
 		  publish <reports|--all>:
-		                       export reports and sync their bundles (PDF included) to the
-		                       publish tier
+		                       export reports and sync their bundles to the publish tier
 		  site:                assemble the public site from *published* bundles into _site/
-		                       (for CI; read-only, never runs a report)
+		                       (for CI; read-only, never runs a report; prints each PDF,
+		                       reusing the previous deploy's via MINI_PDF_MEMO)
 		  strays  [...paths]:  variable docstrings in a report, which weave as prose
 		                       (default: docs/; also runs inside lint)
 		  todo    [...sets] [--tag T] [--status S] [--bundle B] [--priority] [--grep RE] [--full]

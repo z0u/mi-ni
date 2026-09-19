@@ -16,7 +16,7 @@ Pass a bundle dir (containing index.html + _assets/) or an index.html directly.
 appears (or times out). `--selector CSS` shoots just the matching element(s) instead
 of the full page — e.g. `--selector 'main.lit figure'` for one figure, numbering the
 output when several match. An `-o` ending in `.pdf` prints the page instead, through
-`mini.report_print` — the same print `./go publish` ships as `report.pdf` — for checking
+`mini.report_print` — the same print the site build ships as `report.pdf` — for checking
 the print styles in `docs/report.css`. The serve-and-print core lives in that module;
 this is the CLI over it. See SKILL.md for driving the DOM instead of screenshotting.
 """
@@ -57,8 +57,8 @@ def main() -> None:
         else:
             page.wait_for_timeout(args.timeout * 1000)
         if args.out.suffix.lower() == ".pdf":
-            # The same print the export runs (mini.report_print), so what this shows is
-            # what `./go publish` ships as report.pdf.
+            # The same print the site build runs (mini.report_print), so what this shows
+            # is what the site ships as report.pdf.
             print_page(page, args.out)
             shot = str(args.out)
         elif args.selector:

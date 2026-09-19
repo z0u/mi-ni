@@ -61,7 +61,7 @@ def loss_chart() -> plt.Figure: ...
 ./go publish docs/pipeline/report.py    # export + mirror to the bucket (needs ./go auth)
 ```
 
-At export, a provenance footer cites the stored artifacts the report read, and a PDF is printed beside the page for review on paper or e-ink.
+At export, a provenance footer cites the stored artifacts the report read; the site build prints a PDF beside each page for review on paper or e-ink.
 
 [See: pipeline report](./docs/pipeline/report.py).
 

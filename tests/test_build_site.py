@@ -1,6 +1,7 @@
 """Tests for the static-site builder's author-link resolver (pure policy)."""
 
 import pytest
+import json
 from pathlib import Path
 
 from mini.reports import github_slug
@@ -396,58 +397,23 @@ def test_missing_bases_degrade_to_unresolved():
 
 
 @pytest.mark.parametrize(
-    ("html", "base_href", "pdf", "expected"),
-    [
-        (
-            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
-            "https://hf.co/d/r/resolve/abc/exports/k/",
-            None,
-            "report.pdf",
-        ),
-        (
-            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
-            None,
-            Path("report.pdf"),
-            "report.pdf",
-        ),
-        (
-            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
-            None,
-            None,
-            None,
-        ),
-        ("<html><head></head></html>", "https://hf.co/d/r/resolve/abc/exports/k/", None, None),
-    ],
-    ids=[
-        "externalize: the base serves it",
-        "localize: copied beside the page",
-        "localize: declared but not on disk",
-        "a bundle exported before PDFs",
-    ],
-)
-def test_the_pdf_link_follows_the_declared_alternate_and_the_asset_mode(html, base_href, pdf, expected):
-    assert build_site._Bundle(html, base_href=base_href, pdf=pdf).pdf_url == expected
-
-
-@pytest.mark.parametrize(
-    ("base_href", "externalizing", "expected"),
+    ("base_href", "externalizing", "pdf", "expected"),
     [
         (
             "https://hf.co/d/r/resolve/abc123/exports/probe/report/",
             True,
-            "https://hf.co/d/r/resolve/abc123/exports/probe/report/report.pdf",
+            "https://z0u.github.io/mi-ni/probe/report/report.pdf",
+            "https://z0u.github.io/mi-ni/probe/report/report.pdf",
         ),
-        (None, False, "probe/report/report.pdf"),
+        (None, False, "report.pdf", "probe/report/report.pdf"),
     ],
-    ids=["externalize: the pinned CDN base", "localize: beside the copied page"],
+    ids=["externalize: absolute into the site, off the figures' CDN base", "localize: beside the copied page"],
 )
-def test_figure_strip_opens_with_the_pdf_the_export_printed(base_href, externalizing, expected):
-    """The index links the same file the report's nav chip does, at the same base as the figures."""
+def test_figure_strip_opens_with_the_pdf_the_build_printed(base_href, externalizing, pdf, expected):
+    """The index links the same file the report's nav chip does."""
     from mini.reports import ReportFigure
 
-    strip = build_site.FigureStrip(
-        "probe/report", base_href, (ReportFigure("f", light="_assets/f.png"),), pdf="report.pdf"
-    )
+    strip = build_site.FigureStrip("probe/report", base_href, (ReportFigure("f", light="_assets/f.png"),), pdf=pdf)
     out = build_site._figure_strip_html(strip, from_dir="", externalizing=externalizing)
     assert out.startswith(f'<div class="fig-strip"><a class="fig-strip-pdf" href="{expected}"')
     assert out.index("fig-strip-pdf") < out.index("<img")  # first, so it is never scrolled out of view
@@ -460,7 +426,7 @@ def test_figure_strip_of_a_figureless_report_still_links_its_pdf():
 
 
 def test_a_local_bundle_lists_every_rendition_the_page_declares(tmp_path: Path):
-    """Localizing copies what the export wrote beside the page: the PDF and a literate script's `index.md`, and nothing the page declares but the export did not write."""
+    """Localizing copies what the export wrote beside the page (a literate script's `index.md`), nothing the page declares but the export did not write, and never a PDF: an older export's is the build's to replace."""
     from mini.reports import MD_TYPE, PDF_TYPE, set_alternate
 
     (tmp_path / "pyproject.toml").write_text("")
@@ -471,8 +437,85 @@ def test_a_local_bundle_lists_every_rendition_the_page_declares(tmp_path: Path):
     html = set_alternate(html, type=MD_TYPE, href="index.md")
     (bundle / "index.html").write_text(html)
     (bundle / "index.md").write_text("# Hi")
+    (bundle / "report.pdf").write_bytes(b"%PDF-stale")
 
     read = build_site._read_bundle(nb, store=None, pins={}, externalizing=False)
 
     assert read.renditions == (bundle / "index.md",)
-    assert read.pdf is None and read.pdf_url is None
+
+
+class _Printer:
+    """A stand-in for the print: writes a file naming the page, and remembers every call."""
+
+    def __init__(self, works: bool = True):
+        self.works = works
+        self.calls: list[str] = []
+
+    def __call__(self, serve_from: Path, out: Path, html: str) -> Path | None:
+        assert serve_from.is_dir(), "the print serves the bundle from a directory"
+        self.calls.append(html)
+        if not self.works:
+            return None
+        out.write_bytes(f"%PDF of {html}".encode())
+        return out
+
+
+def test_the_pdf_memo_prints_a_page_once(tmp_path: Path):
+    """The same page with the same tooling is the same PDF, so it is reused; a changed page, or a changed print, is printed again."""
+    printer = _Printer()
+    memo = build_site.PdfMemo(tmp_path, stamp="tooling-1", printer=printer)
+    first = memo.pdf("probe", "<p>v1</p>", serve_from=tmp_path)
+    assert first == tmp_path / "probe" / "report.pdf" and first.read_bytes() == b"%PDF of <p>v1</p>"
+    memo.save()
+
+    again = build_site.PdfMemo(tmp_path, stamp="tooling-1", printer=printer)
+    assert again.pdf("probe", "<p>v1</p>", serve_from=tmp_path) == first
+    assert printer.calls == ["<p>v1</p>"], "an unchanged page was printed again"
+
+    again.pdf("probe", "<p>v2</p>", serve_from=tmp_path)
+    build_site.PdfMemo(tmp_path, stamp="tooling-2", printer=printer).pdf("probe", "<p>v2</p>", serve_from=tmp_path)
+    assert printer.calls == ["<p>v1</p>", "<p>v2</p>", "<p>v2</p>"]
+
+
+def test_the_pdf_memo_forgets_a_report_the_build_no_longer_has(tmp_path: Path):
+    memo = build_site.PdfMemo(tmp_path, stamp="t", printer=_Printer())
+    memo.pdf("old", "<p>x</p>", serve_from=tmp_path)
+    memo.save()
+    memo = build_site.PdfMemo(tmp_path, stamp="t", printer=_Printer())
+    memo.pdf("new", "<p>y</p>", serve_from=tmp_path)
+    memo.save()
+    assert json.loads((tmp_path / "pdfs.json").read_text()) == {"new": memo.key("<p>y</p>")}
+
+
+def test_the_pdf_memo_records_nothing_when_nothing_can_print(tmp_path: Path):
+    """No browser means no PDF and no manifest entry, so the next build with one prints it."""
+    memo = build_site.PdfMemo(tmp_path, stamp="t", printer=_Printer(works=False))
+    assert memo.pdf("probe", "<p>x</p>", serve_from=tmp_path) is None
+    memo.save()
+    assert json.loads((tmp_path / "pdfs.json").read_text()) == {}
+
+
+def test_the_pdf_memo_reads_a_missing_or_broken_manifest_as_empty(tmp_path: Path):
+    assert build_site.PdfMemo(tmp_path, stamp="t").previous == {}
+    (tmp_path / "pdfs.json").write_text("{not json")
+    assert build_site.PdfMemo(tmp_path, stamp="t").previous == {}
+
+
+def test_the_printable_page_names_its_figures_on_the_cdn_and_keeps_its_fragments_bare():
+    """The PDF's figures come off the pinned bundle, since the print serves the page alone; its `#footnote` links stay in-document, which a `<base>` would break."""
+    links = build_site.LinkResolver(
+        render_map={"probe/report.py": "probe/index.html"},
+        source_files=frozenset(),
+        site_base="https://z0u.github.io/mi-ni/",
+        source_base="https://github.com/z0u/mi-ni/blob/main/docs/",
+    )
+    bundle = build_site._Bundle(
+        '<html><head></head><body><img src="_assets/f.png"><a href="#fn1">1</a>'
+        '<script>{"src":\\"_assets/g.png\\"}</script></body></html>',
+        base_href="https://hf.co/d/r/resolve/abc/exports/probe/",
+    )
+    out = build_site._printable(bundle, links, from_dir="probe", key="probe", report_css="p{}")
+    assert 'src="https://hf.co/d/r/resolve/abc/exports/probe/_assets/f.png"' in out
+    assert '\\"https://hf.co/d/r/resolve/abc/exports/probe/_assets/g.png\\"' in out
+    assert 'href="#fn1"' in out
+    assert "<base" not in out and "p{}" in out

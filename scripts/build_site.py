@@ -9,19 +9,24 @@ The HTML lives nowhere in Git: each report is exported (``./go publish``) to a s
 """
 
 import argparse
+import hashlib
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
 from mini.lit.page import FONTS
+from mini.report_print import print_bundle, print_stamp
 from mini.reports import (
+    PDF_LEAF,
     PDF_TYPE,
     PUBLISH_LOCK,
     ReportFigure,
@@ -37,6 +42,7 @@ from mini.reports import (
     report_figures,
     reports,
     rewrite_links,
+    set_alternate,
     set_banner,
     set_lightbox,
     set_report_styles,
@@ -262,19 +268,11 @@ class _Bundle:
     html: str | None
     base_href: str | None = None  # externalize: the CDN dir the report's _assets/ resolve against
     assets: Path | None = None  # localize: the local _assets/ dir to copy beside the HTML
-    pdf: Path | None = None  # localize: the printed report.pdf to copy beside the HTML, if the export made one
-    # localize: every other rendition the page declares (``<link rel="alternate">``) that the
-    # export wrote beside it — a literate script's ``index.md`` — copied beside the HTML too.
+    # localize: every rendition the page declares (``<link rel="alternate">``) that the export
+    # wrote beside it — a literate script's ``index.md`` — copied beside the HTML too. Never
+    # the PDF: the build prints that itself (:class:`PdfMemo`), whatever an older export left.
     renditions: tuple[Path, ...] = ()
     notes: tuple[str, ...] = ()
-
-    @property
-    def pdf_url(self) -> str | None:
-        """The PDF's href, from the ``<link rel="alternate">`` the export stamped; relative, so the ``<base>`` (or the copy beside the page) serves it."""
-        if self.html is None:
-            return None
-        href = alternates(self.html).get(PDF_TYPE)
-        return href if href and (self.base_href is not None or self.pdf is not None) else None
 
 
 def _read_bundle(report: Path, *, store, pins: dict[str, str], externalizing: bool) -> _Bundle:
@@ -292,11 +290,10 @@ def _read_bundle(report: Path, *, store, pins: dict[str, str], externalizing: bo
             return _Bundle(None, notes=(f"  ! {key}: not exported locally — run `./go preview {nb_rel}` (skipping)",))
         assets = bundle / ASSET_LINK
         html = (bundle / "index.html").read_text("utf-8")
-        pdf = bundle / alternates(html).get(PDF_TYPE, "")
-        renditions = tuple(p for href in alternates(html).values() if (p := bundle / href).is_file())
-        return _Bundle(
-            html, assets=assets if assets.is_dir() else None, pdf=pdf if pdf.is_file() else None, renditions=renditions
+        renditions = tuple(
+            p for kind, href in alternates(html).items() if kind != PDF_TYPE and (p := bundle / href).is_file()
         )
+        return _Bundle(html, assets=assets if assets.is_dir() else None, renditions=renditions)
 
     notes: list[str] = []
     revision = pins.get(key)
@@ -321,18 +318,100 @@ class FigureStrip:
     key: str
     base_href: str | None
     figures: tuple[ReportFigure, ...]
-    pdf: str | None = None  # the printed rendition, relative to the bundle (``report.pdf``), when the export made one
+    # The PDF's href when the build printed one: absolute into the site when externalizing
+    # (the figures' base is the CDN, and the PDF is not there), else the leaf beside the page.
+    pdf: str | None = None
 
 
-def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, FigureStrip]:
-    """Assemble each report bundle into ``_site/<key>/index.html``.
+Printer = Callable[[Path, Path, str], Path | None]
+"""``(serve_from, out, html) -> out`` or ``None``: a test's stand-in for :func:`_print`."""
+
+
+def _print(serve_from: Path, out: Path, html: str) -> Path | None:
+    return print_bundle(serve_from, out, html=html)
+
+
+@dataclass
+class PdfMemo:
+    """The PDFs a previous build printed, so this one prints only what changed.
+
+    A report's PDF is a function of the page the build prints from, which already carries the pinned bundle's HTML (naming its figures by immutable, revision-pinned URLs), the current ``report.css``, and every resolved link, plus the print tooling (:func:`mini.report_print.print_stamp`). So the memo keys each report on a hash of those two, kept in ``pdfs.json`` beside the PDFs under ``root``: the same key means the same file, and the report is not printed again. A prose edit reprints one report, a stylesheet edit reprints every report on that branch, and a tooling bump reprints everything once.
+
+    ``root`` is ``$MINI_PDF_MEMO`` when set, which is how the deploy hands a build the previous ``gh-pages`` commit's copy of the site (production's for ``main``, its own preview's for a PR), or ``.mini/pdfs/`` for a local preview. Fresh prints land there too, and :meth:`save` writes the manifest, so the site's own copy is the next build's memo.
+    """
+
+    root: Path
+    stamp: str = field(default_factory=print_stamp)
+    printer: Printer = _print
+    previous: dict[str, str] = field(init=False)
+    current: dict[str, str] = field(init=False, default_factory=dict)
+
+    MANIFEST = "pdfs.json"
+
+    def __post_init__(self) -> None:
+        manifest = self.root / self.MANIFEST
+        try:
+            self.previous = json.loads(manifest.read_text("utf-8")) if manifest.is_file() else {}
+        except OSError, ValueError:
+            self.previous = {}
+
+    @classmethod
+    def open(cls) -> "PdfMemo":
+        root = os.environ.get("MINI_PDF_MEMO")
+        return cls(Path(root) if root else WORKSPACE_ROOT / ".mini" / "pdfs")
+
+    def key(self, printable: str) -> str:
+        return hashlib.sha256(f"{self.stamp}\n{printable}".encode()).hexdigest()[:32]
+
+    def pdf(self, key: str, printable: str, *, serve_from: Path) -> Path | None:
+        """The PDF of *printable* for report *key*: reused from the memo, or printed now. ``None`` when there is no browser to print with."""
+        out = self.root / key / PDF_LEAF
+        want = self.key(printable)
+        if self.previous.get(key) == want and out.is_file():
+            print(f"  {key}: PDF unchanged")
+        else:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            print(f"  {key}: printing PDF (headless Chromium; a few seconds)")
+            if self.printer(serve_from, out, printable) is None:
+                return None
+        self.current[key] = want
+        return out
+
+    def save(self) -> None:
+        """Write the manifest of what this build printed or reused; entries for reports the build no longer has are dropped."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / self.MANIFEST).write_text(json.dumps(self.current, indent=2, sort_keys=True) + "\n", "utf-8")
+
+
+_ASSET_REF = re.compile(r"""(?<=["'(])_assets/""")
+
+
+def _printable(bundle: _Bundle, links: LinkResolver, *, from_dir: str, key: str, report_css: str) -> str:
+    """The page as the PDF prints it: author links resolved to the site and GitHub, the current ``report.css`` on top, and nothing the build adds for a browser (banner, lightbox, deferred figures).
+
+    Links are resolved the externalizing way in either mode, so the PDF's links lead to the published site and its bytes are a function of the report alone (relative, they would carry the loopback port the print served from). The page's own ``#fragment`` links stay bare, which is what makes them in-document jumps in the PDF, so the bundle's figures cannot go through a ``<base>``; externalizing, each ``_assets/`` reference is spelled out against the pinned CDN base instead, and the print fetches them through its cache.
+    """
+    html = resolve_html_links(bundle.html or "", links, from_dir=from_dir, out_dir=key, externalizing=True)
+    html = set_report_styles(html, report_css)
+    if bundle.base_href:
+        html = _ASSET_REF.sub(f"{bundle.base_href}{ASSET_LINK}/", html)
+    return html
+
+
+def build_reports(
+    links: LinkResolver, store, externalizing: bool, memo: PdfMemo | None = None
+) -> dict[str, FigureStrip]:
+    """Assemble each report bundle into ``_site/<key>/index.html``, with its PDF beside it.
 
     Externalize: read the synced HTML from the bucket, insert one ``<base>`` at ``exports/<key>/`` so its relative ``_assets/`` resolve there, and write only the HTML into ``_site`` (the bytes stay on the bucket CDN). Localize: read the bundle from ``.mini/exports`` and copy its ``_assets/`` beside the HTML so it works offline. Author links are resolved to absolute/relative targets either way.
+
+    The PDF (``report.pdf``, for reading on paper or e-ink) is printed here from the assembled page, through *memo* (:class:`PdfMemo`, opened from the environment when not given) so an unchanged report is not printed again. The page links it from the nav chip and declares it as an alternate rendition; when nothing can print (no browser), the page carries neither.
 
     Returns each built report's :class:`FigureStrip` by key, so :func:`convert_markdown` can expand ``mini:figures`` markers from the HTML this pass already fetched.
     """
     print("Building reports...")
     pins = load_pins(WORKSPACE_ROOT) if externalizing else {}
+    memo = memo or PdfMemo.open()
     report_css = REPORT_CSS.read_text("utf-8") if REPORT_CSS.exists() else ""
     nbs = reports(DOCS_DIR)
     # Externalized, each read is a round trip to the bucket and the reports don't depend
@@ -352,33 +431,45 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
         if bundle.html is None:
             continue
         figures = tuple(report_figures(bundle.html, link=ASSET_LINK))
-        strips[key] = FigureStrip(key, bundle.base_href, figures, pdf=bundle.pdf_url)
         from_dir = report.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
         from_dir = "" if from_dir == "." else from_dir
         nb_rel = report.relative_to(WORKSPACE_ROOT).as_posix()
+        dest = SITE_DIR / key / "index.html"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        # The page's own published URL: what its `#fragment` links and its PDF link are
+        # spelled out against under the <base>, which would otherwise send both to the bucket.
+        page_url = links.resolve(key, from_dir="", out_dir=key, externalizing=True) if bundle.base_href else None
+        printable = _printable(bundle, links, from_dir=from_dir, key=key, report_css=report_css)
+        # Localizing, the print serves the bundle's own _assets/; externalizing, the printable
+        # names them on the CDN, so the serve root holds the page alone.
+        pdf = memo.pdf(key, printable, serve_from=bundle.assets.parent if bundle.assets else dest.parent)
+        pdf_url = None
+        if pdf is not None:
+            shutil.copy2(pdf, dest.parent / PDF_LEAF)
+            pdf_url = f"{page_url}{PDF_LEAF}" if page_url else PDF_LEAF
+        strips[key] = FigureStrip(key, bundle.base_href, figures, pdf=pdf_url)
 
         html = resolve_html_links(bundle.html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
+        html = set_alternate(html, type=PDF_TYPE, href=pdf_url)  # the build's, in place of any an older export declared
         html = mark_figures(html, link=ASSET_LINK)  # defer offscreen figures; mark them zoomable
         html = set_lightbox(html)  # click a figure for the full-size image, over a dimmed page
         index_url, source_url = _nav_urls(links, key=key, nb_rel=nb_rel, externalizing=externalizing)
-        html = set_banner(html, index_url=index_url, source_url=source_url, pdf_url=bundle.pdf_url)
+        html = set_banner(html, index_url=index_url, source_url=source_url, pdf_url=pdf_url)
         html = set_report_styles(html, report_css)  # last, so shared report rules win ties
         if bundle.base_href:
-            # The base sends every relative URL to the bucket, a bare `#fragment` included,
-            # so the page's own anchors are spelled out against its published URL.
-            page_url = links.resolve(key, from_dir="", out_dir=key, externalizing=True)
             if page_url is None:
                 print(f"  ! {key}: no site URL, so its in-page links (#footnotes, headings) will follow the <base>")
             html = insert_base(html, bundle.base_href, page_url=page_url)
-        dest = SITE_DIR / key / "index.html"
-        dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, "utf-8")
 
         if bundle.assets is not None:
             shutil.copytree(bundle.assets, dest.parent / ASSET_LINK, dirs_exist_ok=True)
-        for rendition in bundle.renditions:  # the PDF, a script's Markdown: served beside the page, as on the bucket
+        for rendition in bundle.renditions:  # a script's Markdown: served beside the page, as on the bucket
             shutil.copy2(rendition, dest.parent / rendition.name)
         print(f"  {key} -> _site/{key}/index.html{' [+base]' if bundle.base_href else ''}")
+    memo.save()
+    shutil.copy2(memo.root / PdfMemo.MANIFEST, SITE_DIR / PdfMemo.MANIFEST)  # so the deployed site is the next memo
     return strips
 
 
@@ -506,7 +597,7 @@ def _marker_key(token: str, links: LinkResolver, *, from_dir: str) -> str | None
 def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool) -> str:
     """A report's thumbnail strip: each figure a lazy image, themed via ``<picture>``, opening with its PDF.
 
-    Empty for a report with no asset-served figures and no PDF (nothing to show, so no box). The PDF, when the export printed one (the ``<link rel="alternate">`` in the bundle's head), is a page-shaped chip at the head of the strip, where it is never scrolled out of view: the strip and the report's nav chip link the same file, at the same base as the figures. Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Clicking one opens the full-size figure in the lightbox (:func:`~mini.reports.lightbox_chrome`) rather than linking to the PNG: a link navigates away, and the browser paints the figure's transparent background on its white canvas — wrong in dark mode — where the overlay can carry a themed one.
+    Empty for a report with no asset-served figures and no PDF (nothing to show, so no box). The PDF, when the build printed one, is a page-shaped chip at the head of the strip, where it is never scrolled out of view: the strip and the report's nav chip link the same file. Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Clicking one opens the full-size figure in the lightbox (:func:`~mini.reports.lightbox_chrome`) rather than linking to the PNG: a link navigates away, and the browser paints the figure's transparent background on its white canvas — wrong in dark mode — where the overlay can carry a themed one.
     """
     import html
 
@@ -519,7 +610,8 @@ def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool
     )
     parts = []
     if strip.pdf:
-        parts.append(f'<a class="fig-strip-pdf" href="{base}{strip.pdf}" title="Read the report as a PDF">PDF</a>')
+        pdf = strip.pdf if externalizing else f"{base}{strip.pdf}"
+        parts.append(f'<a class="fig-strip-pdf" href="{pdf}" title="Read the report as a PDF">PDF</a>')
     for fig in strip.figures:
         alt, title = html.escape(fig.alt), html.escape(fig.stem)
         size = f' width="{fig.width}" height="{fig.height}"' if fig.width and fig.height else ""

@@ -22,15 +22,21 @@ def commit(work: Path, message: str) -> None:
     git("-c", "user.name=dev", "-c", "user.email=dev@example.invalid", "commit", "-q", "-m", message, cwd=work)
 
 
-def build(worktree: Path, site_url: str | None) -> Path:
-    """A stand-in for `./go site`: names the checkout it ran in and the URL it was given, the two things the real one varies on."""
+MEMOS: list[tuple[str, str | None]] = []
+"""What each fake build was handed as its memo: (checkout, the memo's manifest or None)."""
+
+
+def build(worktree: Path, site_url: str | None, memo: Path | None) -> Path:
+    """A stand-in for `./go site`: names the checkout it ran in and the URL it was given, the two things the real one varies on, and records the memo it was handed."""
     who = (worktree / "WHO").read_text()
     if who == "pr-34":
         raise RuntimeError("this branch doesn't build")
     site = worktree / "_site"
     site.mkdir()
     (site / "index.html").write_text(f"<h1>{who}</h1><a href='{site_url or 'https://z0u.github.io/mi-ni/'}'>index</a>")
+    (site / "pdfs.json").write_text(f'{{"{who}": "printed"}}')
     (site / ".nojekyll").write_text("")
+    MEMOS.append((who, (memo / "pdfs.json").read_text() if memo and (memo / "pdfs.json").is_file() else None))
     return site
 
 
@@ -146,6 +152,18 @@ def test_a_repeat_run_pushes_nothing(clone: Path, remote: Path):
     assert deploy_site.reconcile(clone, slug=SLUG, builder=build, api=api) == 0
     assert git("rev-parse", "gh-pages", cwd=remote) == tip
     assert not [w for w in api.writes if w[1] == "/issues/12/comments"], "an unchanged preview rewrote its comment"
+
+
+def test_each_build_reads_its_own_part_of_the_previous_deploy(clone: Path, remote: Path):
+    """Production's memo is the served root and a preview's is its own directory. The first deploy here replaces a `gh-pages` without manifests, so the second run is the one that finds them."""
+    MEMOS.clear()
+    deploy_site.reconcile(clone, slug=SLUG, builder=build, api=FakeGitHub())
+    assert MEMOS == [("main", None), ("pr-12", None)]
+
+    MEMOS.clear()
+    deploy_site.reconcile(clone, slug=SLUG, builder=build, api=FakeGitHub())
+    assert MEMOS == [("main", '{"main": "printed"}'), ("pr-12", '{"pr-12": "printed"}')]
+    assert len(git("worktree", "list", cwd=clone).splitlines()) == 1, "the previous deploy's worktree was left behind"
 
 
 def test_a_dry_run_pushes_nothing(clone: Path, remote: Path):

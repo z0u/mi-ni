@@ -2,11 +2,11 @@
 
 A bundle (``mini.lit``) is a self-styled static page with its figures beside it, so :func:`served_bundle` copies it to a throwaway serve root and serves that on a loopback port. What the page pulls from elsewhere (KaTeX and the fonts, from CDNs) is fetched by Python and cached (:func:`route_remote`): a browser in a proxied sandbox cannot reach a CDN, and a print that could would still render the math of the day; from the cache, a print is offline and repeatable. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
 
-This runs at export (``scripts/export_reports.py``), the half of publishing that holds the bundle on disk: the PDF lands beside ``index.html``, rides the bundle sync, and is pinned by the same ``publish.lock`` entry as the page. The site build only links it. Chromium stamps a creation date and a random document ID into every PDF, which would make each re-export of an unchanged report a new publish-tier commit, so :func:`normalize_pdf` strips both after printing; two prints of one bundle are then byte-equal.
+This runs from the site build (``scripts/build_site.py``), which prints each report from the page it has just assembled and keeps a memo of what it printed from, so a report is printed again only when its page, the stylesheet, or the print itself (:func:`print_stamp`) has changed. Chromium stamps a creation date and a random document ID into every PDF, which would make two prints of one page different files, so :func:`normalize_pdf` strips both after printing; two prints of one page are then byte-equal.
 
 The stylesheet's page is a fixed size, and a page has one height for the whole document: tall enough for the longest section, every shorter section trails a sheet of white; short enough for a typical one, the long ones break mid-table. The print takes the height out of the equation. It grows the page (from twice the stylesheet's height, doubling toward :data:`MAX_PAGE_MM`) until the document has one page per section, then clips each page to the ink on it (:func:`ink_extents`, a low-resolution render of each page), so a page is as long as its section and no longer. The stylesheet keeps its own height for the browser's print dialog, which cannot clip.
 
-Playwright is a dev dependency and Chromium is found via ``PLAYWRIGHT_CHROMIUM``, the cloud sandbox's ``/opt/pw-browsers/chromium``, or Playwright's own resolution. When none of those works, :func:`print_bundle` says so and returns ``None`` rather than failing the export: the PDF is a convenience beside the page, never a condition of it.
+Playwright is a dev dependency and Chromium is found via ``PLAYWRIGHT_CHROMIUM``, the cloud sandbox's ``/opt/pw-browsers/chromium``, or Playwright's own resolution. When none of those works, :func:`print_bundle` says so and returns ``None`` rather than failing the build: the PDF is a convenience beside the page, never a condition of it.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import hashlib
 import re
 import shutil
 import socketserver
+import subprocess
 import threading
 import urllib.error
 import urllib.request
@@ -29,6 +30,7 @@ from typing import Any
 __all__ = [
     "served_bundle",
     "print_bundle",
+    "print_stamp",
     "print_page",
     "route_remote",
     "ink_extents",
@@ -76,6 +78,27 @@ def chromium_path() -> str | None:
     """A Chromium binary to launch, or ``None`` to let Playwright resolve its own."""
     exe = os.environ.get("PLAYWRIGHT_CHROMIUM", "/opt/pw-browsers/chromium")
     return exe if Path(exe).exists() else None
+
+
+def print_stamp() -> str:
+    """A short hash of everything a print depends on besides the page: this module, the Playwright release, and the browser.
+
+    A memo of printed PDFs keys on this together with the page, so a change to the print code or a browser update prints every report again, once, and nothing else does. The browser is identified by its ``--version`` line when :func:`chromium_path` finds one, otherwise by the Playwright release, since each release pins its own Chromium build.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    parts = [Path(__file__).read_text("utf-8")]
+    for dist in ("playwright", "pikepdf"):
+        try:
+            parts.append(f"{dist}={version(dist)}")
+        except PackageNotFoundError:
+            parts.append(f"{dist}=none")
+    if exe := chromium_path():
+        try:
+            parts.append(subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=30).stdout.strip())
+        except OSError, subprocess.SubprocessError:
+            parts.append(exe)
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):

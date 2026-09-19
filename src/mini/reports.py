@@ -962,19 +962,21 @@ _BANNER_CLEARANCE = "main.lit{padding-top:3rem}"
 # this (RFC 8288 ``alternate``, with ``type`` to say which format). The export stamps one
 # per rendition it wrote beside ``index.html``; the build reads them to link each in the
 # nav chip. Relative hrefs, so the page's ``<base>`` sends them wherever the bundle is.
-PDF_LEAF = "report.pdf"  # printed at export by mini.report_print, beside index.html
+PDF_LEAF = "report.pdf"  # printed by the site build (mini.report_print), beside the page
 PDF_TYPE = "application/pdf"
 MD_LEAF = "index.md"  # the woven Markdown a literate script's export writes beside its HTML
 MD_TYPE = "text/markdown"
 _ALTERNATE_TAG = re.compile(r'\s*<link rel="alternate" type="([^"]*)" href="([^"]*)"\s*/?>', re.IGNORECASE)
 
 
-def set_alternate(html: str, *, type: str, href: str) -> str:
+def set_alternate(html: str, *, type: str, href: str | None) -> str:
     """Declare that this page is also available as *type* at *href* (a ``<link rel="alternate">`` in the head).
 
-    One tag per media type: re-stamping the same type replaces the earlier tag rather than stacking. Run at export, on the bundle's HTML, since that is the half that knows what it wrote.
+    One tag per media type: re-stamping the same type replaces the earlier tag rather than stacking, and ``href=None`` withdraws the declaration. Run by whichever step wrote the rendition: the export for its Markdown, the site build for the PDF.
     """
     html = _ALTERNATE_TAG.sub(lambda m: "" if m.group(1) == type else m.group(0), html)
+    if href is None:
+        return html
     tag = f'<link rel="alternate" type="{html_escape(type)}" href="{html_escape(href)}" />'
     return re.sub(r"(<head[^>]*>)", lambda m: f"{m.group(1)}\n    {tag}", html, count=1)
 
