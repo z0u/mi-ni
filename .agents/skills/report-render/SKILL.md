@@ -44,7 +44,7 @@ A woven bundle is self-contained: the page carries its own stylesheet (`mini.lit
 
 ```bash
 # Get a bundle first if you don't have one: ./go preview --no-serve docs/gpt-sweep/report.py
-#   -> .mini/exports/gpt-sweep/  (index.html + index.md + _assets/ + report.pdf)
+#   -> .mini/exports/gpt-sweep/  (index.html + index.md + _assets/)
 uv run python .claude/skills/report-render/render.py \
     .mini/exports/gpt-sweep -o /tmp/report.png
 ```
@@ -53,9 +53,9 @@ Then `Read` the PNG. `--suffix '#results'` appends to the URL; `--wait-text 'som
 
 ## The PDF: what the human reads on paper or e-ink
 
-Every export prints `report.pdf` beside the bundle's `index.html` (`mini.report_print`, the same print `./go publish` ships and the site links from the nav chip), through the same engine as Chrome's print dialog, so it honours the `@page` size and `@media print` rules in `docs/report.css` (paper sized for a reMarkable 2, one section per page, tables unscrolled). The print grows the page until no section breaks across pages, then clips each page to its content, so page heights vary; `print_page(fit=False)` prints the stylesheet's fixed page instead. After editing a report, `./go preview --no-serve <report>` and hand `.mini/exports/<key>/report.pdf` to the human with `SendUserFile` so they can annotate it; the `pdf-annotations` skill reads the marked-up copy back.
+The site build prints `report.pdf` beside each report's page (`mini.report_print`, the same print the published site links from the nav chip, reused from `.mini/pdfs/` when nothing changed), through the same engine as Chrome's print dialog, so it honours the `@page` size and `@media print` rules in `docs/report.css` (paper sized for a reMarkable 2, one section per page, tables unscrolled). The print grows the page until no section breaks across pages, then clips each page to its content, so page heights vary; `print_page(fit=False)` prints the stylesheet's fixed page instead. After editing a report, `./go preview --no-serve <report>` and hand `_site/<key>/report.pdf` to the human with `SendUserFile` so they can annotate it; the `pdf-annotations` skill reads the marked-up copy back.
 
-To check a print-style edit, print the *built* page, which carries `report.css` from source rather than the copy baked at export: `./go preview --no-serve <report>`, then `render.py _site/<key>/ -o /tmp/report.pdf`. Rasterize pages with pypdfium2 (a dev dependency: `PdfDocument(path)[i].render(scale=1.5).to_pil().save(...)`) and `Read` them, or tile them into a contact sheet to see the page breaks at a glance.
+`./go preview` prints the built page, which carries `report.css` from source, so a print-style edit shows in `_site/<key>/report.pdf` on the next preview; `render.py _site/<key>/ -o /tmp/report.pdf` prints it again by hand, with the page served from `_site/`. Rasterize pages with pypdfium2 (a dev dependency: `PdfDocument(path)[i].render(scale=1.5).to_pil().save(...)`) and `Read` them, or tile them into a contact sheet to see the page breaks at a glance.
 
 To inspect one element instead of the whole page, pass a CSS selector. `render.py` shoots each match (numbering `out.png` → `out-0.png`, `out-1.png`, … when several match) after scrolling it into view:
 

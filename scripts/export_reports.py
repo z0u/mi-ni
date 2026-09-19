@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Export reports to self-contained bundles, optionally syncing to the bucket.
 
-Each report (a literate script under ``docs/``; :func:`~mini.reports.is_report`) exports to its own bundle at ``.mini/exports/<key>/`` — ``index.html`` plus the name-keyed ``_assets/`` its publisher wrote (``mini.lit.render`` installs a publisher aimed at the output's ``_assets/``). After the weave, provenance, thumbnails, the PDF and the sync follow. With ``--publish`` each bundle is then mirrored to the configured HF bucket at ``exports/<key>/``: the authenticated half of publishing (it needs the data the report reads + a write token). ``scripts/build_site.py`` assembles the site from these bundles — the synced ones in CI (read-only), the local ones offline.
+Each report (a literate script under ``docs/``; :func:`~mini.reports.is_report`) exports to its own bundle at ``.mini/exports/<key>/`` — ``index.html`` plus the name-keyed ``_assets/`` its publisher wrote (``mini.lit.render`` installs a publisher aimed at the output's ``_assets/``). After the weave, provenance, thumbnails and the sync follow; the PDF is the site build's. With ``--publish`` each bundle is then mirrored to the configured HF bucket at ``exports/<key>/``: the authenticated half of publishing (it needs the data the report reads + a write token). ``scripts/build_site.py`` assembles the site from these bundles — the synced ones in CI (read-only), the local ones offline.
 """
 
 import argparse
@@ -10,16 +10,12 @@ import shutil
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))  # so `import build_site` (sibling) works
 
-from build_site import LinkResolver, resolve_html_links  # noqa: E402
 from mini.lit import render  # noqa: E402
-from mini.report_print import print_bundle  # noqa: E402
 from mini.reports import (  # noqa: E402
     MD_LEAF,
     MD_TYPE,
     PDF_LEAF,
-    PDF_TYPE,
     PROVENANCE_ASSET,
     export_dir,
     export_key,
@@ -84,32 +80,16 @@ def export_one(path: Path) -> Path:
     if thumbs:
         print(f"  thumbs {len(thumbs)} figure(s) -> {assets.relative_to(ROOT)}/thumbs/")
     out.write_text(html, "utf-8")
-    # The PDF, for reading on paper or e-ink (todo/eng/pdf-exports.md): printed here, the
-    # half that holds the bundle, and synced beside the HTML so the site build can link it
-    # without a browser of its own. Author links are resolved the way the published page
-    # resolves them, in the printed copy only, so the PDF's links work and its bytes are a
-    # function of the report alone (left relative, they would carry the loopback port the
-    # print served from, and an unchanged report would upload a new file every time).
-    pdf = out.parent / PDF_LEAF
-    pdf.unlink(missing_ok=True)  # the last export's, which a skipped print must not leave to sync
-    from_dir = path.parent.relative_to(DOCS).as_posix()
-    printable = resolve_html_links(
-        html,
-        LinkResolver.discover(),
-        from_dir="" if from_dir == "." else from_dir,
-        out_dir=export_key(path),
-        externalizing=True,
-    )
-    print(f"  print  {out.relative_to(ROOT)} -> {pdf.relative_to(ROOT)} (headless Chromium; a few seconds)")
-    if print_bundle(out.parent, pdf, html=printable) is not None:
-        out.write_text(set_alternate(html, type=PDF_TYPE, href=PDF_LEAF), "utf-8")
+    # The PDF is the site build's to print (build_site.PdfMemo), since 2026-09-19; a bundle
+    # exported before then still holds one, which the sync would otherwise carry along.
+    (out.parent / PDF_LEAF).unlink(missing_ok=True)
     return out.parent
 
 
 def _weave(script: Path, out: Path) -> str:
     """Weave the literate *script* into the bundle holding *out*, and return the page.
 
-    ``mini.lit.render`` writes the page and the woven Markdown beside it, with figures under the bundle's ``_assets/`` through the report publisher, so the sidecar and the thumbnails read from one place. The Markdown is declared as an alternate rendition, the way the PDF is, so a reader (an agent, mostly) can fetch the text of a published report without parsing the page. The shared stylesheet is inlined here for the print below, since a script's page carries only ``mini.lit``'s own; the site build re-inlines the current source on top.
+    ``mini.lit.render`` writes the page and the woven Markdown beside it, with figures under the bundle's ``_assets/`` through the report publisher, so the sidecar and the thumbnails read from one place. The Markdown is declared as an alternate rendition, the way the PDF is, so a reader (an agent, mostly) can fetch the text of a published report without parsing the page. The shared stylesheet is inlined here so the bundle stands on its own; the site build re-inlines the current source on top.
 
     A cell that raised is a failed export: the page would carry the traceback where a figure should be, and the sync would publish it.
     """

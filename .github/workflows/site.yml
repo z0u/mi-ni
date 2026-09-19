@@ -13,7 +13,8 @@ name: Site
 # to the publish tier and writes HTML around them, each report fetched and based at
 # the revision pinned in docs/publish.lock *on the branch being built*. So a branch
 # publish shows up in that PR's preview and nowhere else — merging the pin is what
-# changes production.
+# changes production. It also prints each report's PDF, reusing the previous deploy's
+# copy when nothing the print depends on has changed (scripts/build_site.py, PdfMemo).
 
 on:
   push:
@@ -52,6 +53,25 @@ jobs:
         # Full-version pin, not a floating major — see lint-check.yml for why, and
         # bump both workflows together.
         uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Sync the environment
+        # The build runs in each checkout's own environment (see the deploy script), so
+        # this one exists for the Chromium install below: Playwright's CLI, at the
+        # version this checkout pins.
+        run: uv sync --locked
+
+      - name: Cache Chromium
+        # Playwright pins a Chromium build per release, so the key follows the lockfile.
+        # A checkout whose lockfile pins another release fetches its own build in the
+        # deploy script; the system libraries installed below serve any of them.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Install Chromium
+        # The browser the site build prints each report's PDF with (mini.report_print).
+        run: uv run playwright install --with-deps chromium
 
       - name: Build and deploy
         # Set *whichever* variable matches your store layout — an undefined repo
