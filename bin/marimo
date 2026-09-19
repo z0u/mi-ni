@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-# Pin to this project so the wrapper works from any cwd.
-exec uv run --project "${0%/*}/.." marimo "$@"

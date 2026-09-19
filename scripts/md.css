@@ -1,45 +1,5 @@
-/*
- * Webfonts matching the Marimo notebook reports (PT Sans / Lora / Fira Mono),
- * loaded from the same jsDelivr-hosted bundle Marimo ships.
- * Filenames are content-hashed and pinned to marimo 0.23.16 — re-check/bump
- * these URLs whenever the marimo dependency is upgraded.
- */
-@font-face {
-  font-family: "PT Sans";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/PTSans-Regular-Bam3NpBI.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
-@font-face {
-  font-family: "PT Sans";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/PTSans-Bold-C_DwAp7Z.woff2") format("woff2");
-  font-weight: 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Lora";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/Lora-VariableFont_wght-CZceb_kH.woff2") format("woff2");
-  font-weight: 400 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fira Mono";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Regular-CEsLFVD9.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fira Mono";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Medium-D5MAsWEG.woff2") format("woff2");
-  font-weight: 500;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fira Mono";
-  src: url("https://cdn.jsdelivr.net/npm/@marimo-team/frontend@0.23.16/dist/assets/FiraMono-Bold-C6PDArdf.woff2") format("woff2");
-  font-weight: 700;
-  font-display: swap;
-}
+/* Fonts (PT Sans / Lora / Fira Mono) come from the same Google Fonts <link> as the
+   woven report pages: `mini.lit.page.FONTS`, emitted by scripts/build_site.py. */
 
 :root {
   color-scheme: light dark;
@@ -69,7 +29,7 @@ body {
   background-color: var(--bg);
   color: var(--fg);
   font-family: "PT Sans", ui-sans-serif, system-ui, sans-serif;
-  /* Marimo's prose paragraphs land at ~14.4px (its app sets a ~90% base); match it. */
+  /* Prose paragraphs land at ~14.4px (a ~90% base), the size the reports settled on. */
   font-size: 0.9rem;
   line-height: 1.6;
   max-width: 50rem;
@@ -84,8 +44,8 @@ a {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: "Lora", serif;
-  /* Marimo renders Lora headings at the regular weight, not the browser-default bold,
-   * with its ligatures on — otherwise the variable font shows its 700 master. */
+  /* Lora headings at the regular weight rather than the browser-default bold,
+   * with ligatures on — otherwise the variable font shows its 700 master. */
   font-weight: 400;
   font-feature-settings: "rlig" 1, "calt" 1;
   margin-top: 1.5em;

@@ -17,7 +17,7 @@ def configured_names() -> set[str]:
 
 
 def offenders() -> dict[Path, set[str]]:
-    """Notebooks under `docs/` that build a store or name a configured repo."""
+    """Reports under `docs/` that build a store or name a configured repo."""
     needles = configured_names() | {"HFStore("}
     found = {}
     for path in sorted(ROOT.glob("docs/**/*.py")):

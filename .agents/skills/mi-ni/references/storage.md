@@ -15,7 +15,7 @@ def extract(cfg) -> dict:
     return {"cfg": cfg.id, "activations": art}
 ```
 
-`put`/`get` resolve an _ambient store_ the worker enters around the step, the same pattern as `get_data_dir()`. They work inside any step with no plumbing; outside a step (a notebook/report), get the store from the apparatus: `store = LocalApparatus(NAME).store()` and call `store.get(...)` directly.
+`put`/`get` resolve an _ambient store_ the worker enters around the step, the same pattern as `get_data_dir()`. They work inside any step with no plumbing; outside a step (a report), get the store from the apparatus: `store = LocalApparatus(NAME).store()` and call `store.get(...)` directly.
 
 ## Why a handle, not a path
 
@@ -55,7 +55,7 @@ See `docs/acts` (producer) and `docs/probe` (consumer) for a runnable pair.
 
 Refs carry _provenance_ automatically. A `set_ref` inside a step stamps the writer's identity into the payload (experiment, task key, git sha/describe/dirty, run time), and a `get_ref` inside a step records the resolution on the task's record. Two things fall out with no code in the experiment: the reading run records that producer as an upstream in its lineage ([running.md](./running.md#provenance--cost)), and a report that resolves refs gets a provenance footer citing the producing runs ([reports.md](./reports.md)).
 
-Refs written *outside* a task worker (a notebook using the interactive `Apparatus`, a driver-side `set_ref` in `main`) are unstamped — consumers still resolve them fine, they just can't be attributed.
+Refs written *outside* a task worker (a report using the interactive `Apparatus`, a driver-side `set_ref` in `main`) are unstamped — consumers still resolve them fine, they just can't be attributed.
 
 Inside a step, ref writes are fenced on the attempt generation: if the task was relaunched or cancelled while the worker ran, `set_ref`/`publish` raise `StaleWriteError` instead of silently overwriting the successor's name (blobs are immune — content-addressed writes are idempotent). Two consequences worth knowing:
 
@@ -104,7 +104,7 @@ publish-repo = "your-namespace/your-publish-repo"   # public, versioned dataset 
 
 With `publish-repo` set, `publish`/report-exports route to that dataset repo (a citation can pin to `…/resolve/<commit-sha>/…`); `put`/`get`/refs stay in the bucket. It costs no extra storage — Xet dedups chunks account-wide — so publishing is a commit, not a byte re-transfer. See [`eng/publishing.md`](/eng/publishing.md) and issue #38 for the design.
 
-Reports don't call `publish` directly; they go through a report bundle (`use_publisher` + `asset_url`, and the publish/build split): [reports.md](./reports.md).
+Reports don't call `publish` directly; they go through the report's bundle (the runner's publisher and its `asset_url`, and the publish/build split): [reports.md](./reports.md).
 
 ## Profiles: a dev pair beside production
 
@@ -135,7 +135,7 @@ The profile picks the names; the token decides what can be written. An environme
 
 The line is publishing. Whatever a published report reads is on production: the experiment it reports, the reference arms it reads from siblings, the addendum arms added later. Prototyping can use either pair. A science experiment can be developed under `MINI_PROFILE=dev` while its code is in flux, with `MINI_PROFILE=dev ./go preview` reading the same runs, and the dev pair also holds the work *on* mini (storage, publishing, gc, the apparatus, the `hf`-marked integration tests). Before the freeze, the experiment runs on production and the report is published from there. There is no promotion step and the dev pair can be wiped, so a run there is a rehearsal rather than a result.
 
-A report reaches its data through `project_store()` (`mini.store`), which resolves whichever pair is configured, and names no bucket of its own. That is what lets the same notebook preview under dev and publish from production without an edit. A bucket name written into a file under `docs/` is a bug whichever bucket it is: the production name hardcodes what configuration already knows, and the dev name leaves a published report resolving its figures against a sandbox that can be wiped. `tests/test_docs_store_access.py` checks this.
+A report reaches its data through `project_store()` (`mini.store`), which resolves whichever pair is configured, and names no bucket of its own. That is what lets the same report preview under dev and publish from production without an edit. A bucket name written into a file under `docs/` is a bug whichever bucket it is: the production name hardcodes what configuration already knows, and the dev name leaves a published report resolving its figures against a sandbox that can be wiped. `tests/test_docs_store_access.py` checks this.
 
 An experiment's name is its directory name (`tests/mini/test_experiments_e2e.py` enforces it), so a report's refs live under the name its directory carries, on production. Renaming a report means re-running it, or migrating its refs, there. `./go auth --check` names the active profile, which is the quickest way to tell where a session is pointed before a long run starts.
 

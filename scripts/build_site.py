@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Build the static site from the project's report notebooks.
+"""Build the static site from the project's reports.
 
 The HTML lives nowhere in Git: each report is exported (``./go publish``) to a self-contained bundle — ``index.html`` + named-keyed ``_assets/`` — and mirrored to the bucket under ``exports/<key>/``. The assembly mode is an explicit choice, never inferred from credentials:
 
@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
+from mini.lit.page import FONTS
 from mini.reports import (
     PDF_TYPE,
     PUBLISH_LOCK,
@@ -34,13 +35,11 @@ from mini.reports import (
     mark_figures,
     publish_lock,
     report_figures,
-    report_notebooks,
+    reports,
     rewrite_links,
     set_banner,
     set_lightbox,
     set_report_styles,
-    set_responsive,
-    set_theme,
     stray_links,
 )
 
@@ -50,17 +49,14 @@ DOCS_DIR = WORKSPACE_ROOT / "docs"
 
 # The shared report stylesheet, re-inlined into every report at build time (see
 # mini.reports.set_report_styles). Read from source each build, so editing it restyles
-# every published report with no notebook re-export.
+# every published report with no re-export.
 REPORT_CSS = DOCS_DIR / "report.css"
 
 # The relative dir, beside each report's index.html, holding its externalized assets
 # (figures, data blobs) written by mini.reports.Publisher.
 ASSET_LINK = "_assets"
 
-# Mermaid for Markdown pages, pinned to the version Marimo's frontend depends on, so a
-# diagram in a .md renders like one `mo.mermaid` draws in a report. Re-check on a marimo
-# bump, alongside the font pins in scripts/md.css:
-#   curl -s https://cdn.jsdelivr.net/npm/@marimo-team/frontend@<version>/package.json
+# Mermaid for Markdown pages, pinned so a diagram renders the same on every build.
 MERMAID_VERSION = "11.12.3"
 MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.esm.min.mjs"
 
@@ -77,7 +73,7 @@ await mermaid.run();
 
 # Source suffixes that the build renders into a report page (so an author link to one
 # resolves to the rendered result, not the dead source file).
-_RENDERED_SUFFIXES = (".py", ".ipynb", ".md")
+_RENDERED_SUFFIXES = (".py", ".md")
 
 
 def prepare_dirs():
@@ -171,16 +167,16 @@ class LinkResolver:
                 continue
             rel = md.relative_to(DOCS_DIR).as_posix()
             render_map[rel] = PurePosixPath(rel).with_suffix(".html").as_posix()
-        for nb in report_notebooks(DOCS_DIR):
-            out = f"{export_key(nb)}/index.html"
-            stem_rel = nb.relative_to(DOCS_DIR)
-            # The report came from this notebook; register every suffix an author might
+        for report in reports(DOCS_DIR):
+            out = f"{export_key(report)}/index.html"
+            stem_rel = report.relative_to(DOCS_DIR)
+            # The report came from this script; register every suffix an author might
             # have linked (``report.py`` → its rendered ``<key>/index.html``), plus the
             # bare directory (``../ex-2.1.1/``) — the canonical published URL one report
             # naturally uses to link another.
             for suffix in _RENDERED_SUFFIXES:
                 render_map[stem_rel.with_suffix(suffix).as_posix()] = out
-            render_map[export_key(nb)] = out
+            render_map[export_key(report)] = out
 
         source_files = frozenset(p.relative_to(DOCS_DIR).as_posix() for p in DOCS_DIR.rglob("*") if p.is_file())
         site_assets = frozenset(p.relative_to(DOCS_DIR).as_posix() for p in site_asset_files())
@@ -260,13 +256,16 @@ def prepare_dirs_and_resolver() -> LinkResolver:
 class _Bundle:
     """One report's exported HTML as read from its source, before any assembly.
 
-    ``html`` is ``None`` when there's nothing to assemble (never published, or never exported locally). ``notes`` are log lines the read wants printed — held here rather than printed on the spot, so a concurrent read still logs in notebook order.
+    ``html`` is ``None`` when there's nothing to assemble (never published, or never exported locally). ``notes`` are log lines the read wants printed — held here rather than printed on the spot, so a concurrent read still logs in report order.
     """
 
     html: str | None
     base_href: str | None = None  # externalize: the CDN dir the report's _assets/ resolve against
     assets: Path | None = None  # localize: the local _assets/ dir to copy beside the HTML
     pdf: Path | None = None  # localize: the printed report.pdf to copy beside the HTML, if the export made one
+    # localize: every other rendition the page declares (``<link rel="alternate">``) that the
+    # export wrote beside it — a literate script's ``index.md`` — copied beside the HTML too.
+    renditions: tuple[Path, ...] = ()
     notes: tuple[str, ...] = ()
 
     @property
@@ -278,23 +277,26 @@ class _Bundle:
         return href if href and (self.base_href is not None or self.pdf is not None) else None
 
 
-def _read_bundle(nb: Path, *, store, pins: dict[str, str], externalizing: bool) -> _Bundle:
+def _read_bundle(report: Path, *, store, pins: dict[str, str], externalizing: bool) -> _Bundle:
     """Read one report's exported ``index.html`` — off the bucket, or from ``.mini/exports/``.
 
     Externalize reads *only* the HTML. The page's ``_assets/`` links stay relative and the ``<base>`` sends them to the bundle on the CDN, so pulling the whole bundle here would fetch megabytes of figures the build has no use for. It's also the one step that waits on the network, which is why it's separable: the reports are independent, so the caller runs these together instead of serially.
 
     A report pinned in ``docs/publish.lock`` is read *and* based at that revision, so the page serves exactly what its publish uploaded — a later re-publish (e.g. from a branch whose PR hasn't merged) can't swap the assets under this build. An unpinned report falls back to the mutable branch head, with a warning.
     """
-    key = export_key(nb)
+    key = export_key(report)
     if not externalizing:
-        bundle = export_dir(nb)
+        bundle = export_dir(report)
         if not (bundle / "index.html").exists():
-            nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
+            nb_rel = report.relative_to(WORKSPACE_ROOT).as_posix()
             return _Bundle(None, notes=(f"  ! {key}: not exported locally — run `./go preview {nb_rel}` (skipping)",))
         assets = bundle / ASSET_LINK
         html = (bundle / "index.html").read_text("utf-8")
         pdf = bundle / alternates(html).get(PDF_TYPE, "")
-        return _Bundle(html, assets=assets if assets.is_dir() else None, pdf=pdf if pdf.is_file() else None)
+        renditions = tuple(p for href in alternates(html).values() if (p := bundle / href).is_file())
+        return _Bundle(
+            html, assets=assets if assets.is_dir() else None, pdf=pdf if pdf.is_file() else None, renditions=renditions
+        )
 
     notes: list[str] = []
     revision = pins.get(key)
@@ -332,45 +334,50 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
     print("Building reports...")
     pins = load_pins(WORKSPACE_ROOT) if externalizing else {}
     report_css = REPORT_CSS.read_text("utf-8") if REPORT_CSS.exists() else ""
-    nbs = report_notebooks(DOCS_DIR)
+    nbs = reports(DOCS_DIR)
     # Externalized, each read is a round trip to the bucket and the reports don't depend
     # on each other — so read them in one wave and the build waits for the slowest report
     # rather than the sum of all of them. Assembly below is CPU-cheap and stays sequential
-    # in notebook order, so the log reads the same however the threads interleaved.
+    # in report order, so the log reads the same however the threads interleaved.
     with ThreadPoolExecutor(max_workers=min(8, max(len(nbs), 1))) as pool:
-        bundles = pool.map(lambda nb: _read_bundle(nb, store=store, pins=pins, externalizing=externalizing), nbs)
+        bundles = pool.map(
+            lambda report: _read_bundle(report, store=store, pins=pins, externalizing=externalizing), nbs
+        )
 
     strips: dict[str, FigureStrip] = {}
-    for nb, bundle in zip(nbs, list(bundles), strict=True):
-        key = export_key(nb)
+    for report, bundle in zip(nbs, list(bundles), strict=True):
+        key = export_key(report)
         for note in bundle.notes:
             print(note)
         if bundle.html is None:
             continue
         figures = tuple(report_figures(bundle.html, link=ASSET_LINK))
         strips[key] = FigureStrip(key, bundle.base_href, figures, pdf=bundle.pdf_url)
-        from_dir = nb.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
+        from_dir = report.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
         from_dir = "" if from_dir == "." else from_dir
-        nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
+        nb_rel = report.relative_to(WORKSPACE_ROOT).as_posix()
 
         html = resolve_html_links(bundle.html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
         html = mark_figures(html, link=ASSET_LINK)  # defer offscreen figures; mark them zoomable
         html = set_lightbox(html)  # click a figure for the full-size image, over a dimmed page
-        html = set_theme(html)  # follow the visitor's device, not the exporter's setting
-        html = set_responsive(html)  # fit narrow screens; drop Marimo's watermark
         index_url, source_url = _nav_urls(links, key=key, nb_rel=nb_rel, externalizing=externalizing)
         html = set_banner(html, index_url=index_url, source_url=source_url, pdf_url=bundle.pdf_url)
         html = set_report_styles(html, report_css)  # last, so shared report rules win ties
         if bundle.base_href:
-            html = insert_base(html, bundle.base_href)
+            # The base sends every relative URL to the bucket, a bare `#fragment` included,
+            # so the page's own anchors are spelled out against its published URL.
+            page_url = links.resolve(key, from_dir="", out_dir=key, externalizing=True)
+            if page_url is None:
+                print(f"  ! {key}: no site URL, so its in-page links (#footnotes, headings) will follow the <base>")
+            html = insert_base(html, bundle.base_href, page_url=page_url)
         dest = SITE_DIR / key / "index.html"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, "utf-8")
 
         if bundle.assets is not None:
             shutil.copytree(bundle.assets, dest.parent / ASSET_LINK, dirs_exist_ok=True)
-        if bundle.pdf is not None:
-            shutil.copy2(bundle.pdf, dest.parent / bundle.pdf.name)
+        for rendition in bundle.renditions:  # the PDF, a script's Markdown: served beside the page, as on the bucket
+            shutil.copy2(rendition, dest.parent / rendition.name)
         print(f"  {key} -> _site/{key}/index.html{' [+base]' if bundle.base_href else ''}")
     return strips
 
@@ -378,7 +385,7 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
 def _nav_urls(links: LinkResolver, *, key: str, nb_rel: str, externalizing: bool) -> tuple[str | None, str | None]:
     """The report banner's (index, source) links — same absolute/relative policy as author links.
 
-    The source is the notebook on GitHub (``source_base`` + its repo path). The index is the site root: absolute (``site_base``) when externalizing — the asset ``<base>`` would otherwise repoint a relative link at the bucket — and relative back up from ``_site/<key>/index.html`` when localizing, so offline navigation works. Either is ``None`` if its base is unavailable.
+    The source is the script on GitHub (``source_base`` + its repo path). The index is the site root: absolute (``site_base``) when externalizing — the asset ``<base>`` would otherwise repoint a relative link at the bucket — and relative back up from ``_site/<key>/index.html`` when localizing, so offline navigation works. Either is ``None`` if its base is unavailable.
     """
     source_url = f"{links.source_base}{nb_rel}" if links.source_base else None
     if externalizing:
@@ -400,8 +407,8 @@ def resolve_html_links(html: str, links: LinkResolver, *, from_dir: str, out_dir
     return rewrite_links(html, mapping) if mapping else html
 
 
-_ASSET_SKIP_DIRS = {"__marimo__", "__pycache__"}
-_ASSET_SKIP_SUFFIXES = {".py", ".md", ".ipynb", ".pyc", ".pyo"}
+_ASSET_SKIP_DIRS = {"__pycache__"}
+_ASSET_SKIP_SUFFIXES = {".py", ".md", ".pyc", ".pyo"}
 
 
 def site_asset_files() -> list[Path]:
@@ -423,7 +430,7 @@ def site_asset_files() -> list[Path]:
 
 
 def copy_assets():
-    """Copy non-notebook, non-markdown files from docs/ to _site/."""
+    """Copy non-Python, non-Markdown files from docs/ to _site/."""
     print("Copying assets...")
     for item in site_asset_files():
         rel = item.relative_to(DOCS_DIR)
@@ -596,7 +603,7 @@ def convert_markdown(links: LinkResolver, externalizing: bool, strips: dict[str,
             '<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             f"<title>{title}</title>\n"
-            f'<link rel="stylesheet" href="{root}md.css">\n'
+            f'{FONTS}\n<link rel="stylesheet" href="{root}md.css">\n'
             + (MERMAID_SCRIPT if has_mermaid else "")
             + (lightbox_chrome() if has_strip else "")
             + "</head>\n"

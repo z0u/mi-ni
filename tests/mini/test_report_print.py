@@ -92,9 +92,61 @@ def test_fit_leaves_a_page_without_a_sized_page_rule_alone(browser, tmp_path: Pa
         assert float(pdf.pages[0].MediaBox[3]) == pytest.approx(11 * 72, abs=1)  # Chromium's default letter page, uncut
 
 
+_FOOTNOTED = """<html><body><h1>Hi</h1><p>A claim.<sup id="fnref:a"><a href="#fn:a">1</a></sup></p>
+<div class="footnote"><ol><li id="fn:a"><p>A note. <a href="#fnref:a">back</a></p></li></ol></div></body></html>"""
+
+
+def test_in_page_links_print_as_direct_destinations(browser, tmp_path: Path):
+    """Chromium prints a footnote link as a named destination; the pass gives the annotation the page and position outright, so a viewer without name lookup follows it."""
+    out = tmp_path / "fn.pdf"
+    page = browser.new_page()
+    page.set_content(_FOOTNOTED)
+    report_print.print_page(page, out, settle=0)
+    page.close()
+    with pikepdf.open(out) as pdf:
+        dests = [a.Dest for p in pdf.pages for a in (p.get("/Annots") or []) if "/Dest" in a]
+        assert len(dests) == 2
+        for d in dests:
+            assert isinstance(d, pikepdf.Array) and d[1] == "/XYZ"
+            assert d[0].objgen == pdf.pages[0].obj.objgen
+
+
 def test_ink_extents_of_a_blank_page_is_none(tmp_path: Path):
     out = tmp_path / "blank.pdf"
     pdf = pikepdf.new()
     pdf.add_blank_page(page_size=(200, 400))
     pdf.save(out)
     assert report_print.ink_extents(out) == [None]
+
+
+def test_route_remote_serves_https_from_a_python_filled_cache(browser, tmp_path: Path):
+    """The math and fonts come from CDNs the print browser may not reach; Python fetches once and the page gets the cached copy."""
+    calls = []
+
+    def fetch(url, headers):
+        calls.append(url)
+        return "text/css", b"body { color: rgb(1, 2, 3); }"
+
+    for _ in range(2):
+        page = browser.new_page()
+        report_print.route_remote(page, cache=tmp_path, fetch=fetch)
+        page.set_content(
+            '<html><head><link rel="stylesheet" href="https://cdn.test/x.css"></head><body>hi</body></html>'
+        )
+        page.wait_for_load_state("load")
+        assert page.evaluate("getComputedStyle(document.body).color") == "rgb(1, 2, 3)"
+        page.close()
+    assert calls == ["https://cdn.test/x.css"]  # the second page read the cache
+
+
+def test_route_remote_prints_on_when_a_fetch_fails(browser, tmp_path: Path, caplog):
+    def fetch(url, headers):
+        raise OSError("no route to host")
+
+    page = browser.new_page()
+    report_print.route_remote(page, cache=tmp_path, fetch=fetch)
+    page.set_content('<html><head><link rel="stylesheet" href="https://cdn.test/x.css"></head><body>hi</body></html>')
+    page.wait_for_load_state("load")
+    assert page.locator("body").inner_text() == "hi"
+    assert "cdn.test unreachable" in caplog.text
+    assert not list(tmp_path.iterdir())

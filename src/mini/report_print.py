@@ -1,6 +1,6 @@
 """Print an exported report bundle to PDF, offline, with a headless browser.
 
-A ``marimo export html`` bundle loads its frontend runtime (~200 JS/CSS/font URLs) from the jsDelivr CDN, so it won't render in a network-restricted sandbox. The *same* pinned ``dist/`` ships inside the marimo pip package under ``_static/``, so :func:`served_bundle` repoints the bundle's CDN refs at those local assets and serves the result on a loopback port. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
+A bundle (``mini.lit``) is a self-styled static page with its figures beside it, so :func:`served_bundle` copies it to a throwaway serve root and serves that on a loopback port. What the page pulls from elsewhere (KaTeX and the fonts, from CDNs) is fetched by Python and cached (:func:`route_remote`): a browser in a proxied sandbox cannot reach a CDN, and a print that could would still render the math of the day; from the cache, a print is offline and repeatable. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
 
 This runs at export (``scripts/export_reports.py``), the half of publishing that holds the bundle on disk: the PDF lands beside ``index.html``, rides the bundle sync, and is pinned by the same ``publish.lock`` entry as the page. The site build only links it. Chromium stamps a creation date and a random document ID into every PDF, which would make each re-export of an unchanged report a new publish-tier commit, so :func:`normalize_pdf` strips both after printing; two prints of one bundle are then byte-equal.
 
@@ -14,21 +14,23 @@ from __future__ import annotations
 import http.server
 import logging
 import os
+import hashlib
 import re
 import shutil
 import socketserver
 import threading
-from collections.abc import Iterator
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-
-import marimo
 
 __all__ = [
     "served_bundle",
     "print_bundle",
     "print_page",
+    "route_remote",
     "ink_extents",
     "normalize_pdf",
     "chromium_path",
@@ -65,9 +67,6 @@ _SET_PAGE_SIZE_JS = """size => {
   s.textContent = `@page { size: ${size}; }`;
 }"""
 
-# The whole CDN base every asset URL shares: .../@marimo-team/frontend@<version>/dist
-_CDN = re.compile(r"https://cdn\.jsdelivr\.net/npm/@marimo-team/frontend@[^/\"']+/dist")
-
 INSTALL_HINT = (
     "uv run playwright install chromium && uv run playwright install-deps chromium  (one download, then cached)"
 )
@@ -80,33 +79,24 @@ def chromium_path() -> str | None:
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-    """The runtime is ~200 requests a page; an export log has no use for them."""
+    """A page and its figures are a few dozen requests; an export log has no use for them."""
 
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
 
 def _build_serve_root(bundle: Path, root: Path, *, html: str | None = None) -> None:
-    """Assemble a serve root: marimo's ``_static`` assets + the bundle's CDN-rewritten HTML (or *html* in its place)."""
+    """Assemble a serve root: the bundle's ``_assets/`` plus its page (or *html* in its place)."""
     # Absolute, so the copies below resolve regardless of the bundle's cwd.
     index = (bundle / "index.html" if bundle.is_dir() else bundle).resolve()
     assets = index.parent / "_assets"
-    static = Path(marimo.__file__).parent / "_static"
 
-    # marimo runtime lives under assets/ (+ favicon etc.); copy it all in at root, so a
-    # rewritten "/assets/index-*.js" resolves here. The report's figures live under _assets/
-    # (note the leading underscore) — a different dir, so no collision. Copies, not
-    # symlinks: a write into the serve root (like index.html below) must never reach
-    # through a link into the marimo package or the bundle — that once corrupted marimo's
-    # export template in site-packages (and, via uv's hardlinks, the uv cache), poisoning
-    # every later `marimo export`. The runtime is a few tens of MB, copied into a
-    # throwaway dir; self-contained beats cheap here.
-    shutil.copytree(static, root, dirs_exist_ok=True)
+    # Copies, not symlinks: a write into the serve root (like index.html below) must
+    # never reach through a link into the bundle.
     if assets.is_dir():
         shutil.copytree(assets, root / "_assets")
 
-    html = _CDN.sub("", html if html is not None else index.read_text("utf-8"))  # ".../dist/x.js" -> "/x.js"
-    (root / "index.html").write_text(html, "utf-8")
+    (root / "index.html").write_text(html if html is not None else index.read_text("utf-8"), "utf-8")
 
 
 @contextmanager
@@ -128,6 +118,54 @@ def served_bundle(bundle: Path, *, html: str | None = None) -> Iterator[str]:
         httpd.shutdown()
         httpd.server_close()
         shutil.rmtree(root, ignore_errors=True)
+
+
+def cache_dir() -> Path:
+    """Where fetched remote resources are kept: ``$XDG_CACHE_HOME/mini/remote`` (``~/.cache/...``)."""
+    base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return base / "mini" / "remote"
+
+
+def _fetch(url: str, headers: dict[str, str]) -> tuple[str, bytes]:
+    """GET *url* with Python's TLS (which honours the proxy's CA); returns (content type, body)."""
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
+        return r.headers.get("content-type", "application/octet-stream"), r.read()
+
+
+Fetch = Callable[[str, dict[str, str]], tuple[str, bytes]]
+
+
+def route_remote(page: Any, *, cache: Path | None = None, fetch: Fetch = _fetch) -> None:
+    """Serve *page*'s ``https://`` requests from a cache that Python fills, rather than the browser's own network.
+
+    The page's stylesheet links KaTeX and the fonts from CDNs. A headless Chromium in a proxied sandbox rejects the proxy's certificate and gets neither, so the math printed as its source; Python trusts the certificate (``SSL_CERT_FILE``), so it fetches instead, once per URL, into :func:`cache_dir`. The request's own headers go along, since Google Fonts picks the font format by user agent. A fetch that fails is aborted, with one warning per host, and the print goes on without it: the PDF is a convenience beside the page.
+    """
+    root = cache if cache is not None else cache_dir()
+    warned: set[str] = set()
+
+    def handle(route: Any) -> None:
+        req = route.request
+        if req.method != "GET":
+            route.continue_()
+            return
+        key = hashlib.sha256(req.url.encode()).hexdigest()
+        body, kind = root / key, root / (key + ".type")
+        if not body.exists():
+            try:
+                content_type, data = fetch(req.url, {k: v for k, v in req.headers.items() if k.lower() != "host"})
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                host = req.url.split("/")[2]
+                if host not in warned:
+                    warned.add(host)
+                    log.warning("print: %s unreachable (%s); printing without it", host, e)
+                route.abort()
+                return
+            root.mkdir(parents=True, exist_ok=True)
+            body.write_bytes(data)
+            kind.write_text(content_type)
+        route.fulfill(status=200, content_type=kind.read_text(), body=body.read_bytes())
+
+    page.route(re.compile(r"^https://"), handle)
 
 
 def print_page(page: Any, out: Path, *, settle: float = 3.0, fit: bool = True) -> Path:
@@ -217,6 +255,8 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
     Chromium stamps ``CreationDate``/``ModDate`` (now) and a document ID (random) into every PDF. A re-export of an unchanged report would then upload a different file and mint a publish-tier commit for nothing, where today an identical bundle mints none. Dates go; the ID is re-derived from the content (qpdf's deterministic ID).
 
     *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A blank page is left as it is.
+
+    In-page links (a footnote and its backlink, a heading) print as named destinations in the document's ``/Dests`` dictionary; each link annotation is given its destination outright (:func:`_inline_dests`), so a viewer that resolves only direct destinations, as the simpler e-ink ones do, follows them too.
     """
     import pikepdf
 
@@ -224,6 +264,7 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
         for key in ("/CreationDate", "/ModDate"):
             if key in pdf.docinfo:
                 del pdf.docinfo[key]
+        _inline_dests(pdf)
         for page, extent in zip(pdf.pages, extents or [], strict=extents is not None):
             if extent is None:
                 continue
@@ -233,12 +274,30 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
         pdf.save(path, deterministic_id=True)
 
 
+def _inline_dests(pdf: Any) -> None:
+    """Replace each link annotation's named destination with the array the name resolves to (the ``/Dests`` dictionary is left for viewers that read it)."""
+    import pikepdf
+
+    dests = pdf.Root.get("/Dests")
+    if dests is None:
+        return
+    for page in pdf.pages:
+        for annot in page.get("/Annots") or []:
+            name = annot.get("/Dest")
+            if name is None or isinstance(name, pikepdf.Array):
+                continue  # no destination, or one given outright already
+            key = str(name)  # a Name (``/fn:a``) or a String (``fn:a``); the dictionary keys by Name
+            target = dests.get(key if key.startswith("/") else "/" + key)
+            if isinstance(target, pikepdf.Array):
+                annot.Dest = target
+
+
 def print_bundle(
     bundle: Path, out: Path, *, html: str | None = None, timeout: float = 8.0, settle: float = 3.0
 ) -> Path | None:
     """Print an export bundle to *out*; ``None`` (with a log line) when no browser is available.
 
-    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for marimo to hydrate the first cell output, then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
+    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for the content (``main.lit``) to appear, then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
     """
     try:
         from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -256,12 +315,14 @@ def print_bundle(
             )
             return None
         try:
-            # marimo's frontend validates navigator.language on boot and hard-errors
-            # ("Incorrect locale information provided") if the browser reports none —
-            # which a bare headless Chromium in a locale-less container does. Pin one.
+            # A bare headless Chromium in a locale-less container reports no
+            # navigator.language; pin one so nothing on the page has to guess.
             page = browser.new_page(viewport={"width": 1100, "height": 1400}, locale="en-US")
+            route_remote(page)
             page.goto(url)
-            page.locator(".output").first.wait_for(timeout=timeout * 1000)
+            page.locator("main.lit").first.wait_for(timeout=timeout * 1000)
+            if page.locator(".arithmatex").count() and not page.locator(".katex").count():
+                log.warning("print: the page has math but KaTeX did not render it; the PDF shows the source")
             return print_page(page, out, settle=settle)
         finally:
             browser.close()

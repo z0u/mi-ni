@@ -2,7 +2,7 @@
 name: report-restructure
 description: |
   Reshapes report prose so it can be skimmed, and cuts what repeats. Edits the
-  notebook source, so template expressions survive. Does not check numbers or
+  report source, so template expressions survive. Does not check numbers or
   claims. Verify correctness yourself afterwards.
 argument-hint: <path to report.py> [section or line range]
 context: fork

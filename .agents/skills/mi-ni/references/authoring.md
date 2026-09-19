@@ -22,14 +22,14 @@ The module exposes a top-level `experiment = Experiment(...)`. It carries no com
 ```
 **/<name>/
   experiment.py   # the definition: main(ctx); importable, no UI.
-  report.py       # a Marimo notebook that READS durable results and renders them. Published.
+  report.py       # a literate script that READS durable results and renders them. Published.
 ```
 
 Split definition from report. The definition is imported by the CLI and the remote workers; the report reads persisted results and plots, so it opens standalone without re-running the work. See `docs/probe/` for a worked, runnable example with both halves.
 
 Two conventions that keep the pairing healthy:
 
-- Avoid naming a `src/` package after a docs filename. Marimo runs a report with its own directory first on `sys.path`, so the sibling `experiment.py` shadows any package named `experiment`. Symptom: import dies with "'X' is not a package".
+- Avoid naming a `src/` package after a docs filename. A literate script runs with its own directory first on `sys.path`, so the sibling `experiment.py` shadows any package named `experiment`. Symptom: import dies with "'X' is not a package".
 - Extract shared testbed code. When a new experiment starts by copying a sibling's model/eval helpers, consider lifting them into a shared `src/` package (unless you expect heavy churn). Memoization evidence tracks project source transitively, so the split doesn't weaken cache correctness.
 
 CI globs `docs/**/experiment.py` (`tests/mini/test_experiments_e2e.py`): every definition is at least *loaded* (import + construct), and the light demos run to completion. So a new or renamed experiment gets rot coverage for free — but its module top level must stay cheap and side-effect-free (imports of heavy deps belong inside task fns, which also keeps the driver light).
@@ -67,7 +67,7 @@ meta = ctx.run(prepare_data, role="cpu")          # prep on CPU
 return ctx.map(train, configs, role="gpu")        # training on GPU (fn(config) per item)
 ```
 
-Each step also picks up that apparatus's `before_each` hooks. The default role is the tick's apparatus (set by `--app` / `--workers` on the CLI). In a notebook, where you already hold apparatus handles, you can instead pass an instance directly: `ctx.run(fn, on=cpu_app)`.
+Each step also picks up that apparatus's `before_each` hooks. The default role is the tick's apparatus (set by `--app` / `--workers` on the CLI). In a report, where you already hold apparatus handles, you can instead pass an instance directly: `ctx.run(fn, on=cpu_app)`.
 
 The experiment's `roles=` table binds each label to hardware kwargs, e.g. `roles={"gpu": dict(gpu="L4", timeout=2700, watchdog=120, watchdog_grace=900)}`. Alongside the backend-native knobs, any role (local or Modal) can set `watchdog=` — seconds without *step* progress before the worker aborts itself (`FAILED` with a stack dump) instead of wedging silently until the role `timeout`. Size it past the longest legitimate gap between `emit_progress` step advances; one-off setup before the first emission (tokenization, compilation) is covered by `watchdog_grace=` instead (default: same as `watchdog`), so a slow prep phase doesn't force the watchdog loose. The grace ends at the first emission — emit once real step cadence begins, not before. Leave `watchdog` unset for steps that never emit step progress.
 

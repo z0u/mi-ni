@@ -21,3 +21,5 @@ Both open questions answered yes. *Stale-checked*: the mtime heuristic that `./g
 Those SVGs are the bigger cost in a render and this didn't touch them — 8 of them are 56% of that document's bytes. Written up separately as [inline SVGs are most of a Markdown render](./svg-bulk-in-markdown-renders.md), since the fix needs a way to match a fragment to the sidecar `externalize_html` already writes for it.
 
 **2026-09-04, backport** — Ported from sca2 ([`todo/eng/go-render-markdown.md`](https://github.com/z0u/sca2/blob/main/todo/eng/go-render-markdown.md) there) as settled: the fix it records is in this tree's code too, and the closing notes are the reasoning that code relies on.
+
+**2026-09-19, Fable (PR review)** — `./go render` is now `python -m mini.lit render` per named report, so the Markdown lands as `.mini/lit/<key>/index.md` beside `index.html` and the figures, and `.mini/renders/`, `scripts/export_report_md.py`, and `mini.reports.render_path` are gone: the weave already wrote the Markdown, and the script only moved it. The skip-if-fresh check went with it; the cells' memoized work makes a re-render cheap.

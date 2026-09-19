@@ -209,7 +209,7 @@ def test_figures_marker_for_an_unbuilt_report_renders_nothing(resolver, strips, 
 
 def test_nav_urls_absolute_when_externalizing(resolver):
     # With an asset <base>, the index link must be absolute (the site root); source is
-    # always the notebook on GitHub.
+    # always the report's source on GitHub.
     index, source = build_site._nav_urls(resolver, key="pipeline", nb_rel="docs/pipeline/report.py", externalizing=True)
     assert index == "https://o.github.io/r/"
     assert source == "https://github.com/o/r/blob/main/docs/pipeline/report.py"
@@ -240,7 +240,7 @@ def test_rendered_link_stays_relative_when_localizing(resolver):
 
 def test_directory_form_link_resolves_like_the_report_file(resolver):
     # A report links a sibling by its canonical published URL (``../acts/``, the directory),
-    # not the notebook file — both must reach the same rendered page.
+    # rather than the report file — both must reach the same rendered page.
     assert (
         resolver.resolve("../acts/report/", from_dir="probe", out_dir="probe/report", externalizing=True)
         == "https://o.github.io/r/acts/report/"
@@ -278,8 +278,8 @@ def test_copy_assets_and_the_resolver_agree_on_what_lands_in_the_site(tmp_path, 
     (docs / "index.md").write_text("# hi")
     (docs / "probe").mkdir()
     (docs / "probe" / "experiment.py").write_text("x = 1")
-    (docs / "__marimo__").mkdir()
-    (docs / "__marimo__" / "cache.json").write_text("{}")
+    (docs / "__pycache__").mkdir()
+    (docs / "__pycache__" / "report.cpython-314.pyc").write_bytes(b"")
     monkeypatch.setattr(build_site, "WORKSPACE_ROOT", tmp_path)
     monkeypatch.setattr(build_site, "DOCS_DIR", docs)
     assert [p.relative_to(docs).as_posix() for p in build_site.site_asset_files()] == ["public/map.svg"]
@@ -457,3 +457,22 @@ def test_figure_strip_of_a_figureless_report_still_links_its_pdf():
     strip = build_site.FigureStrip("probe/report", None, (), pdf="report.pdf")
     out = build_site._figure_strip_html(strip, from_dir="", externalizing=False)
     assert 'href="probe/report/report.pdf"' in out and "<img" not in out
+
+
+def test_a_local_bundle_lists_every_rendition_the_page_declares(tmp_path: Path):
+    """Localizing copies what the export wrote beside the page: the PDF and a literate script's `index.md`, and nothing the page declares but the export did not write."""
+    from mini.reports import MD_TYPE, PDF_TYPE, set_alternate
+
+    (tmp_path / "pyproject.toml").write_text("")
+    (nb := tmp_path / "docs" / "ex-1" / "report.py").parent.mkdir(parents=True)
+    nb.write_text("")
+    (bundle := tmp_path / ".mini" / "exports" / "ex-1").mkdir(parents=True)
+    html = set_alternate("<html><head></head><body></body></html>", type=PDF_TYPE, href="report.pdf")
+    html = set_alternate(html, type=MD_TYPE, href="index.md")
+    (bundle / "index.html").write_text(html)
+    (bundle / "index.md").write_text("# Hi")
+
+    read = build_site._read_bundle(nb, store=None, pins={}, externalizing=False)
+
+    assert read.renditions == (bundle / "index.md",)
+    assert read.pdf is None and read.pdf_url is None

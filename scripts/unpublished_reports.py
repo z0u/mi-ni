@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Report notebooks this branch changed without republishing — the forgotten-publish check.
+"""Reports this branch changed without republishing — the forgotten-publish check.
 
-``./go publish`` is the step of the loop that has to be remembered, and forgetting it fails quietly: the notebook merges, the site keeps serving the previous export's figures, and nothing says so. This is the tripwire. It compares what the branch *changed* against what it *repinned* in ``docs/publish.lock``, and names the gap. "Changed" covers a report's own directory, not just its notebook — see :func:`changed_reports`.
+``./go publish`` is the step of the loop that has to be remembered, and forgetting it fails quietly: the report merges, the site keeps serving the previous export's figures, and nothing says so. This is the tripwire. It compares what the branch *changed* against what it *repinned* in ``docs/publish.lock``, and names the gap. "Changed" covers a report's own directory as well as its script — see :func:`changed_reports`.
 
 Both halves are cheap and local — a git diff and a JSON file — so the check needs no store access, no render, and no write credentials. That's the point: the publish itself stays where the data is (a session with a warm store), and CI only has to notice when it didn't happen.
 
@@ -23,18 +23,18 @@ from mini.reports import (  # noqa: E402
     input_dir,
     is_manually_published,
     load_pins,
-    report_notebooks,
+    reports,
 )
 
 
 def changed_reports(base: str, root: Path = ROOT) -> list[Path]:
-    """The reports this branch changed since *base* — through their notebook, or through a file beside it.
+    """The reports this branch changed since *base* — through their script, or through a file beside it.
 
-    A report is dated by its inputs as much as by its own source: re-running an experiment writes new results and edits ``docs/<key>/experiment.py``, leaving ``report.py`` untouched, and the bundle then serves the previous run's figures. So the notebook's own directory counts as part of it (:func:`~mini.reports.input_dir`) — every changed file under it dates the report, except a *sibling report*, which is a second document rather than an input to the first.
+    A report is dated by its inputs as much as by its own source: re-running an experiment writes new results and edits ``docs/<key>/experiment.py``, leaving ``report.py`` untouched, and the bundle then serves the previous run's figures. So the report's own directory counts as part of it (:func:`~mini.reports.input_dir`) — every changed file under it dates the report, except a *sibling report* (a second literate script in the same directory; :func:`~mini.reports.is_report`), which is a report of its own rather than an input to the first.
 
     The diff is three-dot (``base...HEAD``), i.e. against the merge base, so commits that landed on the base branch meanwhile aren't mistaken for ours. Deletions need no filtering: the candidates come from the reports that exist *now*, so a deleted report simply isn't among them (it has no bundle to publish, and the next publish prunes its pin — ``export_reports.update_pins``), while a deleted input still dates the report it belonged to.
 
-    Scoped to ``docs/`` by the same reasoning as :func:`~mini.reports.report_notebooks`: a report is a notebook *there*. Without the pathspec, anything in the repo carrying the text ``marimo.App(`` reads as a report — this module's own tests, for instance.
+    Scoped to ``docs/`` by the same reasoning as :func:`~mini.reports.reports`: a report is a literate script *there*. Without the pathspec, any file in the repo opening with a ``# title:`` line would read as a report — this module's own tests, for instance.
     """
     diff = subprocess.run(
         ["git", "diff", "--name-only", f"{base}...HEAD", "--", "docs"],
@@ -45,13 +45,13 @@ def changed_reports(base: str, root: Path = ROOT) -> list[Path]:
     if diff.returncode != 0:
         sys.exit(f"git diff against '{base}' failed — is that ref fetched?\n{diff.stderr.strip()}")
     touched = {root / line for line in diff.stdout.splitlines() if line}
-    reports = report_notebooks(root / "docs")
-    inputs = touched - set(reports)  # a sibling report is a second document, not an input to this one
+    found = reports(root / "docs")
+    inputs = touched - set(found)  # a report beside a report is its own document, not an input to it
 
-    def dated(nb: Path) -> bool:
-        return nb in touched or ((d := input_dir(nb)) is not None and any(d in p.parents for p in inputs))
+    def dated(report: Path) -> bool:
+        return report in touched or ((d := input_dir(report)) is not None and any(d in p.parents for p in inputs))
 
-    return sorted(nb for nb in reports if dated(nb) and not is_manually_published(nb))
+    return sorted(report for report in found if dated(report) and not is_manually_published(report))
 
 
 def pins_at(base: str, root: Path = ROOT) -> dict[str, str]:
@@ -75,7 +75,7 @@ def unpublished(base: str, root: Path = ROOT) -> list[Path]:
     # Production's manifest, whatever storage profile this shell has active: the question is
     # whether the *site* will serve a stale export, and a dev publish never moves that pin.
     before, after = pins_at(base, root), load_pins(root, profile=None)
-    return [nb for nb in changed_reports(base, root) if after.get(key := export_key(nb)) == before.get(key)]
+    return [report for report in changed_reports(base, root) if after.get(key := export_key(report)) == before.get(key)]
 
 
 def main() -> None:
@@ -83,8 +83,8 @@ def main() -> None:
     ap.add_argument("base", help="the ref to compare against, e.g. origin/main")
     args = ap.parse_args()
 
-    for nb in unpublished(args.base):
-        print(nb.relative_to(ROOT).as_posix())
+    for report in unpublished(args.base):
+        print(report.relative_to(ROOT).as_posix())
 
 
 if __name__ == "__main__":

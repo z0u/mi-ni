@@ -1,7 +1,7 @@
 """
 Render a document to its outputs: the woven Markdown, the HTML page, and (on request) a PDF.
 
-Outputs land in one directory per document — ``.mini/lit/<key>/`` by default, with ``index.html``, ``index.md``, and the ``_assets/`` the figures were written to — so the same relative URLs work opened from disk, served locally, or published as a bundle the way ``mini.reports`` publishes a Marimo export.
+Outputs land in one directory per document — ``.mini/lit/<key>/`` by default, with ``index.html``, ``index.md``, and the ``_assets/`` the figures were written to — so the same relative URLs work opened from disk, served locally, or published as a bundle through ``mini.reports``.
 """
 
 from __future__ import annotations
@@ -16,25 +16,18 @@ from pathlib import Path
 
 from mini.lit.document import Document, Runner, Woven, parse
 from mini.lit.page import page, to_html
-from mini.reports import Publisher
+from mini.reports import Publisher, export_key, link_externalized
 from mini.runs import data_root
 
 __all__ = ["render", "compose", "Rendered", "to_pdf", "output_dir"]
 
 
 def output_dir(doc: Path, *, live: bool = False) -> Path:
-    """``.mini/lit/<key>/``, where the key is the document's path under ``docs/`` without its suffix (``report.py`` takes its directory's name).
+    """``.mini/lit/<key>/``, keyed the way the report's export bundle is (:func:`mini.reports.export_key`).
 
     The live server writes to ``.mini/lit-live/<key>/`` instead: its page carries a reload script and versioned asset URLs, so it is a different artifact from a render, and keeping the trees apart means a ``render`` while the server is up never overwrites the page a browser is watching.
     """
-    doc = doc.resolve()
-    root = data_root().parent
-    try:
-        rel = doc.relative_to(root / "docs")
-    except ValueError:
-        rel = Path(doc.name)
-    key = rel.parent if rel.stem == "report" and rel.parent != Path(".") else rel.with_suffix("")
-    return data_root() / ("lit-live" if live else "lit") / key
+    return data_root() / ("lit-live" if live else "lit") / export_key(doc)
 
 
 @dataclass
@@ -47,11 +40,14 @@ class Rendered:
     seconds: float  # markdown → html
 
     def write(self, *, markdown: bool = True) -> None:
-        """Write ``index.html`` (and ``index.md``) under :attr:`out_dir`."""
+        """Write ``index.html`` (and ``index.md``) under :attr:`out_dir`.
+
+        The Markdown is for reading as text, so a figure inlined as SVG (:func:`mini.vis.svg_figure`) is a link to its sidecar there (:func:`mini.reports.link_externalized`); the page keeps the inline copy, which its CSS themes.
+        """
         self.out_dir.mkdir(parents=True, exist_ok=True)
         _write(self.out_dir / "index.html", self.html)
         if markdown:
-            _write(self.out_dir / "index.md", self.woven.markdown)
+            _write(self.out_dir / "index.md", link_externalized(self.woven.markdown))
 
 
 def compose(woven: Woven, *, extra_body: str = "") -> tuple[str, float]:
@@ -109,7 +105,7 @@ SANDBOX_CHROMIUM = "/opt/pw-browsers/chromium"
 
 
 def _chromium() -> str | None:
-    """The first Chromium that exists: ``$CHROMIUM`` (or ``$PLAYWRIGHT_CHROMIUM``, as the Marimo exports spell it), the sandbox's, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place).
+    """The first Chromium that exists: ``$CHROMIUM`` (or ``$PLAYWRIGHT_CHROMIUM``, the older spelling), the sandbox's, a browser on ``$PATH``, then Playwright's cache (its download runs only once ``playwright install-deps`` has put the shared libraries in place).
 
     In the cache we take the headless shell ahead of the full browser: it prints the same PDF, and it links against a smaller set of shared libraries, so it starts in containers where the full build cannot (a missing ``libatk-bridge`` or ``libcups`` leaves the loader unable to start a binary that is sitting right there).
     """
@@ -132,7 +128,7 @@ def _chromium() -> str | None:
 
 
 def to_pdf(html_path: Path, pdf_path: Path | None = None) -> Path:
-    """Print the page to PDF with headless Chromium (the same route the Marimo reports take)."""
+    """Print the page to PDF with headless Chromium."""
     exe = _chromium()
     if exe is None:
         raise RuntimeError(CHROMIUM_HINT)

@@ -121,7 +121,7 @@ def build_with_uv(worktree: Path, site_url: str | None) -> Path:
     env = {key: value for key, value in os.environ.items() if key != "MINI_SITE_URL"}
     if site_url:
         env["MINI_SITE_URL"] = site_url
-    subprocess.run(["uv", "sync", "--locked", "--group", "pages"], cwd=worktree, check=True, env=env)
+    subprocess.run(["uv", "sync", "--locked"], cwd=worktree, check=True, env=env)
     subprocess.run(["./go", "site"], cwd=worktree, check=True, env=env)
     return worktree / "_site"
 

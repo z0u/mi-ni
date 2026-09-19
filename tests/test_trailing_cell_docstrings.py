@@ -1,108 +1,52 @@
-"""Tests for the stray-output check — Marimo cells that end on a docstring and publish it."""
+"""Tests for the stray-prose check — variable docstrings in a literate script that weave as paragraphs."""
 
 from pathlib import Path
-
-import pytest
 
 from tests.conftest import load_script
 
 check = load_script("trailing_cell_docstrings")
 
-HEADER = "import marimo\n\napp = marimo.App()\n\n\n"  # 5 lines, so a cell body starts at line 6
 
-
-def notebook(tmp_path: Path, body: str, name: str = "report.py") -> Path:
-    """A Marimo notebook whose cells are *body*."""
+def literate(tmp_path: Path, body: str, name: str = "report.py") -> Path:
+    """A literate script (`# title:` header) whose cells and prose are *body*."""
     path = tmp_path / name
-    path.write_text(HEADER + body)
+    path.write_text("# title: T\n\n" + body)
     return path
 
 
-def flagged(path: Path) -> set[str]:
-    return {f.cell for f in check.findings_in(path)}
+def test_a_variable_docstring_is_flagged(tmp_path: Path):
+    """Every top-level string weaves as prose, so a docstring hung under a constant is a stray paragraph."""
+    script = literate(tmp_path, 'NAMES = ["emb"]\n"""What the slices are called."""\n')
+
+    (finding,) = check.findings_in(script)
+    assert finding.line == 4
+    assert str(finding).endswith(":4: docstring hangs under an assignment, so it weaves as prose")
 
 
-def test_a_setup_cell_ending_on_a_docstring_is_flagged(tmp_path: Path):
-    """The case the check exists for: the string lands at the top of the rendered report."""
-    nb = notebook(tmp_path, 'with app.setup:\n    NAMES = ["emb"]\n    """What the slices are called."""\n')
+def test_prose_after_a_cell_stands_apart_with_a_blank_line(tmp_path: Path):
+    """The ordinary shape of a literate script: a cell, a blank line, then the paragraph about its result."""
+    script = literate(tmp_path, 'x = compute()\n\n"""x is what it is."""\n\nS = 1\nT = 2\n"""Not this either:"""\n')
 
-    (finding,) = check.findings_in(nb)
-    assert (finding.cell, finding.line) == ("setup", 8)
-
-
-def test_a_bare_none_is_the_fix(tmp_path: Path):
-    """`None` as the last statement sends Marimo down its no-output branch."""
-    nb = notebook(tmp_path, 'with app.setup:\n    NAMES = ["emb"]\n    """What the slices are called."""\n    None\n')
-
-    assert check.findings_in(nb) == []
+    assert [f.line for f in check.findings_in(script)] == [9]
 
 
-def test_a_docstring_mid_cell_is_safe(tmp_path: Path):
-    """Only the last statement becomes the output, so an earlier docstring never leaks."""
-    nb = notebook(tmp_path, 'with app.setup:\n    A = 1\n    """Doc."""\n    B = 2\n')
+def test_a_docstring_under_a_call_is_prose(tmp_path: Path):
+    """Only an assignment can carry a variable docstring; a string after a call is a paragraph about its result."""
+    script = literate(tmp_path, 'fig = draw()\nfig\n"""The figure."""\n')
 
-    assert check.findings_in(nb) == []
-
-
-@pytest.mark.parametrize("setup", ["with app.setup:", "with app.setup(hide_code=True):"])
-def test_every_spelling_of_the_setup_block(tmp_path: Path, setup: str):
-    nb = notebook(tmp_path, f'{setup}\n    A = 1\n    """Doc."""\n')
-
-    assert flagged(nb) == {"setup"}
+    assert check.findings_in(script) == []
 
 
-@pytest.mark.parametrize("ret", ["return", "return (A,)"], ids=["bare", "with-values"])
-def test_the_generated_return_does_not_shield_a_cell(tmp_path: Path, ret: str):
-    """Marimo strips a cell function's `return` before compiling, so the docstring is still last."""
-    nb = notebook(tmp_path, f'@app.cell\ndef _cell():\n    A = 1\n    """Doc."""\n    {ret}\n')
-
-    assert flagged(nb) == {"_cell"}
-
-
-@pytest.mark.parametrize("decorator", ["@app.cell", "@app.cell(hide_code=True)"])
-def test_every_spelling_of_the_cell_decorator(tmp_path: Path, decorator: str):
-    nb = notebook(tmp_path, f'{decorator}\ndef _cell():\n    A = 1\n    """Doc."""\n    return\n')
-
-    assert flagged(nb) == {"_cell"}
-
-
-@pytest.mark.parametrize("decorator", ["@app.function", "@app.class_definition"])
-def test_a_function_or_class_body_publishes_nothing(tmp_path: Path, decorator: str):
-    """Their body is ordinary local scope, so a trailing string is dead code rather than output."""
-    nb = notebook(tmp_path, f'{decorator}\ndef helper():\n    A = 1\n    """Doc."""\n    return A\n')
-
-    assert check.findings_in(nb) == []
-
-
-def test_a_nested_lookalike_is_ordinary_code(tmp_path: Path):
-    """Marimo writes cells at module level; a `with app.setup` inside a function is not one."""
-    nb = notebook(tmp_path, 'def build():\n    with app.setup:\n        A = 1\n        """Doc."""\n')
-
-    assert check.findings_in(nb) == []
-
-
-@pytest.mark.parametrize(
-    "last",
-    ["fig", "mo.md(f'{n} trials')", "A = 1", "print(A)"],
-    ids=["name", "markdown", "assignment", "call"],
-)
-def test_other_trailing_statements_are_left_alone(tmp_path: Path, last: str):
-    """A trailing expression is how a cell shows a figure or some prose — deliberate, and not ours."""
-    nb = notebook(tmp_path, f"@app.cell\ndef _cell():\n    A = 1\n    {last}\n    return\n")
-
-    assert check.findings_in(nb) == []
-
-
-def test_a_plain_module_has_no_cells(tmp_path: Path):
+def test_a_plain_module_has_nothing_to_weave(tmp_path: Path):
     """An `experiment.py` beside a report is importable Python, and drops out with nothing to report."""
-    nb = notebook(tmp_path, 'def main():\n    """Doc."""\n', name="experiment.py")
+    path = tmp_path / "experiment.py"
+    path.write_text('N = 1\n"""Doc."""\n')
 
-    assert check.findings_in(nb) == []
+    assert check.findings_in(path) == []
 
 
 def test_unparseable_files_are_left_to_the_linters(tmp_path: Path):
-    broken = tmp_path / "broken.py"
-    broken.write_text("def (:\n")
+    broken = literate(tmp_path, "def (:\n", name="broken.py")
 
     assert check.findings_in(broken) == []
 
@@ -116,5 +60,5 @@ def test_python_files_walks_a_tree(tmp_path: Path):
 
 
 def test_the_docs_tree_is_clean():
-    """The gate itself: every notebook we publish, checked the way `./go lint` checks it."""
+    """The gate itself: every report we publish, checked the way `./go lint` checks it."""
     assert [str(f) for f in (f for p in check.python_files(check.ROOT / "docs") for f in check.findings_in(p))] == []

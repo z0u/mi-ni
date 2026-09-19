@@ -1,19 +1,14 @@
 """
-Notebook utilities for rendering themed matplotlib figures as HTML.
+Utilities for rendering themed matplotlib figures as HTML.
 
-A report's figures are heavy (a themed plot is *two* PNGs, light and dark). Inlined as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry — and a page of them exceeds the output size marimo will display, so a heavy report won't render interactively either. A :class:`~mini.reports.Publisher` instead writes each blob out as a file (keyed by its readable name) and references it by a **relative** URL, so the HTML stays light. Set one up once per report and every ``@themed`` figure externalizes with no per-figure ceremony::
+A report's figures are heavy (a themed plot is *two* PNGs, light and dark). Inlined as ``data:`` URIs they bloat the exported HTML — the bytes Git LFS used to carry. A :class:`~mini.reports.Publisher` instead writes each blob out as a file (keyed by its readable name) and references it by a **relative** URL, so the HTML stays light. ``mini.lit.render`` installs one per report, so every ``@themed`` figure externalizes with no per-figure ceremony::
 
-    # in the report's setup cell
-    from mini.vis import themed
-    from mini.reports import use_publisher, report_bundle
-    use_publisher(report_bundle(__file__))
-
-    # in a figure cell — unchanged
+    # in a cell of the literate script
     @themed(alt_text='…')
     def _plot(): ...
-    mo.Html(_plot())
+    _plot()
 
-The relative reference is the point: the *same* HTML works every way it's read. Opened locally it resolves to the co-located ``_assets/`` files (offline, and the figures are real PNG files); published, ``scripts/build_site.py`` uploads those files to the HF bucket and inserts a single ``<base href>`` so the very same relative URLs resolve there. Interactively, :func:`~mini.reports.report_bundle` points the publisher at the notebook's ``public/.mini/`` instead, the one place marimo's dev server serves files from. A figure with no publisher at all inlines as a self-contained ``data:`` URI. The publisher and the bundle protocol live in :mod:`mini.reports`.
+The relative reference is the point: the *same* HTML works every way it's read. Opened locally it resolves to the co-located ``_assets/`` files (offline, and the figures are real PNG files); published, ``scripts/build_site.py`` uploads those files to the HF bucket and inserts a single ``<base href>`` so the very same relative URLs resolve there. A figure with no publisher at all inlines as a self-contained ``data:`` URI. The publisher and the bundle protocol live in :mod:`mini.reports`.
 """
 
 from __future__ import annotations
@@ -30,11 +25,11 @@ from collections.abc import Sequence
 
 from matplotlib.figure import Figure
 
-from mini.reports import Publisher, current_publisher
+from mini.reports import Publisher, current_publisher, externalize_html
 from mini.vis.plt import Stylesheet
 
 
-__all__ = ["figure_html", "themed", "themed_figure_html"]
+__all__ = ["figure_html", "svg_figure", "themed", "themed_figure_html"]
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -103,7 +98,7 @@ def themed(
 
     By default the figure is inlined as a ``data:`` URI. To externalize it (keeping the report HTML light enough to render and to ship), set a default :class:`~mini.reports.Publisher` with :func:`~mini.reports.use_publisher`, or pass ``publish=`` one here. *name* is the externalized figure's readable basename (it ends up in the asset filename and the download name); it defaults to the plot function's name.
 
-    *caption* is **Markdown** rendered into a ``<figcaption>`` inside the ``<figure>``, so the caption travels with the image instead of riding along in a sibling ``mo.vstack``. Write it as a triple-quoted string — ``mo.md`` dedents, so leading indentation is stripped for you.
+    *caption* is **Markdown** rendered into a ``<figcaption>`` inside the ``<figure>``, so the caption travels with the image. Write it as a triple-quoted string; it is dedented, so leading indentation is stripped for you.
 
     The plot function is called once per theme, so everything inside it runs twice — including work that has nothing to do with color. Compute the data in the cell, outside the decorated function, and let it receive and draw. This matters most for anything sampled or fitted: a null distribution, a bootstrap, a bisection.
     """
@@ -140,7 +135,7 @@ def themed(
 def _render_caption(caption: str | None) -> str | None:
     """Render a Markdown caption to an HTML fragment for a ``<figcaption>``.
 
-    The same dialect as a document body (``mini.lit.page``, python-markdown with the pymdownx extensions ``mo.md`` uses), so a caption renders alike in a Marimo report and a literate script. Dedented first, so a triple-quoted string with indentation renders cleanly.
+    The same dialect as a document body (``mini.lit.page``, python-markdown with the pymdownx extensions), so a caption renders like the prose around it. Dedented first, so a triple-quoted string with indentation renders cleanly.
     """
     if caption is None:
         return None
@@ -161,7 +156,7 @@ def figure_html(
 ) -> str:
     """Wrap an HTML/SVG *body* in a ``<figure>``, optionally with a ``<figcaption>``.
 
-    The shared seam behind themed figures, subline strips, and captioned tables: it only assembles the element, staying agnostic about how *body* and *caption* were produced and how they're styled (that is left to CSS or the caller). *caption* is an HTML fragment; render Markdown with :func:`marimo.md` first if you have it.
+    The shared seam behind themed figures, subline strips, and captioned tables: it only assembles the element, staying agnostic about how *body* was produced and how it is styled (that is left to CSS or the caller). *caption* is Markdown, rendered here (:func:`_render_caption`) so the fragment stands on its own wherever it is shown; an HTML fragment passes through unchanged.
 
     *aria_label* gives the figure an accessible name for when the body is a group of marks that reads as one picture with no text of its own — e.g. a strip of inline SVGs. It is a plain ``aria-label`` (not ``role="img"``): a figure takes its name from the label without becoming atomic, so any sub-figures and their captions stay navigable. (``role="img"`` would make the subtree presentational and hide them — the reason to avoid it for a captioned group.)
     """
@@ -175,8 +170,26 @@ def figure_html(
     if aria_label is not None:
         # Collapse whitespace so a triple-quoted label reads as one line in the export.
         attrs += f' aria-label="{html.escape(" ".join(aria_label.split()))}"'
-    figcaption = f"<figcaption>{caption}</figcaption>" if caption is not None else ""
+    figcaption = f"<figcaption>{_render_caption(caption)}</figcaption>" if caption is not None else ""
     return f"<figure{attrs}>{body}{figcaption}</figure>"
+
+
+def svg_figure(
+    body: str | Sequence[str],
+    *,
+    alt_text: str,
+    name: str,
+    caption: str | None = None,
+    class_: str | None = None,
+    publish: Publisher | None = None,
+) -> str:
+    """A figure whose body is inline SVG (a subline strip, a swatch table), externalized the way :func:`themed` externalizes a plot.
+
+    *body* is one SVG string or several, shown in order inside one ``<figure>``. The markup stays inline in the page, where the stylesheet themes it, and the same fragment is written to ``_assets/<name>.html`` through the report's :class:`~mini.reports.Publisher` (or *publish*) so that the Markdown rendition can link it instead of carrying the path data (:func:`~mini.reports.link_externalized`). *alt_text* is the figure's accessible name and that link's text. With no publisher, the figure is returned as it is.
+    """
+    strip = body if isinstance(body, str) else "".join(body)
+    figure = figure_html(strip, caption=caption, aria_label=alt_text, class_=class_)
+    return externalize_html(figure, name=name, publish=publish if publish is not None else current_publisher())
 
 
 def themed_figure_html(

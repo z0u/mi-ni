@@ -233,6 +233,19 @@ class TestWeave:
         assert "ZeroDivisionError" in w.markdown
         assert "after 1" in w.markdown  # x was bound before the error, prose still renders
 
+    def test_a_displayable_value_mid_cell_is_an_error(self, tmp_path):
+        """Only a cell's last expression is shown, so a figure or HTML string produced above the end would vanish; the runner says so instead. A side-effecting call that returns nothing is fine."""
+        p = write(tmp_path, '"""intro"""\n\nprint("side effect")\n"".join(["<b>lost</b>"])\nx = 1\nf"""after {x}"""\n')
+        w = Runner(p).weave()
+        assert len(w.errors) == 1
+        assert f'File "{p}", line 4' in (w.errors[0].error or "")
+        assert "last statement of its cell" in w.markdown
+        assert "<b>lost</b>" not in w.markdown
+
+        p = write(tmp_path, '"""intro"""\n\nx = [1]\nx.append(2)\nx\n')
+        w = Runner(p).weave()
+        assert w.errors == [] and "[1, 2]" in w.markdown
+
     def test_a_failing_field_is_an_error_at_the_script_line(self, tmp_path):
         p = write(tmp_path, 'x = "s"\n\nf"""bad {x:.2f} {nope}"""\n')
         w = Runner(p).weave()
@@ -403,6 +416,23 @@ class TestChromium:
         assert r._chromium() == str(exe)
 
 
+class TestCellMark:
+    def test_a_marker_splits_a_cell_and_both_halves_display(self, tmp_path):
+        """Two values back to back, with no paragraph between: the marker is the boundary prose would have been."""
+        p = write(tmp_path, '"""A."""\nx = "<b>one</b>"\nx\n# %%\ny = "<b>two</b>"\ny\n"""B."""\n')
+        doc = parse(p)
+        cells = [s for s in doc.segments if isinstance(s, Cell)]
+        assert [c.line for c in cells] == [2, 5]
+        assert "# %%" not in cells[0].source + cells[1].source
+        r = render(p, out_dir=tmp_path / "out")
+        assert r.woven.errors == [] and r.woven.markdown.count("<b>") == 2
+
+    def test_a_marker_at_the_edges_or_alone_makes_no_empty_cell(self, tmp_path):
+        p = write(tmp_path, '# %%\n"""A."""\n# %%\n\n# %%\nx = 1\n# %%\n')
+        cells = [s for s in parse(p).segments if isinstance(s, Cell)]
+        assert [(c.line, c.source) for c in cells] == [(6, "x = 1\n")]
+
+
 class TestRender:
     def test_writes_html_and_markdown(self, tmp_path):
         p = write(tmp_path, '"""\n# Hi\n"""\nv = 2\nrf"""v is {v} and \\(x^2\\)."""\n')
@@ -412,6 +442,18 @@ class TestRender:
         assert "katex" in html  # math present → KaTeX loaded
         assert "v is 2" in (tmp_path / "out" / "index.md").read_text()
         assert r.woven.errors == []
+
+    def test_markdown_links_an_svg_figure_where_the_page_inlines_it(self, tmp_path):
+        p = write(
+            tmp_path,
+            'from mini.vis import svg_figure\n"""# T"""\nsvg_figure(\'<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>\', alt_text="a strip", name="strip")\n',
+        )
+        r = render(p, out_dir=tmp_path / "out")
+        assert r.woven.errors == []
+        assert "<path" in (tmp_path / "out" / "index.html").read_text()
+        md = (tmp_path / "out" / "index.md").read_text()
+        assert "<path" not in md and "[a strip](_assets/strip.html)" in md
+        assert (tmp_path / "out" / "_assets" / "strip.html").exists()
 
     def test_live_output_is_a_separate_tree(self, tmp_path, monkeypatch):
         from mini.lit.render import output_dir
@@ -430,3 +472,17 @@ class TestRender:
         assert 'class="admonition note"' in html
         assert 'class="footnote"' in html
         assert "<table>" in html
+
+
+class TestSiblingImports:
+    def test_each_script_imports_its_own_sibling(self, tmp_path):
+        """Two reports each with an ``experiment.py`` beside them, run in one process: each sees its own."""
+        ws = []
+        for key in ("a", "b"):
+            d = tmp_path / key
+            d.mkdir()
+            (d / "experiment.py").write_text(f"NAME = {key!r}\n")
+            ws.append(write(d, "# title: T\n\nimport experiment as ex\n\nex.NAME\n"))
+        assert "a" in Runner(ws[0]).weave().markdown
+        assert "b" in Runner(ws[1]).weave().markdown
+        assert "a" in Runner(ws[0]).weave().markdown  # and back again: the earlier directory moves to the front

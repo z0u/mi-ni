@@ -1,6 +1,6 @@
 """Tests for the preview-path staleness heuristic — which bundles `--stale-only` re-exports.
 
-The heuristic itself is :func:`mini.reports.is_stale`, shared with the Markdown render; these drive it through the bundle path that names ``index.html`` as the output.
+The heuristic itself is :func:`mini.reports.is_stale`; these drive it through the bundle path that names ``index.html`` as the output.
 """
 
 import os
@@ -12,7 +12,7 @@ from tests.conftest import load_script
 
 export_reports = load_script("export_reports")
 
-_APP = "import marimo\napp = marimo.App()\n"
+_APP = "# title: A report\n"
 
 # Fixed stamps an hour apart, so "newer than" is unambiguous and nothing depends on
 # filesystem mtime granularity or on how long the test took to run.
@@ -48,12 +48,12 @@ def test_a_missing_bundle_is_stale(report):
     assert export_reports.bundle_is_stale(report) is True
 
 
-def test_an_edited_notebook_is_stale(report):
+def test_an_edited_report_is_stale(report):
     stamp(report, AFTER)
     assert export_reports.bundle_is_stale(report) is True
 
 
-def test_an_edited_input_beside_the_notebook_is_stale(report):
+def test_an_edited_input_beside_the_report_is_stale(report):
     """The re-run case: new results arrive through `experiment.py` while `report.py` sits still."""
     stamp(report.parent / "experiment.py", AFTER)
     assert export_reports.bundle_is_stale(report) is True
@@ -74,3 +74,22 @@ def test_recompiled_bytecode_is_not_an_edit(report):
         stamp(p, AFTER)
     stamp(report.parent, BEFORE)  # a rewrite touches the .pyc, not the directory holding it
     assert export_reports.bundle_is_stale(report) is False
+
+
+def test_a_literate_script_exports_with_its_markdown_face_and_the_report_styles(tmp_path: Path, monkeypatch):
+    """The join between `mini.lit` and the bundle: the woven page declares `index.md` as a rendition and carries `docs/report.css`."""
+    from mini.reports import MD_TYPE, alternates
+
+    (tmp_path / "pyproject.toml").write_text("")
+    (script := tmp_path / "docs" / "lit" / "report.py").parent.mkdir(parents=True)
+    script.write_text('# title: Lit\n\n"""Intro."""\n\nx = 1\n\nf"""x is {x}."""\n')
+    (css := tmp_path / "report.css").write_text("main.lit { color: rebeccapurple }")
+    monkeypatch.setattr(export_reports, "REPORT_CSS", css)
+    (out := tmp_path / ".mini" / "exports" / "lit" / "index.html").parent.mkdir(parents=True)
+
+    html = export_reports._weave(script, out)
+
+    assert out.read_text() == html and "x is 1" in html
+    assert alternates(html)[MD_TYPE] == "index.md"
+    assert "x is 1" in (out.parent / "index.md").read_text()
+    assert "rebeccapurple" in html

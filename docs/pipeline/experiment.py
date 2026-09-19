@@ -1,7 +1,7 @@
 """
 A minimal multi-step experiment: one data-prep step, then a training sweep whose
 configs depend on prep's output. This is the *definition* — plain, importable
-Python with no notebook or compute baked in. The companion ``report.py`` reads
+Python with no report or compute baked in. The companion ``report.py`` reads
 its durable results and renders them; the ``experiment`` skill explains the flow.
 
 Drive it to completion with a live progress bar:

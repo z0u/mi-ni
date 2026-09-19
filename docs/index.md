@@ -6,7 +6,7 @@
 
 mi-ni is a template repository and library for doing AI research. Features:
 
-- **Local Python notebooks** with Marimo, published to GitHub Pages with their figures served from a Hugging Face bucket
+- **Reports as literate scripts** — plain Python with Markdown prose between the cells — published to GitHub Pages with their figures served from a Hugging Face bucket
 - **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
 - **Detached, memoized experiments** driven from a stateless CLI, so you (or an agent) can launch a run, close the laptop, and pick it up later
 - **Agentic coding config** for Claude Code
@@ -24,19 +24,23 @@ app.volume.download(...)
 
 &nbsp;
 
-## Published notebooks
+## Published reports
 
-Notebooks are automatically published to GitHub Pages; their figures and other heavy assets are served from a Hugging Face bucket (repointed at build time with one `<base>` tag).
+Reports are automatically published to GitHub Pages; their figures and other heavy assets are served from a Hugging Face bucket (repointed at build time with one `<base>` tag).
 
-The notebooks build on each other, so they read well in order. Each entry carries a strip of the report's figures, in reading order.
+The reports build on each other, so they read well in order. Each entry carries a strip of the report's figures, in reading order.
 
-<!-- These URLs are rewritten to point to the published notebooks, and the mini:figures markers become thumbnail strips (scripts/build_site.py) -->
+<!-- These URLs are rewritten to point to the published reports, and the mini:figures markers become thumbnail strips (scripts/build_site.py) -->
 
 ### Start here
 
-- [Getting started](./getting_started.py): map a function over a sweep from a notebook, and swap local ↔ Modal compute without changing the code.
+- [Getting started](./getting_started.py): map a function over a sweep from a report, and swap local ↔ Modal compute without changing the code.
 
     <!-- mini:figures ./getting_started.py -->
+
+- [A tour of literate scripts](./tour.py): how a report is written — prose strings between cells, f-string templating, memoized figures, and `stop` for reports whose data is not there yet.
+
+    <!-- mini:figures ./tour.py -->
 
 ### The detached, memoized flow
 
@@ -54,7 +58,7 @@ The notebooks build on each other, so they read well in order. Each entry carrie
 
     <!-- mini:figures ./gpt-sweep/report.py -->
 
-- [nanoGPT and nGPT, interactively](./gpt.py): the same models trained inline in one notebook (source only; it re-trains on every run).
+- [nanoGPT and nGPT, interactively](./gpt.py): the same models trained inline in one script (source only; it re-trains on every run).
 
 ### Visualization utilities
 

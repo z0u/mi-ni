@@ -1,17 +1,11 @@
 #!/usr/bin/env python
-"""Report Marimo cells whose last statement is a docstring, which publishes it as the cell's output.
+"""Report variable docstrings in a literate script, which weave as prose.
 
-Marimo takes a cell's *output* to be the value of its last statement, when that statement is an expression (`_ast/compiler.py`, `if isinstance(final_expr, ast.Expr) and not ends_with_semicolon(code)`). A variable docstring — the triple-quoted string we hang under a constant to say what it holds — is an expression statement, structurally identical to a closing `mo.md("...")`. So a setup cell that ends on one publishes it as a paragraph at the top of the report.
+Every top-level string in a literate script (`mini.lit`) is prose, so a docstring hung under an assignment weaves as a paragraph. The source looks like documentation, and nothing in the rendered page says where the stray paragraph came from. Ruff can't take this over: `B018` is the matching rule, but a literate script displays a cell's last expression, so the rule is off under `docs/`.
 
-It is invisible everywhere but the rendered page. The source looks like documentation, and `hide_code=True` keeps the cell from showing what produced the stray text. Two reports carried one for weeks before a reader noticed.
+A variable docstring is told from deliberate prose by its position: it starts on the line right after an assignment, where prose stands apart with a blank line. The fix is to write it as a comment.
 
-The fix is a bare `None` as the cell's last statement, which sends the compiler down its other branch and gives the cell no output. Ruff can't take this over: `B018` is the matching rule, but `docs/*.py` ignores it precisely so variable docstrings are allowed, and it has no notion of which statement is last.
-
-Which cells can leak was settled by exporting a probe notebook and grepping the HTML for each shape:
-
-- `with app.setup` — the cell's last statement, as written.
-- `@app.cell` — the last statement before the generated `return`, which Marimo strips whether it is bare or carries values.
-- `@app.function` and `@app.class_definition` — never. Their body is an ordinary function or class scope, so a trailing string is dead code rather than an output.
+Exit status is the finding count clamped to 1, so `./go lint` can gate on it; stdout lists the findings, one per line, and the remedy goes to stderr.
 """
 
 import argparse
@@ -20,81 +14,63 @@ import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeIs
+
+from mini.lit import is_literate_script
 
 ROOT = Path(__file__).parent.parent.resolve()
-
-CELL_DECORATOR = "app.cell"
-SETUP_CONTEXT = "app.setup"
 
 
 @dataclass(frozen=True, order=True)
 class Finding:
-    """One cell that ends on a docstring, and so publishes it."""
+    """One docstring that weaves as prose."""
 
     path: Path
     line: int
-    cell: str  # how to find the cell in the file: "setup", or the cell function's name
 
     def __str__(self) -> str:
         where = self.path.relative_to(ROOT) if self.path.is_relative_to(ROOT) else self.path
-        return f"{where.as_posix()}:{self.line}: docstring is the output of the {self.cell} cell"
+        return f"{where.as_posix()}:{self.line}: docstring hangs under an assignment, so it weaves as prose"
 
 
-def _is_setup(node: ast.stmt) -> TypeIs[ast.With]:
-    """Whether *node* is the `with app.setup:` block, in either of its spellings."""
-    if not isinstance(node, ast.With):
-        return False
-    for item in node.items:
-        call = item.context_expr
-        target = call.func if isinstance(call, ast.Call) else call  # `app.setup` or `app.setup(...)`
-        if ast.unparse(target).endswith(SETUP_CONTEXT):
-            return True
-    return False
+def _is_string(node: ast.stmt) -> bool:
+    return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
 
 
-def cells(tree: ast.Module) -> Iterator[tuple[str, list[ast.stmt]]]:
-    """Each Marimo cell in *tree*, as its name and the statements Marimo will run.
-
-    Module-level only, because that is where Marimo writes cells; a nested lookalike is ordinary code. The trailing `return` of a `@app.cell` function is dropped here, since Marimo drops it too — with it in the way, no cell would ever end on a docstring and the check would find nothing.
-    """
+def hung_docstrings(tree: ast.Module) -> Iterator[int]:
+    """The line of each top-level string that starts on the line after an assignment, as a variable docstring does."""
+    prev: ast.stmt | None = None
     for node in tree.body:
-        if _is_setup(node):
-            yield "setup", node.body
-        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            if any(ast.unparse(d).startswith(CELL_DECORATOR) for d in node.decorator_list):
-                body = node.body[:-1] if isinstance(node.body[-1], ast.Return) else node.body
-                yield node.name, body
+        if (
+            _is_string(node)
+            and isinstance(prev, ast.Assign | ast.AnnAssign)
+            and node.lineno == (prev.end_lineno or prev.lineno) + 1
+        ):
+            yield node.lineno
+        prev = node
 
 
 def findings_in(path: Path) -> list[Finding]:
-    """Every cell in *path* whose last statement is a string expression, and so renders as output."""
+    """Every variable docstring in *path*, when it is a literate script; a plain module has nothing to weave."""
+    if not is_literate_script(path):
+        return []
     try:
         tree = ast.parse(path.read_text("utf-8", errors="ignore"), filename=str(path))
     except SyntaxError:
         return []  # not our check's failure to report; ruff and the formatter own that
-
-    return sorted(
-        Finding(path, body[-1].lineno, name)
-        for name, body in cells(tree)
-        if body
-        and isinstance(last := body[-1], ast.Expr)
-        and isinstance(last.value, ast.Constant)
-        and isinstance(last.value.value, str)
-    )
+    return sorted(Finding(path, line) for line in hung_docstrings(tree))
 
 
 def python_files(root: Path) -> list[Path]:
-    """Every `.py` file under *root*, sorted — notebook or not.
+    """Every `.py` file under *root*, sorted — literate or not.
 
-    No text match for `marimo.App(` and no notebook filter: a file either has cells or it doesn't, and :func:`findings_in` parses it to find out either way. A plain `experiment.py` beside a report drops out on its own with nothing to report.
+    No filter here: :func:`findings_in` reads the header to tell a literate script from a plain `experiment.py` beside a report, and the plain module drops out with nothing to report.
     """
     return sorted(p for p in Path(root).rglob("*.py") if p.is_file())
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("paths", nargs="*", type=Path, help="notebooks or directories to check (default: docs/)")
+    ap.add_argument("paths", nargs="*", type=Path, help="scripts or directories to check (default: docs/)")
     args = ap.parse_args()
 
     paths = args.paths or [ROOT / "docs"]
@@ -105,15 +81,14 @@ def main() -> None:
     found = sorted(f for path in targets for f in findings_in(path))
 
     if not found:
-        print("✅ No cell ends on a docstring")
+        print("✅ No docstring weaves as prose")
         return
 
     for finding in found:  # stdout is the worklist, so it stays pipeable
         print(finding)
 
     print(  # the remedy is commentary, so it goes to stderr and out of the pipe
-        f"\n{len(found)} cell(s) will publish a docstring as their output."
-        " End the cell with a bare `None` to give it no output instead.",
+        f"\n{len(found)} docstring(s) would be published as prose. Write each as a comment instead.",
         file=sys.stderr,
     )
     sys.exit(1)

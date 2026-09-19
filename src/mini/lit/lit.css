@@ -1,6 +1,5 @@
 /* The page style for a woven document. Base typography follows scripts/md.css (the site's
- * Markdown pages), figure and table rules follow docs/report.css — without the parts of
- * either that exist to outrank Marimo's own stylesheet. */
+ * Markdown pages), figure and table rules follow docs/report.css. */
 
 :root {
   color-scheme: light dark;
@@ -134,6 +133,7 @@ figcaption {
 
 /* Footnotes. */
 .footnote { font-size: 0.9em; color: var(--fg-muted); border-top: 1px solid var(--border); margin-top: 3em; }
+.footnote > hr { display: none; }  /* the border above is the rule; python-markdown writes an <hr> too */
 .footnote-backref { text-decoration: none; }
 
 /* Colour swatches (see the style-fig skill). */

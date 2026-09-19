@@ -330,7 +330,7 @@ class HFStore(Store):
     def read_export_html(self, key: str, *, revision: str | None = None) -> str | None:
         """The synced bundle's ``index.html`` for *key*, or ``None`` if nothing is synced.
 
-        The build reads exports back this way — read-only, no notebook execution — so a report missing here just means it hasn't been ``./go publish``ed yet. Only the HTML travels: the page keeps its ``_assets/`` links relative and the build points one ``<base>`` (see :meth:`export_base`) at the bundle on the CDN, so the figure bytes are already served from where they live. Pass the *revision* the build will serve so the HTML matches the assets that revision pins; ``None`` reads the head.
+        The build reads exports back this way — read-only, no report execution — so a report missing here just means it hasn't been ``./go publish``ed yet. Only the HTML travels: the page keeps its ``_assets/`` links relative and the build points one ``<base>`` (see :meth:`export_base`) at the bundle on the CDN, so the figure bytes are already served from where they live. Pass the *revision* the build will serve so the HTML matches the assets that revision pins; ``None`` reads the head.
 
         Safe to call concurrently — the site build fetches its reports in one wave.
         """

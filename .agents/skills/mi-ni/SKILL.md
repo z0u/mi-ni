@@ -1,6 +1,6 @@
 ---
 name: mi-ni
-description: How to use the library code provided by mi-ni. Code design patterns that abstract compute to easily scale experiments. Read to learn about the `mini` package, the `Apparatus` class, hyperparameter schedulers, notebook/visualization utils, and how to author, run, and monitor memoized experiments from the CLI. These should be used by default.
+description: How to use the library code provided by mi-ni. Code design patterns that abstract compute to easily scale experiments. Read to learn about the `mini` package, the `Apparatus` class, hyperparameter schedulers, report/visualization utils, and how to author, run, and monitor memoized experiments from the CLI. These should be used by default.
 ---
 
 Library structure:
@@ -17,7 +17,7 @@ src/mini/
 
 ## Two ways to compute
 
-- Interactive `Apparatus` (`app.map`/`app.arun`): a blocking call inside a notebook; dies with the process. Use for quick, light work you watch finish.
+- Interactive `Apparatus` (`app.map`/`app.arun`): a blocking call inside a report; dies with the process. Use for quick, light work you watch finish.
 - Memoized orchestration (`Experiment(main=...)`, driven by the `mini` CLI): detached, durable, pollable across short-lived processes. Use for sweeps, multi-step pipelines, anything slow, and anything an agent runs autonomously.
 
 ## Authoring, running, monitoring
@@ -26,13 +26,13 @@ src/mini/
 - Run and monitor one from the CLI: the wake-loop, backend routing, wall-clock budget, and how to delegate or schedule a long run, in [running.md](./references/running.md).
 - Fix and recover: the fix/prune/retry loop, bounded hotfixes, superseded records, and partial `map` failures, in [recovery.md](./references/recovery.md).
 - Store and share large outputs: return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish artifacts to a URL, in [storage.md](./references/storage.md).
-- Publish a report to the web: externalize a report's figures and data into a bundle, in [reports.md](./references/reports.md); the `themed` figure hook that feeds it is in [vis.md](./references/vis.md). Designing the report before the run (preregistration, hypotheses) is a methodological concern, covered by the science skill.
+- Publish a report to the web: externalize a report's figures and data into a bundle, in [reports.md](./references/reports.md) (a literate script, `mini.lit`, publishes through the same bundle, with its woven Markdown beside the page); the `themed` figure hook that feeds it is in [vis.md](./references/vis.md). Designing the report before the run (preregistration, hypotheses) is a methodological concern, covered by the science skill.
 
 To keep cost down, delegate launching and babysitting to the `experiment-monitor` subagent (it escalates to `experiment-doctor`); see running.md.
 
 ## Apparatus and Volume
 
-`mini` provides experiment infrastructure via the `Apparatus` class. Its interface is similar to an Executor, but it abstracts compute and storage. See [apparatus.md](./references/apparatus.md), especially if you're using it in a notebook.
+`mini` provides experiment infrastructure via the `Apparatus` class. Its interface is similar to an Executor, but it abstracts compute and storage. See [apparatus.md](./references/apparatus.md), especially if you're using it in a report.
 
 ## Hyperparameter scheduling
 

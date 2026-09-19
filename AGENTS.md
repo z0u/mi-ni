@@ -9,8 +9,8 @@ We are running AI experiments.
 ```
 src/  Experiment code, visualization tools, and vendored libraries
 src/mini/  The mini library (above)
-src/experiment/  Shared model, data, and training code that the demo notebooks build on
-docs/  Experiments and reports (both in Python, as Marimo notebooks) — see docs/README.md for file-type/publishing conventions
+src/experiment/  Shared model, data, and training code that the demo reports build on
+docs/  Experiments and reports (both in Python, as literate scripts) — see docs/README.md for file-type/publishing conventions
 eng/  Decision register — the *why* behind mini's storage/artifacts/publishing/gc internals. eng/README.md indexes it by question; check there before re-deriving infrastructure rationale from scratch.
 scripts/  The tooling behind `./go`: site build, report export and render, link and lint checks
 templates/  Files copied into *other* repos. `templates/backup/` is the nightly backup job (workflow, script, restore note) that the `backup` skill installs in a separate backup repo

@@ -1,111 +1,75 @@
-import marimo
+# title: Themed plots
+# code: show
 
-__generated_with = "0.23.3"
-app = marimo.App(width="medium", auto_download=["html"], css_file="report.css")
+"""
+# Themed plots
 
-with app.setup(hide_code=True):
-    import marimo as mo  # noqa: F401
-    import matplotlib.pyplot as plt
-    import numpy as np
+`themed` wraps a plot function to render in both light and dark modes, producing a single HTML element that switches on `prefers-color-scheme`. The same function runs twice — once per theme — so you can use `light_dark()` inside to pick theme-dependent values.
+"""
 
-    from mini.reports import report_bundle, use_publisher
-    from mini.vis import themed
-    from mini.vis.theme import light_dark
+import matplotlib.pyplot as plt
+import numpy as np
 
-    # Externalize every themed figure to a file beside the exported HTML, referenced
-    # by a relative URL — keeps the report light, and `build_site` repoints those URLs
-    # at the bucket (one <base> tag) when publishing. No publisher → figures inline.
-    use_publisher(report_bundle(__file__))
+from mini.lit import memo
+from mini.vis import themed
+from mini.vis.theme import light_dark
 
+x = np.linspace(0, 2 * np.pi, 300)
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    # Themed plots
+"""
+## Plain decorator
 
-    `themed` wraps a plot function to render in both light and dark modes,
-    producing a single HTML element that switches on `prefers-color-scheme`.
-    The same function runs twice — once per theme — so you can use
-    `light_dark()` inside to pick theme-dependent values.
-
-    It has three call patterns.
-    """)
-    return
+The simplest form: `@themed` with no arguments. A cell's last expression is displayed, and `themed` returns the figure's HTML, so the figure appears here.
+"""
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Plain decorator
-
-    The simplest form: `@themed` with no arguments.
-    """)
-    return
+@themed
+def plot_plain() -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(6, 3))
+    ax.plot(x, np.sin(x), color=light_dark("#1a5f8a", "#6ab0d4"), lw=2)
+    ax.set_title("sin(x)")
+    return fig
 
 
-@app.cell
-def _():
-    x = np.linspace(0, 2 * np.pi, 300)
+plot_plain()
 
-    @themed
-    def plot_plain() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(6, 3))
-        ax.plot(x, np.sin(x), color=light_dark("#1a5f8a", "#6ab0d4"), lw=2)
-        ax.set_title("sin(x)")
-        return fig
+"""
+## Decorator factory
 
-    mo.Html(plot_plain())
-    return (x,)
+Pass keyword arguments to set `alt_text`, `caption`, `max_width`, or custom styles. This is the form you want when defining a standalone plot function. Stacking `@memo` outside it caches the rendered HTML (and keeps the two PNGs it wrote) keyed by the function's source and arguments, so re-rendering this page after a prose edit does not redraw the figure.
+"""
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Decorator factory
-
-    Pass keyword arguments to set `alt_text`, `max_width`, or custom styles.
-    This is the form you want when defining a standalone plot function.
-    """)
-    return
-
-
-@app.cell
-def _(x):
-    @themed(alt_text="sin and cos")
-    def plot_factory() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(6, 3))
-        color_sin = light_dark("#1a5f8a", "#6ab0d4")
-        color_cos = light_dark("#8a3a1a", "#d49a6a")
-        ax.plot(x, np.sin(x), color=color_sin, lw=2, label="sin")
-        ax.plot(x, np.cos(x), color=color_cos, lw=2, label="cos")
-        ax.legend()
-        return fig
-
-    mo.Html(plot_factory())
-    return
+@memo
+@themed(alt_text="sin and cos", caption="Two sinusoids, a quarter period apart.")
+def plot_factory(x: np.ndarray) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(6, 3))
+    color_sin = light_dark("#1a5f8a", "#6ab0d4")
+    color_cos = light_dark("#8a3a1a", "#d49a6a")
+    ax.plot(x, np.sin(x), color=color_sin, lw=2, label="sin")
+    ax.plot(x, np.cos(x), color=color_cos, lw=2, label="cos")
+    ax.legend()
+    return fig
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Direct call
+plot_factory(x)
 
-    Useful for one-off plots, or when wrapping a function defined elsewhere.
-    """)
-    return
+"""
+## Direct call
 
-
-@app.cell
-def _(x):
-    def _plot_raw() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(6, 3))
-        ax.plot(x, np.sin(x) * np.exp(-x / 6), color=light_dark("#2a6e3a", "#7ad49a"), lw=2)
-        ax.set_title("Damped sine")
-        return fig
-
-    mo.Html(themed(_plot_raw, alt_text="Damped sine wave")())
-    return
+Useful for one-off plots, or when wrapping a function defined elsewhere.
+"""
 
 
-if __name__ == "__main__":
-    app.run()
+def _plot_raw() -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(6, 3))
+    ax.plot(x, np.sin(x) * np.exp(-x / 6), color=light_dark("#2a6e3a", "#7ad49a"), lw=2)
+    ax.set_title("Damped sine")
+    return fig
+
+
+themed(_plot_raw, alt_text="Damped sine wave")()
+
+rf"""
+The prose can also quote values from the namespace: the grid has {x.size} points and its last value is {x[-1]:.3f}.
+"""

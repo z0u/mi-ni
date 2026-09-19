@@ -1,7 +1,7 @@
 """
 Markdown to HTML, and the page around it.
 
-The Markdown dialect is python-markdown with the pymdownx extensions Marimo's ``mo.md`` uses (tables, footnotes, ``///`` admonitions and details, arithmatex math, superfences, highlight, tilde/caret/mark, attribute lists), so report prose written for Marimo renders the same here. The page is one HTML file: our stylesheet inline, the body in ``<main class="lit">``, and KaTeX pulled from a CDN only when the document has math.
+The Markdown dialect is python-markdown with the pymdownx extensions (tables, footnotes, ``///`` admonitions and details, arithmatex math, superfences, highlight, tilde/caret/mark, attribute lists), the dialect the reports are written in. The page is one HTML file: our stylesheet inline, the body in ``<main class="lit">``, and KaTeX pulled from a CDN only when the document has math.
 """
 
 from __future__ import annotations
@@ -96,7 +96,8 @@ _KATEX = """
   onload="renderMathInElement(document.body, {delimiters: [{left: '\\\\(', right: '\\\\)', display: false}, {left: '\\\\[', right: '\\\\]', display: true}]})"></script>
 """
 
-_FONTS = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400..700&family=PT+Sans:wght@400;700&family=Fira+Mono:wght@400;500;700&display=swap">'
+# One <link> shared with the site's Markdown pages (scripts/build_site.py), so every page loads the same faces from the same place.
+FONTS = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400..700&family=PT+Sans:wght@400;700&family=Fira+Mono:wght@400;500;700&display=swap">'
 
 
 def page(body_html: str, *, title: str, extra_head: str = "", extra_body: str = "") -> str:
@@ -107,7 +108,7 @@ def page(body_html: str, *, title: str, extra_head: str = "", extra_body: str = 
         '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>{html.escape(title)}</title>\n"
-        f"{_FONTS}\n<style>\n{stylesheet()}</style>\n{katex}{extra_head}</head>\n"
+        f"{FONTS}\n<style>\n{stylesheet()}</style>\n{katex}{extra_head}</head>\n"
         f'<body>\n<main class="lit">\n{body_html}\n</main>\n{extra_body}</body>\n</html>\n'
     )
 

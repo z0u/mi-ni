@@ -2,7 +2,7 @@
 name: report-restructure
 description: |
   Rebuilds report prose into a scannable shape and trims what repeats. Edits
-  the notebook source in place, so template expressions stay live. Invoke after
+  the script source in place, so template expressions stay live. Invoke after
   `prose-simplifier`, passing the file path and a line range. Withhold all
   experiment and conversation context.
 argument-hint: <path to report.py> <line range>
@@ -22,7 +22,7 @@ Plain words, few of them. Those two are independent. Short sentences made of fam
 
 ## Editing the source
 
-Prose lives inside `mo.md(rf"""...""")` cells. The braces in those strings are template expressions like `{loss_map("baseline")[0, 0]:.2f}`, computed when the notebook runs.
+Prose lives in top-level `rf"""..."""` strings between the cells of a literate script. The braces in those strings are template expressions like `{loss_map("baseline")[0, 0]:.2f}`, computed when the script runs.
 
 - Never replace an expression with the number it would produce. The report has to keep tracking its data, and a hardcoded value renders fine while being wrong.
 - Moving or merging a sentence carries its expressions along.

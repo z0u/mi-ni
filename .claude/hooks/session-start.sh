@@ -100,7 +100,7 @@ fi
 
 # 3. Put the project venv first on PATH so bare `python` resolves to the
 #    project's 3.14 interpreter instead of the image's system Python 3.11 (which
-#    chokes on 3.14-only syntax), and so `ruff`, `ty`, `pytest`, `marimo`,
+#    chokes on 3.14-only syntax), and so `ruff`, `ty`, `pytest`,
 #    `mini`, and `modal` are callable without the `uv run`/`./go` prefix.
 #    CLAUDE_ENV_FILE is sourced into the session's shells by Claude Code; we
 #    write it synchronously, before the async handoff below, so it applies even
@@ -129,7 +129,7 @@ fi
 # re-doing work this hook is also doing.
 echo '{"async": true, "asyncTimeout": 600000}'
 
-# 5. Sync the project venv so linters, type-checker, tests, and notebooks work.
+# 5. Sync the project venv so linters, type-checker, tests, and reports work.
 #    Mirrors `./go install` (minus npm/git-hooks, which the agent doesn't need).
 #    --no-group cuda: locally we run CPU-only; the CUDA plugin is for Modal.
 log "syncing venv (uv $(uv --version 2>/dev/null | awk '{print $2}'))"

@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [publishing, reports, vis]
 opened: 2026-08-19
+closed: 2026-09-18
 ---
 # Marimo serves `public/` per browser, not per notebook
 
@@ -32,3 +33,5 @@ Still open: reporting it upstream. Nothing here fixes marimo, and the workaround
 **2026-08-19, the 404 warnings in the terminal** — editing a plot function can log `Failed to convert virtual file to data URI: ./@file/… Error: 404` from `dom_traversal`. Benign, as far as the evidence goes. marimo auto-exports `__marimo__/report.html` during an edit session, and that export inlines virtual files as data URIs; a re-render mints a new virtual file and disposes the old one, so a pass that fires mid-re-run can still name the disposed one. On failure the inliner leaves the `./@file/` URL in place, so the damage would be visible — and both reports' snapshots came out with zero leftover URLs and every image inlined, the last write landing 48s after the logged warning. `__marimo__/` is gitignored and regenerated, our own export path never mints virtual files (`exporting()` turns `virtualize` off), and the browser is unaffected because it fetched the live URL. Worst case is a stale snapshot showing one missing figure when the notebook is reopened, until its cell re-runs. Not chased further: the trigger is a timing window inside marimo's auto-export, and pinning it exactly buys nothing we would act on.
 
 **2026-09-03, backport** — Ported from sca2 with the code that cites it, so some details above describe that project's tree; the reasoning is what the shared code relies on.
+
+**2026-09-18, Sonnet (docs cleanup)** — Moot: Marimo was removed from this repo, and reports are now `mini.lit` literate scripts, which never had this per-browser `public/` routing problem.

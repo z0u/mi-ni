@@ -4,7 +4,7 @@
 
 mi-ni is a template repository and library for doing AI research. Features:
 
-- **Local Python notebooks** with Marimo, published to GitHub Pages
+- **Reports as literate scripts** — plain Python with Markdown prose between the cells — published to GitHub Pages
 - **Remote GPU compute** at the level of functions with [Modal](https://modal.com)
 - **Detached, memoized experiments** driven from a stateless CLI, so you (or an agent) can launch a run, close the laptop, and pick it up later
 - **Agentic coding config** for Claude Code
@@ -13,7 +13,7 @@ mi-ni is a template repository and library for doing AI research. Features:
 
 There are two ways to compute: interactive, and detached.
 
-**Interactive.** Map a function over a sweep, right in a notebook. Swap the apparatus to change where it runs; the code stays the same:
+**Interactive.** Map a function over a sweep, right in a report. Swap the apparatus to change where it runs; the code stays the same:
 
 ```py
 # app = LocalApparatus("my-experiment", max_workers=4)
@@ -23,10 +23,10 @@ app.volume.download("outputs", "local/outputs")
 ```
 
 ```bash
-./go open ./docs/getting_started.py  # Edit in Marimo
+./go serve docs/getting_started.py  # Edit with live reload
 ```
 
-[See: getting started notebook](./docs/getting_started.py).
+[See: getting started report](./docs/getting_started.py).
 
 **Detached & memoized.** For sweeps, multi-step pipelines, and long runs. Define the experiment as an importable `main(ctx)` DAG; drive and monitor it from the CLI across separate processes. Work is launched detached, and its results, progress, and errors are written to durable storage — so you can close your laptop and check back later, and so can an agent:
 
@@ -46,27 +46,24 @@ mini status pipeline                            # poll later, from anywhere
 
 [See: pipeline experiment module](./docs/pipeline/experiment.py).
 
-**Report, then publish.** `report.py` is a Marimo notebook that reads the durable results from the experiment and renders them. Figures are externalized and bundled, allowing agents to view them and keeping the report light:
+**Report, then publish.** `report.py` is a literate script that reads the durable results from the experiment and renders them. Figures are externalized and bundled, allowing agents to view them and keeping the report light:
 
 ```python
-from mini.reports import report_bundle, use_publisher
 from mini.vis import themed
 
-use_publisher(report_bundle(__file__))   # themed figures → _assets/, by name
-
-@themed(alt_text="Final validation loss...")
-def _loss_chart() -> plt.Figure: ...
+@themed(alt_text="Final validation loss...")   # → _assets/loss_chart-{light,dark}.png
+def loss_chart() -> plt.Figure: ...
 ```
 
 ```bash
-./go open    docs/pipeline/report.py   # edit live in marimo
-./go preview                           # export stale reports → local site → :8000
-./go publish docs/pipeline/report.py   # export + mirror to the bucket (needs ./go auth)
+./go serve docs/pipeline/report.py      # edit live, with reload
+./go preview                            # export stale reports → local site → :8000
+./go publish docs/pipeline/report.py    # export + mirror to the bucket (needs ./go auth)
 ```
 
-At export the HTML is cleaned: progress-bar terminal sequences are collapsed, and Modal app URLs (which would leak your username) are redacted.
+At export, a provenance footer cites the stored artifacts the report read, and a PDF is printed beside the page for review on paper or e-ink.
 
-[See: pipeline report notebook](./docs/pipeline/report.py).
+[See: pipeline report](./docs/pipeline/report.py).
 
 &nbsp;
 
@@ -85,10 +82,10 @@ At export the HTML is cleaned: progress-bar terminal sequences are collapsed, an
 ```bash
 ./go install  # CPU deps for local venv
 ./go auth     # Authenticate with Modal for remote compute
-./go open docs/getting_started.py  # Open the notebook in your browser
+./go serve docs/getting_started.py  # Open the report in your browser, with live reload
 ```
 
-For a more complete example, have a look at the [nanoGPT notebook](./docs/gpt.py).
+For a more complete example, have a look at the [nanoGPT report](./docs/gpt.py).
 
 &nbsp;
 
@@ -98,7 +95,7 @@ This template is set up for agentic coding (Claude Code and friends). The detach
 
 Ask for something like:
 
-> Write an experiment that compares X and Y, run it on Modal, watch for failures, and summarise the results in a report notebook.
+> Write an experiment that compares X and Y, run it on Modal, watch for failures, and summarise the results in a report.
 
 The `mi-ni` skill teaches the assistant the conventions: define `main(ctx)`, drive with `mini run`, poll with `mini status`, read tracebacks with `mini logs`, and recover with `mini retry`. For a long run, it delegates launching and babysitting to a cheap monitor agent and can schedule periodic check-ins.
 
